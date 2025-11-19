@@ -1,0 +1,19 @@
+{
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "always",
+        "source.organizeImports": "always"
+    },
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.guides.bracketPairs": "active",
+    "editor.quickSuggestions": {
+        "strings": "on"
+    },
+    "files.associations": {
+        "*.css": "tailwindcss"
+    },
+    "files.insertFinalNewline": true,
+    "trailing-spaces.trimOnSave": true,
+    "tailwindCSS.experimental.configFile": "src/app/globals.css",
+    "workbench.iconTheme": "material-icon-theme"
+}

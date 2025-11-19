@@ -1,0 +1,15 @@
+{
+    "recommendations": [
+        "aaron-bond.better-comments",
+        "bradlc.vscode-tailwindcss",
+        "dbaeumer.vscode-eslint",
+        "eamodio.gitlens",
+        "esbenp.prettier-vscode",
+        "formulahendry.auto-rename-tag",
+        "oven.bun-vscode",
+        "PKief.material-icon-theme",
+        "shardulm94.trailing-spaces",
+        "streetsidesoftware.code-spell-checker",
+        "yoavbls.pretty-ts-errors"
+    ]
+}
