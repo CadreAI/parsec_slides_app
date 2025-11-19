@@ -13,7 +13,7 @@ export default function Dashboard() {
                     <div>
                         <h1 className="mb-2 text-3xl font-bold">Dashboard</h1>
                     </div>
-                    <Link href="/create-slide">
+                    <Link href="/create-deck">
                         <Button>
                             <Plus className="mr-2 h-4 w-4" />
                             Create Deck
