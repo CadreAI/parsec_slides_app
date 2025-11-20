@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-    title: 'Next.js Starter'
+    title: 'Parsec Slides App'
 }
 
 export default function RootLayout({
