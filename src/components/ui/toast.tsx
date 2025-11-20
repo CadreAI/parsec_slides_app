@@ -22,13 +22,19 @@ export function Toast({ message, type = 'default', duration = 3000, onClose }: T
     return (
         <div
             className={cn(
-                'fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-background px-4 py-3 shadow-lg transition-all',
+                'fixed right-4 bottom-4 z-50 flex items-center gap-3 rounded-lg border bg-background px-4 py-3 shadow-lg transition-all',
                 type === 'success' && 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950',
                 type === 'error' && 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950'
             )}
         >
             <div className="flex-1">
-                <p className={cn('text-sm font-medium', type === 'success' && 'text-green-900 dark:text-green-100', type === 'error' && 'text-red-900 dark:text-red-100')}>
+                <p
+                    className={cn(
+                        'text-sm font-medium',
+                        type === 'success' && 'text-green-900 dark:text-green-100',
+                        type === 'error' && 'text-red-900 dark:text-red-100'
+                    )}
+                >
                     {message}
                 </p>
             </div>
@@ -76,4 +82,3 @@ export function useToast() {
     }
     return context
 }
-
