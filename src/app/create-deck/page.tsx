@@ -5,13 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
+import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { ArrowLeft } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { toast } from 'sonner'
 
 export default function CreateSlide() {
+    const router = useRouter()
     const [formData, setFormData] = useState({
-        schoolDistricts: [] as string[],
+        partnerName: '',
+        districtNames: [] as string[],
         schools: [] as string[],
         grades: [] as string[],
         years: [] as string[],
@@ -22,21 +27,51 @@ export default function CreateSlide() {
         slidePrompt: ''
     })
 
-    const handleSelectChange = (name: string, value: string) => {
-        setFormData((prev) => {
-            const currentArray = (prev[name as keyof typeof prev] as string[]) || []
-            if (currentArray.includes(value)) {
-                return {
-                    ...prev,
-                    [name]: currentArray.filter((item) => item !== value)
-                }
-            } else {
-                return {
-                    ...prev,
-                    [name]: [...currentArray, value]
-                }
+    // Partner configuration - maps partner_name to their districts and schools
+    const partnerConfig: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
+        california_pacific: {
+            districts: [
+                'California Pacific Charter Schools',
+                'California Pacific Charter - San Diego',
+                'California Pacific Charter - Sonoma',
+                'California Pacific Charter- Los Angeles'
+            ],
+            schools: {
+                'California Pacific Charter - San Diego': ['San Diego'],
+                'California Pacific Charter - Sonoma': ['Sonoma'],
+                'California Pacific Charter- Los Angeles': ['Los Angeles'],
+                'California Pacific Charter - Los Angeles': ['Los Angeles']
             }
+        }
+        // Add more partners as needed
+    }
+
+    const partnerOptions = [
+        { value: 'california_pacific', label: 'California Pacific Charter Schools' }
+        // Add more partners as needed
+    ]
+
+    const getDistrictOptions = () => {
+        if (!formData.partnerName || !partnerConfig[formData.partnerName]) {
+            return []
+        }
+        return partnerConfig[formData.partnerName].districts
+    }
+
+    const getSchoolOptions = () => {
+        if (!formData.partnerName || !partnerConfig[formData.partnerName]) {
+            return []
+        }
+        const selectedDistricts = formData.districtNames
+        const allSchools: string[] = []
+
+        selectedDistricts.forEach((district) => {
+            const schools = partnerConfig[formData.partnerName].schools[district] || []
+            allSchools.push(...schools)
         })
+
+        // Remove duplicates
+        return Array.from(new Set(allSchools))
     }
 
     const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
@@ -63,11 +98,28 @@ export default function CreateSlide() {
         }))
     }
 
+    const handlePartnerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const partnerName = e.target.value
+        setFormData((prev) => ({
+            ...prev,
+            partnerName,
+            districtNames: [], // Reset districts when partner changes
+            schools: [] // Reset schools when partner changes
+        }))
+    }
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         // Handle form submission here
         console.log('Form submitted:', formData)
-        alert('Slide information submitted!')
+
+        // Show toast notification
+        toast.success('Deck is being created...')
+
+        // Navigate to dashboard after a short delay
+        setTimeout(() => {
+            router.push('/dashboard')
+        }, 500)
     }
 
     return (
@@ -83,19 +135,46 @@ export default function CreateSlide() {
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle>School Information</CardTitle>
+                            <CardTitle>Partner and District Setup</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
+                                <Label htmlFor="partnerName">
+                                    Partner Name <span className="text-destructive">*</span>
+                                </Label>
+                                <Select id="partnerName" name="partnerName" value={formData.partnerName} onChange={handlePartnerChange} required>
+                                    <option value="">Select partner...</option>
+                                    {partnerOptions.map((partner) => (
+                                        <option key={partner.value} value={partner.value}>
+                                            {partner.label}
+                                        </option>
+                                    ))}
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                    Matches the BigQuery dataset name: parsecgo.client_{formData.partnerName || '{partner_name}'}
+                                </p>
+                            </div>
+
+                            <div className="space-y-2">
                                 <Label>
-                                    School District(s) <span className="text-destructive">*</span>
+                                    District Name(s) <span className="text-destructive">*</span>
                                 </Label>
                                 <MultiSelect
-                                    options={['District A', 'District B', 'District C', 'District D', 'District E', 'District F']}
-                                    selected={formData.schoolDistricts}
-                                    onChange={(selected) => setFormData((prev) => ({ ...prev, schoolDistricts: selected }))}
-                                    placeholder="Select school district(s)..."
+                                    options={getDistrictOptions()}
+                                    selected={formData.districtNames}
+                                    onChange={(selected) => {
+                                        setFormData((prev) => ({
+                                            ...prev,
+                                            districtNames: selected,
+                                            schools: [] // Reset schools when districts change
+                                        }))
+                                    }}
+                                    placeholder="Select district(s)..."
+                                    disabled={!formData.partnerName}
                                 />
+                                <p className="text-xs text-muted-foreground">
+                                    List all LEAs under the charter organization. The first listed value should be the charter organization name.
+                                </p>
                             </div>
 
                             <div className="space-y-2">
@@ -103,21 +182,22 @@ export default function CreateSlide() {
                                     School(s) <span className="text-destructive">*</span>
                                 </Label>
                                 <MultiSelect
-                                    options={[
-                                        'Lincoln Elementary',
-                                        'Washington Middle',
-                                        'Jefferson High',
-                                        'Roosevelt Elementary',
-                                        'Adams Middle',
-                                        'Madison High',
-                                        'Monroe Elementary'
-                                    ]}
+                                    options={getSchoolOptions()}
                                     selected={formData.schools}
                                     onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
                                     placeholder="Select school(s)..."
+                                    disabled={!formData.partnerName || formData.districtNames.length === 0}
                                 />
+                                <p className="text-xs text-muted-foreground">School names are mapped from district variations to unified names.</p>
                             </div>
+                        </CardContent>
+                    </Card>
 
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>School Information</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
                             <div className="space-y-2">
                                 <Label>
                                     Grade(s) <span className="text-destructive">*</span>
@@ -291,7 +371,8 @@ export default function CreateSlide() {
                                 variant="outline"
                                 onClick={() => {
                                     setFormData({
-                                        schoolDistricts: [],
+                                        partnerName: '',
+                                        districtNames: [],
                                         schools: [],
                                         grades: [],
                                         years: [],

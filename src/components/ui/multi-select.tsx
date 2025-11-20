@@ -11,9 +11,10 @@ interface MultiSelectProps {
     onChange: (selected: string[]) => void
     placeholder?: string
     className?: string
+    disabled?: boolean
 }
 
-export function MultiSelect({ options, selected, onChange, placeholder = 'Select options...', className }: MultiSelectProps) {
+export function MultiSelect({ options, selected, onChange, placeholder = 'Select options...', className, disabled = false }: MultiSelectProps) {
     const [isOpen, setIsOpen] = React.useState(false)
     const containerRef = React.useRef<HTMLDivElement>(null)
 
@@ -42,7 +43,8 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
         <div ref={containerRef} className={cn('relative', className)}>
             <button
                 type="button"
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+                disabled={disabled}
                 className={cn(
                     'flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:border-input dark:bg-input/30',
                     selected.length === 0 && 'text-muted-foreground'
