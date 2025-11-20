@@ -27,6 +27,16 @@ export default function CreateSlide() {
         slidePrompt: ''
     })
 
+    // Assessment BigQuery table mappings
+    const assessmentTables: Record<string, (partnerName: string) => string> = {
+        calpads: (partnerName: string) => `parsecgo.client_${partnerName}.calpads`,
+        nwea: (partnerName: string) => `parsecgo.client_${partnerName}.Nwea_production_calpads_v4_2`,
+        iready: () => `parsecgo.demodashboard.iready_production_calpads_v4_2`,
+        star: (partnerName: string) => `parsecgo.client_${partnerName}.renaissance_production_calpads_v4_2`,
+        cers: (partnerName: string) => `parsecgo.client_${partnerName}.cers_production`,
+        iab: (partnerName: string) => `parsecgo.client_${partnerName}.cers_iab`
+    }
+
     // Partner configuration - maps partner_name to their districts and schools
     const partnerConfig: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
         california_pacific: {
@@ -110,8 +120,23 @@ export default function CreateSlide() {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
+
+        // Build assessment table names based on selected assessments and partner
+        const assessmentTableNames: Record<string, string> = {}
+        formData.assessments.forEach((assessment) => {
+            if (assessmentTables[assessment]) {
+                assessmentTableNames[assessment] = assessmentTables[assessment](formData.partnerName)
+            }
+        })
+
+        // Prepare submission data with BigQuery table names
+        const submissionData = {
+            ...formData,
+            assessmentTables: assessmentTableNames
+        }
+
         // Handle form submission here
-        console.log('Form submitted:', formData)
+        console.log('Form submitted:', submissionData)
 
         // Show toast notification
         toast.success('Deck is being created...')
@@ -316,7 +341,7 @@ export default function CreateSlide() {
                                     Select Assessment Type(s) <span className="text-destructive">*</span>
                                 </Label>
                                 <div className="space-y-3">
-                                    {['NWEA', 'STAR', 'iReady', 'CAASPP'].map((assessment) => (
+                                    {['calpads', 'nwea', 'iready', 'star', 'cers', 'iab'].map((assessment) => (
                                         <div key={assessment} className="flex items-center space-x-2">
                                             <Checkbox
                                                 id={`assessment-${assessment}`}
@@ -324,7 +349,7 @@ export default function CreateSlide() {
                                                 onChange={(e) => handleCheckboxChange('assessments', assessment, e.target.checked)}
                                             />
                                             <Label htmlFor={`assessment-${assessment}`} className="cursor-pointer text-base font-normal">
-                                                {assessment}
+                                                {assessment.toUpperCase()}
                                             </Label>
                                         </div>
                                     ))}
