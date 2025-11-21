@@ -21,7 +21,7 @@ export default function CreateSlide() {
         grades: [] as string[],
         years: [] as string[],
         subjects: [] as string[],
-        disadvantages: [] as string[],
+        studentGroups: [] as string[],
         race: [] as string[],
         assessments: [] as string[],
         slidePrompt: ''
@@ -35,6 +35,47 @@ export default function CreateSlide() {
         star: (partnerName: string) => `parsecgo.client_${partnerName}.renaissance_production_calpads_v4_2`,
         cers: (partnerName: string) => `parsecgo.client_${partnerName}.cers_production`,
         iab: (partnerName: string) => `parsecgo.client_${partnerName}.cers_iab`
+    }
+
+    // Student group mappings for filtering
+    const studentGroupMappings: Record<string, { type?: string; column?: string; in?: (string | number)[] }> = {
+        'All Students': { type: 'all' },
+        'English Learners': { column: 'englishlearner', in: ['Y', 'Yes', 'True', 1] },
+        'Students with Disabilities': { column: 'studentswithdisabilities', in: ['Y', 'Yes', 'True', 1] },
+        'Socioeconomically Disadvantaged': { column: 'socioeconomicallydisadvantaged', in: ['Y', 'Yes', 'True', 1] },
+        'Hispanic or Latino': { column: 'ethnicityrace', in: ['Hispanic', 'Hispanic or Latino'] },
+        White: { column: 'ethnicityrace', in: ['White'] },
+        'Black or African American': { column: 'ethnicityrace', in: ['Black', 'African American', 'Black or African American'] },
+        Asian: { column: 'ethnicityrace', in: ['Asian'] },
+        Filipino: { column: 'ethnicityrace', in: ['Filipino'] },
+        'American Indian or Alaska Native': { column: 'ethnicityrace', in: ['American Indian', 'Alaska Native', 'American Indian or Alaska Native'] },
+        'Native Hawaiian or Pacific Islander': {
+            column: 'ethnicityrace',
+            in: ['Pacific Islander', 'Native Hawaiian', 'Native Hawaiian or Other Pacific Islander']
+        },
+        'Two or More Races': { column: 'ethnicityrace', in: ['Two or More Races', 'Multiracial', 'Multiple Races'] },
+        'Not Stated': { column: 'ethnicityrace', in: ['Not Stated', 'Unknown', ''] },
+        Foster: { column: 'foster', in: ['Y', 'Yes', 'True', 1] },
+        Homeless: { column: 'homeless', in: ['Y', 'Yes', 'True', 1] }
+    }
+
+    // Student group order for consistent sorting
+    const studentGroupOrder: Record<string, number> = {
+        'All Students': 1,
+        'English Learners': 2,
+        'Students with Disabilities': 3,
+        'Socioeconomically Disadvantaged': 4,
+        'Hispanic or Latino': 5,
+        White: 6,
+        'Black or African American': 7,
+        Asian: 8,
+        Filipino: 9,
+        'American Indian or Alaska Native': 10,
+        'Native Hawaiian or Pacific Islander': 11,
+        'Two or More Races': 12,
+        'Not Stated': 13,
+        Foster: 14,
+        Homeless: 15
     }
 
     // Partner configuration - maps partner_name to their districts and schools
@@ -129,10 +170,39 @@ export default function CreateSlide() {
             }
         })
 
-        // Prepare submission data with BigQuery table names
+        // Build student group filters based on selected groups
+        const studentGroupFilters: Record<string, { type?: string; column?: string; in?: (string | number)[] }> = {}
+        formData.studentGroups.forEach((group) => {
+            if (studentGroupMappings[group]) {
+                studentGroupFilters[group] = studentGroupMappings[group]
+            }
+        })
+
+        // Build race filters based on selected races
+        const raceFilters: Record<string, { type?: string; column?: string; in?: (string | number)[] }> = {}
+        formData.race.forEach((raceGroup) => {
+            if (studentGroupMappings[raceGroup]) {
+                raceFilters[raceGroup] = studentGroupMappings[raceGroup]
+            }
+        })
+
+        // Combine all selected groups (student groups + race) and sort by order
+        const allSelectedGroups = [...formData.studentGroups, ...formData.race]
+        const sortedGroups = allSelectedGroups.sort((a, b) => {
+            const orderA = studentGroupOrder[a] || 999
+            const orderB = studentGroupOrder[b] || 999
+            return orderA - orderB
+        })
+
+        // Combine all filters
+        const allGroupFilters = { ...studentGroupFilters, ...raceFilters }
+
+        // Prepare submission data with BigQuery table names and student group filters
         const submissionData = {
             ...formData,
-            assessmentTables: assessmentTableNames
+            assessmentTables: assessmentTableNames,
+            studentGroupFilters: allGroupFilters,
+            studentGroups: sortedGroups
         }
 
         // Handle form submission here
@@ -175,9 +245,6 @@ export default function CreateSlide() {
                                         </option>
                                     ))}
                                 </Select>
-                                <p className="text-xs text-muted-foreground">
-                                    Matches the BigQuery dataset name: parsecgo.client_{formData.partnerName || '{partner_name}'}
-                                </p>
                             </div>
 
                             <div className="space-y-2">
@@ -290,22 +357,22 @@ export default function CreateSlide() {
 
                             <div className="space-y-2">
                                 <Label>
-                                    Specific Disadvantages <span className="text-destructive">*</span>
+                                    Student Groups <span className="text-destructive">*</span>
                                 </Label>
                                 <MultiSelect
                                     options={[
-                                        'Socioeconomically Disadvantaged',
-                                        'Students with Disabilities',
+                                        'All Students',
                                         'English Learners',
-                                        'Foster Youth',
-                                        'Homeless',
-                                        'Migrant',
-                                        'Military Connected'
+                                        'Students with Disabilities',
+                                        'Socioeconomically Disadvantaged',
+                                        'Foster',
+                                        'Homeless'
                                     ]}
-                                    selected={formData.disadvantages}
-                                    onChange={(selected) => setFormData((prev) => ({ ...prev, disadvantages: selected }))}
-                                    placeholder="Select specific disadvantage(s)..."
+                                    selected={formData.studentGroups}
+                                    onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
+                                    placeholder="Select student group(s)..."
                                 />
+                                <p className="text-xs text-muted-foreground">Select one or more student groups to filter the data</p>
                             </div>
 
                             <div className="space-y-2">
@@ -314,19 +381,21 @@ export default function CreateSlide() {
                                 </Label>
                                 <MultiSelect
                                     options={[
-                                        'American Indian or Alaska Native',
-                                        'Asian',
-                                        'Black or African American',
                                         'Hispanic or Latino',
-                                        'Native Hawaiian or Other Pacific Islander',
                                         'White',
+                                        'Black or African American',
+                                        'Asian',
+                                        'Filipino',
+                                        'American Indian or Alaska Native',
+                                        'Native Hawaiian or Pacific Islander',
                                         'Two or More Races',
-                                        'Not Reported'
+                                        'Not Stated'
                                     ]}
                                     selected={formData.race}
                                     onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
                                     placeholder="Select race/ethnicity..."
                                 />
+                                <p className="text-xs text-muted-foreground">Select one or more race/ethnicity categories</p>
                             </div>
                         </CardContent>
                     </Card>
@@ -402,7 +471,7 @@ export default function CreateSlide() {
                                         grades: [],
                                         years: [],
                                         subjects: [],
-                                        disadvantages: [],
+                                        studentGroups: [],
                                         race: [],
                                         assessments: [],
                                         slidePrompt: ''
