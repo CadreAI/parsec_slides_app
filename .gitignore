@@ -39,3 +39,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# google api credentials
+/google/credentials.json
+/google/service_account.json
+/google/token.json
+
+# Data ingestion
+/data/
+*.csv
+config_files/
+settings.yaml
+
+# Charts output
+/charts/
+*.png
+*.jpg
+*.jpeg
+*.pdf

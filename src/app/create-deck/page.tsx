@@ -1,8 +1,9 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { Select } from '@/components/ui/select'
@@ -12,10 +13,29 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+// Available assessment sources for data ingestion
+const ASSESSMENT_SOURCES = [
+    { id: 'calpads', label: 'CALPADS', defaultTable: 'parsecgo.demodashboard.calpads' },
+    { id: 'nwea', label: 'NWEA', defaultTable: 'parsecgo.demodashboard.Nwea_production_calpads_v4_2' },
+    { id: 'iready', label: 'iReady', defaultTable: 'parsecgo.demodashboard.iready_production_calpads_v4_2' },
+    { id: 'star', label: 'STAR', defaultTable: 'parsecgo.demodashboard.renaissance_production_calpads_v4_2' },
+    { id: 'cers', label: 'CERS', defaultTable: 'parsecgo.demodashboard.cers_production' },
+    { id: 'iab', label: 'IAB', defaultTable: 'parsecgo.demodashboard.cers_iab' }
+]
+
 export default function CreateSlide() {
     const router = useRouter()
+    const [isIngesting, setIsIngesting] = useState(false)
+    const [isCreating, setIsCreating] = useState(false)
+    const [ingestedCharts, setIngestedCharts] = useState<string[]>([])
     const [formData, setFormData] = useState({
+        // Partner & Data Configuration
         partnerName: '',
+        projectId: 'parsecgo',
+        location: 'US',
+        selectedDataSources: [] as string[],
+        customDataSources: {} as Record<string, string>,
+        // Slide Configuration
         districtNames: [] as string[],
         schools: [] as string[],
         grades: [] as string[],
@@ -29,12 +49,12 @@ export default function CreateSlide() {
 
     // Assessment BigQuery table mappings
     const assessmentTables: Record<string, (partnerName: string) => string> = {
-        calpads: (partnerName: string) => `parsecgo.client_${partnerName}.calpads`,
-        nwea: (partnerName: string) => `parsecgo.client_${partnerName}.Nwea_production_calpads_v4_2`,
-        iready: () => `parsecgo.demodashboard.iready_production_calpads_v4_2`,
-        star: (partnerName: string) => `parsecgo.client_${partnerName}.renaissance_production_calpads_v4_2`,
-        cers: (partnerName: string) => `parsecgo.client_${partnerName}.cers_production`,
-        iab: (partnerName: string) => `parsecgo.client_${partnerName}.cers_iab`
+        calpads: (partnerName: string) => `parsecgo.demodashboard.calpads`,
+        nwea: (partnerName: string) => `parsecgo.demodashboard.Nwea_production_calpads_v4_2`,
+        iready: (partnerName: string) => `parsecgo.demodashboard.iready_production_calpads_v4_2`,
+        star: (partnerName: string) => `parsecgo.demodashboard.renaissance_production_calpads_v4_2`,
+        cers: (partnerName: string) => `parsecgo.demodashboard.cers_production`,
+        iab: (partnerName: string) => `parsecgo.demodashboard.cers_iab`
     }
 
     // Student group mappings for filtering
@@ -80,27 +100,15 @@ export default function CreateSlide() {
 
     // Partner configuration - maps partner_name to their districts and schools
     const partnerConfig: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
-        california_pacific: {
-            districts: [
-                'California Pacific Charter Schools',
-                'California Pacific Charter - San Diego',
-                'California Pacific Charter - Sonoma',
-                'California Pacific Charter- Los Angeles'
-            ],
+        demodashboard: {
+            districts: ['Parsec Academy'],
             schools: {
-                'California Pacific Charter - San Diego': ['San Diego'],
-                'California Pacific Charter - Sonoma': ['Sonoma'],
-                'California Pacific Charter- Los Angeles': ['Los Angeles'],
-                'California Pacific Charter - Los Angeles': ['Los Angeles']
+                'Parsec Academy': ['Parsec Academy']
             }
         }
-        // Add more partners as needed
     }
 
-    const partnerOptions = [
-        { value: 'california_pacific', label: 'California Pacific Charter Schools' }
-        // Add more partners as needed
-    ]
+    const partnerOptions = [{ value: 'demodashboard', label: 'Parsec Academy' }]
 
     const getDistrictOptions = () => {
         if (!formData.partnerName || !partnerConfig[formData.partnerName]) {
@@ -121,7 +129,6 @@ export default function CreateSlide() {
             allSchools.push(...schools)
         })
 
-        // Remove duplicates
         return Array.from(new Set(allSchools))
     }
 
@@ -150,338 +157,593 @@ export default function CreateSlide() {
     }
 
     const handlePartnerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const partnerName = e.target.value
+        const partner = e.target.value
         setFormData((prev) => ({
             ...prev,
-            partnerName,
-            districtNames: [], // Reset districts when partner changes
-            schools: [] // Reset schools when partner changes
+            partnerName: partner,
+            districtNames: [],
+            schools: []
         }))
     }
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault()
+    const handleDataSourceToggle = (sourceId: string) => {
+        setFormData((prev) => ({
+            ...prev,
+            selectedDataSources: prev.selectedDataSources.includes(sourceId)
+                ? prev.selectedDataSources.filter((id) => id !== sourceId)
+                : [...prev.selectedDataSources, sourceId]
+        }))
+    }
 
-        // Build assessment table names based on selected assessments and partner
-        const assessmentTableNames: Record<string, string> = {}
-        formData.assessments.forEach((assessment) => {
-            if (assessmentTables[assessment]) {
-                assessmentTableNames[assessment] = assessmentTables[assessment](formData.partnerName)
+    const handleCustomDataSourceChange = (sourceId: string, value: string) => {
+        setFormData((prev) => ({
+            ...prev,
+            customDataSources: {
+                ...prev.customDataSources,
+                [sourceId]: value
             }
-        })
+        }))
+    }
 
-        // Build student group filters based on selected groups
-        const studentGroupFilters: Record<string, { type?: string; column?: string; in?: (string | number)[] }> = {}
-        formData.studentGroups.forEach((group) => {
-            if (studentGroupMappings[group]) {
-                studentGroupFilters[group] = studentGroupMappings[group]
-            }
-        })
-
-        // Build race filters based on selected races
-        const raceFilters: Record<string, { type?: string; column?: string; in?: (string | number)[] }> = {}
-        formData.race.forEach((raceGroup) => {
-            if (studentGroupMappings[raceGroup]) {
-                raceFilters[raceGroup] = studentGroupMappings[raceGroup]
-            }
-        })
-
-        // Combine all selected groups (student groups + race) and sort by order
-        const allSelectedGroups = [...formData.studentGroups, ...formData.race]
-        const sortedGroups = allSelectedGroups.sort((a, b) => {
-            const orderA = studentGroupOrder[a] || 999
-            const orderB = studentGroupOrder[b] || 999
-            return orderA - orderB
-        })
-
-        // Combine all filters
-        const allGroupFilters = { ...studentGroupFilters, ...raceFilters }
-
-        // Prepare submission data with BigQuery table names and student group filters
-        const submissionData = {
-            ...formData,
-            assessmentTables: assessmentTableNames,
-            studentGroupFilters: allGroupFilters,
-            studentGroups: sortedGroups
+    // Step 1: Ingest data (optional)
+    const handleIngestData = async () => {
+        if (!formData.partnerName.trim()) {
+            toast.error('Please enter a partner name')
+            return
         }
 
-        // Handle form submission here
-        console.log('Form submitted:', submissionData)
+        if (formData.selectedDataSources.length === 0) {
+            toast.error('Please select at least one data source')
+            return
+        }
 
-        // Show toast notification
-        toast.success('Deck is being created...')
+        setIsIngesting(true)
+        toast.info('Starting data ingestion...')
 
-        // Navigate to dashboard after a short delay
-        setTimeout(() => {
-            router.push('/dashboard')
-        }, 500)
+        try {
+            // Build sources object
+            const sources: Record<string, string> = {}
+            formData.selectedDataSources.forEach((sourceId) => {
+                const customTable = formData.customDataSources[sourceId]
+                const defaultSource = ASSESSMENT_SOURCES.find((s) => s.id === sourceId)
+                // Use custom table if provided, otherwise use default (already has demodashboard)
+                sources[sourceId] = customTable || defaultSource?.defaultTable || ''
+            })
+
+            // Use selected districts from scope selection
+            const districtList = formData.districtNames.length > 0 ? formData.districtNames : ['Parsec Academy']
+
+            // Build config object matching demodashboard.yaml structure
+            const config = {
+                partner_name: formData.partnerName || 'demodashboard',
+                district_name: districtList.length > 0 ? districtList : ['Parsec Academy'],
+                school_name_map: {
+                    'Parsec Academy': 'Parsec Academy',
+                    '': 'No assigned program'
+                },
+                gcp: {
+                    project_id: formData.projectId,
+                    location: formData.location
+                },
+                sources: sources,
+                exclude_cols: {},
+                student_groups: {
+                    'All Students': { type: 'all' },
+                    'English Learners': { column: 'englishlearner', in: ['Y', 'Yes', 'True', 1] },
+                    'Students with Disabilities': { column: 'studentswithdisabilities', in: ['Y', 'Yes', 'True', 1] },
+                    'Socioeconomically Disadvantaged': { column: 'socioeconomicallydisadvantaged', in: ['Y', 'Yes', 'True', 1] },
+                    'Hispanic or Latino': { column: 'ethnicityrace', in: ['Hispanic', 'Hispanic or Latino'] },
+                    White: { column: 'ethnicityrace', in: ['White'] },
+                    'Black or African American': { column: 'ethnicityrace', in: ['Black', 'African American', 'Black or African American'] },
+                    Asian: { column: 'ethnicityrace', in: ['Asian'] },
+                    Filipino: { column: 'ethnicityrace', in: ['Filipino'] },
+                    'American Indian or Alaska Native': {
+                        column: 'ethnicityrace',
+                        in: ['American Indian', 'Alaska Native', 'American Indian or Alaska Native']
+                    },
+                    'Native Hawaiian or Pacific Islander': {
+                        column: 'ethnicityrace',
+                        in: ['Pacific Islander', 'Native Hawaiian', 'Native Hawaiian or Other Pacific Islander']
+                    },
+                    'Two or More Races': { column: 'ethnicityrace', in: ['Two or More Races', 'Multiracial', 'Multiple Races'] },
+                    'Not Stated': { column: 'ethnicityrace', in: ['Not Stated', 'Unknown', ''] },
+                    Foster: { column: 'foster', in: ['Y', 'Yes', 'True', 1] },
+                    Homeless: { column: 'homeless', in: ['Y', 'Yes', 'True', 1] }
+                },
+                student_group_order: {
+                    'All Students': 1,
+                    'English Learners': 2,
+                    'Students with Disabilities': 3,
+                    'Socioeconomically Disadvantaged': 4,
+                    'Hispanic or Latino': 5,
+                    White: 6,
+                    'Black or African American': 7,
+                    Asian: 8,
+                    Filipino: 9,
+                    'American Indian or Alaska Native': 10,
+                    'Native Hawaiian or Pacific Islander': 11,
+                    'Two or More Races': 12,
+                    'Not Stated': 13,
+                    Foster: 14,
+                    Homeless: 15
+                },
+                options: {
+                    cache_csv: true,
+                    preview: true
+                },
+                paths: {
+                    data_dir: './data',
+                    charts_dir: './charts',
+                    config_dir: '.'
+                },
+                // Chart generation filters
+                chart_filters: {
+                    grades:
+                        formData.grades.length > 0
+                            ? formData.grades
+                                  .map((g) => {
+                                      // Handle "K" (Kindergarten) as 0
+                                      if (g === 'K') return 0
+                                      const parsed = parseInt(g)
+                                      return isNaN(parsed) ? null : parsed
+                                  })
+                                  .filter((g) => g !== null)
+                            : undefined,
+                    years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
+                    subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
+                    student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
+                    race: formData.race.length > 0 ? formData.race : undefined
+                }
+            }
+
+            // Call the data ingestion API
+            const res = await fetch('/api/data/ingest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config })
+            })
+
+            const data = await res.json()
+
+            if (!res.ok) {
+                throw new Error(data.error || data.details || 'Failed to ingest data')
+            }
+
+            const chartCount = data.charts?.length || 0
+            toast.success(
+                `Data ingestion completed! Ingested ${data.totalRows || 0} total rows from ${data.dataSources?.length || 0} sources.${chartCount > 0 ? ` Generated ${chartCount} charts.` : ''}`
+            )
+
+            // Store chart paths for slide creation
+            if (data.charts && data.charts.length > 0) {
+                setIngestedCharts(data.charts)
+                console.log('Generated charts:', data.charts)
+            }
+        } catch (error: any) {
+            console.error('Data ingestion error:', error)
+            toast.error(`Failed to ingest data: ${error.message || 'Unknown error'}`)
+        } finally {
+            setIsIngesting(false)
+        }
+    }
+
+    // Combined: Ingest data, generate charts, then create slide deck
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+
+        if (!formData.partnerName.trim()) {
+            toast.error('Please enter a partner name')
+            return
+        }
+
+        if (formData.selectedDataSources.length === 0) {
+            toast.error('Please select at least one data source/assessment')
+            return
+        }
+
+        // Sync assessments with selected data sources
+        if (formData.assessments.length === 0) {
+            // Auto-select assessments based on data sources
+            formData.assessments = [...formData.selectedDataSources]
+        }
+
+        setIsCreating(true)
+        setIsIngesting(true)
+
+        try {
+            // Step 1: Ingest data and generate charts
+            toast.info('Step 1/2: Ingesting data and generating charts...')
+
+            // Build sources object
+            const sources: Record<string, string> = {}
+            formData.selectedDataSources.forEach((sourceId) => {
+                const customTable = formData.customDataSources[sourceId]
+                const defaultSource = ASSESSMENT_SOURCES.find((s) => s.id === sourceId)
+                sources[sourceId] = customTable || defaultSource?.defaultTable || ''
+            })
+
+            // Use selected districts from scope selection
+            const districtList = formData.districtNames.length > 0 ? formData.districtNames : ['Parsec Academy']
+
+            // Build config object
+            const config = {
+                partner_name: formData.partnerName || 'demodashboard',
+                district_name: districtList,
+                school_name_map: {
+                    'Parsec Academy': 'Parsec Academy',
+                    '': 'No assigned program'
+                },
+                gcp: {
+                    project_id: formData.projectId,
+                    location: formData.location
+                },
+                sources: sources,
+                exclude_cols: {},
+                student_groups: {
+                    'All Students': { type: 'all' },
+                    'English Learners': { column: 'englishlearner', in: ['Y', 'Yes', 'True', 1] },
+                    'Students with Disabilities': { column: 'studentswithdisabilities', in: ['Y', 'Yes', 'True', 1] },
+                    'Socioeconomically Disadvantaged': { column: 'socioeconomicallydisadvantaged', in: ['Y', 'Yes', 'True', 1] },
+                    'Hispanic or Latino': { column: 'ethnicityrace', in: ['Hispanic', 'Hispanic or Latino'] },
+                    White: { column: 'ethnicityrace', in: ['White'] },
+                    'Black or African American': { column: 'ethnicityrace', in: ['Black', 'African American', 'Black or African American'] },
+                    Asian: { column: 'ethnicityrace', in: ['Asian'] },
+                    Filipino: { column: 'ethnicityrace', in: ['Filipino'] },
+                    'American Indian or Alaska Native': {
+                        column: 'ethnicityrace',
+                        in: ['American Indian', 'Alaska Native', 'American Indian or Alaska Native']
+                    },
+                    'Native Hawaiian or Pacific Islander': {
+                        column: 'ethnicityrace',
+                        in: ['Pacific Islander', 'Native Hawaiian', 'Native Hawaiian or Other Pacific Islander']
+                    },
+                    'Two or More Races': { column: 'ethnicityrace', in: ['Two or More Races', 'Multiracial', 'Multiple Races'] },
+                    'Not Stated': { column: 'ethnicityrace', in: ['Not Stated', 'Unknown', ''] },
+                    Foster: { column: 'foster', in: ['Y', 'Yes', 'True', 1] },
+                    Homeless: { column: 'homeless', in: ['Y', 'Yes', 'True', 1] }
+                },
+                student_group_order: {
+                    'All Students': 1,
+                    'English Learners': 2,
+                    'Students with Disabilities': 3,
+                    'Socioeconomically Disadvantaged': 4,
+                    'Hispanic or Latino': 5,
+                    White: 6,
+                    'Black or African American': 7,
+                    Asian: 8,
+                    Filipino: 9,
+                    'American Indian or Alaska Native': 10,
+                    'Native Hawaiian or Pacific Islander': 11,
+                    'Two or More Races': 12,
+                    'Not Stated': 13,
+                    Foster: 14,
+                    Homeless: 15
+                },
+                options: {
+                    cache_csv: true,
+                    preview: true
+                },
+                paths: {
+                    data_dir: './data',
+                    charts_dir: './charts',
+                    config_dir: '.'
+                },
+                // Chart generation filters
+                chart_filters: {
+                    grades:
+                        formData.grades.length > 0
+                            ? formData.grades
+                                  .map((g) => {
+                                      if (g === 'K') return 0
+                                      const parsed = parseInt(g)
+                                      return isNaN(parsed) ? null : parsed
+                                  })
+                                  .filter((g) => g !== null)
+                            : undefined,
+                    years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
+                    subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
+                    student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
+                    race: formData.race.length > 0 ? formData.race : undefined
+                },
+                // Scope selection: only generate charts for selected schools/districts
+                selected_schools: formData.schools.length > 0 ? formData.schools : [],
+                include_district_scope: formData.districtNames.length > 0 // Include district scope if districts are selected
+            }
+
+            // Call the data ingestion API
+            const ingestRes = await fetch('/api/data/ingest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config })
+            })
+
+            const ingestData = await ingestRes.json()
+
+            if (!ingestRes.ok) {
+                throw new Error(ingestData.error || ingestData.details || 'Failed to ingest data')
+            }
+
+            const chartCount = ingestData.charts?.length || 0
+            const charts = ingestData.charts || []
+
+            toast.success(`Step 1 complete! Generated ${chartCount} charts.`)
+
+            // Step 2: Create slide deck
+            toast.info('Step 2/2: Creating slide deck...')
+
+            const presentationTitle = `Slide Deck - ${formData.partnerName || 'Untitled'}`
+
+            // Use selectedDataSources for assessments (they're now combined)
+            const assessmentsToUse = formData.assessments.length > 0 ? formData.assessments : formData.selectedDataSources
+
+            // Hardcoded Google Drive folder
+            const driveFolderUrl = 'https://drive.google.com/drive/folders/1CUOM-Sz6ulyzD2mTREdcYoBXUJLrgngw'
+
+            // Call the API route to create the presentation
+            const res = await fetch('/api/slides/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: presentationTitle,
+                    assessments: assessmentsToUse,
+                    charts: charts.length > 0 ? charts : undefined,
+                    driveFolderUrl: driveFolderUrl
+                })
+            })
+
+            const data = await res.json()
+
+            if (!res.ok) {
+                const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error || 'Failed to create presentation'
+                console.error('API Error:', data)
+                throw new Error(errorMsg)
+            }
+
+            console.log('Presentation created:', data.presentationId)
+            toast.success(`✅ Complete! Presentation created. View it here: ${data.presentationUrl}`)
+
+            setTimeout(() => {
+                router.push('/dashboard')
+            }, 2000)
+        } catch (error: any) {
+            console.error('Error:', error)
+            toast.error(`Failed: ${error.message || 'Unknown error'}`)
+        } finally {
+            setIsCreating(false)
+            setIsIngesting(false)
+        }
     }
 
     return (
         <div className="min-h-screen p-8">
-            <div className="mx-auto max-w-3xl">
+            <div className="mx-auto max-w-4xl">
                 {/* Header */}
-                <div className="mb-8">
-                    <h1 className="mb-2 text-3xl font-bold">Create New Slide Deck</h1>
-                    <p className="text-muted-foreground">Fill out the information below to create your slide deck</p>
+                <div className="mb-8 flex items-center justify-between">
+                    <div>
+                        <h1 className="mb-2 text-3xl font-bold">Create Slide Deck</h1>
+                        <p className="text-muted-foreground">Configure data ingestion and create your presentation</p>
+                    </div>
+                    <Button variant="ghost" onClick={() => router.back()}>
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Back
+                    </Button>
                 </div>
 
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    <Card>
+                <form onSubmit={handleSubmit}>
+                    {/* Unified Configuration */}
+                    <Card className="mb-6">
                         <CardHeader>
-                            <CardTitle>Partner and District Setup</CardTitle>
+                            <CardTitle>Configuration</CardTitle>
+                            <CardDescription>Configure data ingestion and slide deck settings</CardDescription>
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="partnerName">
-                                    Partner Name <span className="text-destructive">*</span>
-                                </Label>
-                                <Select id="partnerName" name="partnerName" value={formData.partnerName} onChange={handlePartnerChange} required>
-                                    <option value="">Select partner...</option>
-                                    {partnerOptions.map((partner) => (
-                                        <option key={partner.value} value={partner.value}>
-                                            {partner.label}
-                                        </option>
-                                    ))}
-                                </Select>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label>
-                                    District Name(s) <span className="text-destructive">*</span>
-                                </Label>
-                                <MultiSelect
-                                    options={getDistrictOptions()}
-                                    selected={formData.districtNames}
-                                    onChange={(selected) => {
-                                        setFormData((prev) => ({
-                                            ...prev,
-                                            districtNames: selected,
-                                            schools: [] // Reset schools when districts change
-                                        }))
-                                    }}
-                                    placeholder="Select district(s)..."
-                                    disabled={!formData.partnerName}
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    List all LEAs under the charter organization. The first listed value should be the charter organization name.
-                                </p>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label>
-                                    School(s) <span className="text-destructive">*</span>
-                                </Label>
-                                <MultiSelect
-                                    options={getSchoolOptions()}
-                                    selected={formData.schools}
-                                    onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
-                                    placeholder="Select school(s)..."
-                                    disabled={!formData.partnerName || formData.districtNames.length === 0}
-                                />
-                                <p className="text-xs text-muted-foreground">School names are mapped from district variations to unified names.</p>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>School Information</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>
-                                    Grade(s) <span className="text-destructive">*</span>
-                                </Label>
-                                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                                    {['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map((grade) => (
-                                        <div key={grade} className="flex items-center space-x-2">
-                                            <Checkbox
-                                                id={`grade-${grade}`}
-                                                checked={formData.grades.includes(grade)}
-                                                onChange={(e) => handleCheckboxChange('grades', grade, e.target.checked)}
-                                            />
-                                            <Label htmlFor={`grade-${grade}`} className="cursor-pointer font-normal">
-                                                Grade {grade}
-                                            </Label>
-                                        </div>
-                                    ))}
+                        <CardContent className="space-y-6">
+                            {/* Basic Settings */}
+                            <div className="space-y-4 border-b pb-4">
+                                <h3 className="text-lg font-semibold">Basic Settings</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="partnerName">
+                                            Partner Name <span className="text-destructive">*</span>
+                                        </Label>
+                                        <Select id="partnerName" value={formData.partnerName} onChange={handlePartnerChange} required>
+                                            <option value="">Select a partner...</option>
+                                            {partnerOptions.map((partner) => (
+                                                <option key={partner.value} value={partner.value}>
+                                                    {partner.label}
+                                                </option>
+                                            ))}
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="projectId">GCP Project ID</Label>
+                                        <Input
+                                            id="projectId"
+                                            value={formData.projectId}
+                                            onChange={(e) => setFormData((prev) => ({ ...prev, projectId: e.target.value }))}
+                                            placeholder="parsecgo"
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label>
-                                    Year(s) <span className="text-destructive">*</span>
-                                </Label>
-                                <MultiSelect
-                                    options={['2020-2021', '2021-2022', '2022-2023', '2023-2024', '2024-2025', '2025-2026']}
-                                    selected={formData.years}
-                                    onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
-                                    placeholder="Select year(s)..."
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Subjects & Demographics</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>
-                                    Subject(s) <span className="text-destructive">*</span>
-                                </Label>
-                                <MultiSelect
-                                    options={[
-                                        'Mathematics',
-                                        'English Language Arts',
-                                        'Science',
-                                        'Social Studies',
-                                        'Reading',
-                                        'Writing',
-                                        'History',
-                                        'Geography',
-                                        'Biology',
-                                        'Chemistry',
-                                        'Physics',
-                                        'Algebra',
-                                        'Geometry'
-                                    ]}
-                                    selected={formData.subjects}
-                                    onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
-                                    placeholder="Select subject(s)..."
-                                />
+                            {/* Scope Selection */}
+                            <div className="space-y-4 border-b pb-4">
+                                <h3 className="text-lg font-semibold">Scope Selection</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>
+                                            District(s) <span className="text-destructive">*</span>
+                                        </Label>
+                                        <MultiSelect
+                                            options={getDistrictOptions()}
+                                            selected={formData.districtNames}
+                                            onChange={(selected) => {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    districtNames: selected,
+                                                    schools: []
+                                                }))
+                                            }}
+                                            placeholder="Select district(s)..."
+                                            disabled={!formData.partnerName}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>
+                                            School(s) <span className="text-destructive">*</span>
+                                        </Label>
+                                        <MultiSelect
+                                            options={getSchoolOptions()}
+                                            selected={formData.schools}
+                                            onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
+                                            placeholder="Select school(s)..."
+                                            disabled={!formData.partnerName || formData.districtNames.length === 0}
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label>
-                                    Student Groups <span className="text-destructive">*</span>
-                                </Label>
-                                <MultiSelect
-                                    options={[
-                                        'All Students',
-                                        'English Learners',
-                                        'Students with Disabilities',
-                                        'Socioeconomically Disadvantaged',
-                                        'Foster',
-                                        'Homeless'
-                                    ]}
-                                    selected={formData.studentGroups}
-                                    onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
-                                    placeholder="Select student group(s)..."
-                                />
-                                <p className="text-xs text-muted-foreground">Select one or more student groups to filter the data</p>
+                            {/* Filters */}
+                            <div className="space-y-4 border-b pb-4">
+                                <h3 className="text-lg font-semibold">Filters</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>
+                                            Grade(s) <span className="text-destructive">*</span>
+                                        </Label>
+                                        <MultiSelect
+                                            options={['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']}
+                                            selected={formData.grades}
+                                            onChange={(selected) => setFormData((prev) => ({ ...prev, grades: selected }))}
+                                            placeholder="Select grade(s)..."
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>
+                                            Year(s) <span className="text-destructive">*</span>
+                                        </Label>
+                                        <MultiSelect
+                                            options={['2021', '2022', '2023', '2024', '2025']}
+                                            selected={formData.years}
+                                            onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
+                                            placeholder="Select year(s)..."
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>
+                                        Subject(s) <span className="text-destructive">*</span>
+                                    </Label>
+                                    <MultiSelect
+                                        options={['Math', 'Reading', 'Science', 'Social Studies']}
+                                        selected={formData.subjects}
+                                        onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
+                                        placeholder="Select subject(s)..."
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Student Groups</Label>
+                                        <MultiSelect
+                                            options={['All Students', 'English Learners', 'Students with Disabilities', 'Socioeconomically Disadvantaged']}
+                                            selected={formData.studentGroups}
+                                            onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
+                                            placeholder="Select student group(s)..."
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Race/Ethnicity</Label>
+                                        <MultiSelect
+                                            options={[
+                                                'Hispanic or Latino',
+                                                'White',
+                                                'Black or African American',
+                                                'Asian',
+                                                'Filipino',
+                                                'American Indian or Alaska Native',
+                                                'Native Hawaiian or Pacific Islander',
+                                                'Two or More Races'
+                                            ]}
+                                            selected={formData.race}
+                                            onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
+                                            placeholder="Select race/ethnicity..."
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label>
-                                    Race/Ethnicity <span className="text-destructive">*</span>
-                                </Label>
-                                <MultiSelect
-                                    options={[
-                                        'Hispanic or Latino',
-                                        'White',
-                                        'Black or African American',
-                                        'Asian',
-                                        'Filipino',
-                                        'American Indian or Alaska Native',
-                                        'Native Hawaiian or Pacific Islander',
-                                        'Two or More Races',
-                                        'Not Stated'
-                                    ]}
-                                    selected={formData.race}
-                                    onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
-                                    placeholder="Select race/ethnicity..."
-                                />
-                                <p className="text-xs text-muted-foreground">Select one or more race/ethnicity categories</p>
-                            </div>
-                        </CardContent>
-                    </Card>
+                            {/* Data Sources & Assessments */}
+                            <div className="space-y-4 border-b pb-4">
+                                <h3 className="text-lg font-semibold">Data Sources & Assessments</h3>
+                                <div className="space-y-2">
+                                    <Label>
+                                        Select Data Sources/Assessments <span className="text-destructive">*</span>
+                                    </Label>
+                                    <p className="mb-2 text-xs text-muted-foreground">
+                                        Selected sources will be used for data ingestion, chart generation, and slide content
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
+                                        {ASSESSMENT_SOURCES.map((source) => {
+                                            const isSelected = formData.selectedDataSources.includes(source.id)
+                                            const customTable = formData.customDataSources[source.id]
+                                            const defaultTable = source.defaultTable
 
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Assessment Types</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-3">
-                                <Label>
-                                    Select Assessment Type(s) <span className="text-destructive">*</span>
-                                </Label>
-                                <div className="space-y-3">
-                                    {['calpads', 'nwea', 'iready', 'star', 'cers', 'iab'].map((assessment) => (
-                                        <div key={assessment} className="flex items-center space-x-2">
-                                            <Checkbox
-                                                id={`assessment-${assessment}`}
-                                                checked={formData.assessments.includes(assessment)}
-                                                onChange={(e) => handleCheckboxChange('assessments', assessment, e.target.checked)}
-                                            />
-                                            <Label htmlFor={`assessment-${assessment}`} className="cursor-pointer text-base font-normal">
-                                                {assessment.toUpperCase()}
-                                            </Label>
-                                        </div>
-                                    ))}
+                                            return (
+                                                <div key={source.id} className="space-y-1 rounded border p-2">
+                                                    <div className="flex items-center space-x-2">
+                                                        <Checkbox
+                                                            id={`data-${source.id}`}
+                                                            checked={isSelected}
+                                                            onChange={(e) => {
+                                                                handleDataSourceToggle(source.id)
+                                                                // Also update assessments to match
+                                                                handleCheckboxChange('assessments', source.id, e.target.checked)
+                                                            }}
+                                                        />
+                                                        <Label htmlFor={`data-${source.id}`} className="cursor-pointer text-sm font-semibold">
+                                                            {source.label}
+                                                        </Label>
+                                                    </div>
+                                                    {isSelected && (
+                                                        <Input
+                                                            value={customTable || defaultTable}
+                                                            onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
+                                                            placeholder={defaultTable}
+                                                            className="mt-1 ml-6 h-8 font-mono text-xs"
+                                                        />
+                                                    )}
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Slide Content */}
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-semibold">Slide Content</h3>
+                                <div className="space-y-2">
+                                    <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
+                                    <Textarea
+                                        id="slidePrompt"
+                                        value={formData.slidePrompt}
+                                        onChange={handleTextareaChange}
+                                        placeholder="Enter any additional information for the slides..."
+                                        rows={4}
+                                    />
                                 </div>
                             </div>
                         </CardContent>
                     </Card>
 
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Slide Information</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="slidePrompt">
-                                    Describe the slide information you want <span className="text-destructive">*</span>
-                                </Label>
-                                <Textarea
-                                    id="slidePrompt"
-                                    name="slidePrompt"
-                                    value={formData.slidePrompt}
-                                    onChange={handleTextareaChange}
-                                    required
-                                    rows={6}
-                                    placeholder="Describe what specific type of slide information you would like to see in the slide deck. This will pull information from the selected districts, schools, grades, and assessments..."
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    Provide details about the type of data, visualizations, or information you want included in your slide deck. The system will
-                                    pull relevant information based on your selections above.
-                                </p>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Form Actions */}
-                    <div className="flex items-center justify-between gap-4">
-                        <Button variant="outline" onClick={() => (window.location.href = '/dashboard')}>
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back
+                    {/* Submit Button */}
+                    <div className="flex justify-end gap-4">
+                        <Button type="button" variant="outline" onClick={() => router.back()}>
+                            Cancel
                         </Button>
-                        <div className="flex items-center justify-between gap-4">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => {
-                                    setFormData({
-                                        partnerName: '',
-                                        districtNames: [],
-                                        schools: [],
-                                        grades: [],
-                                        years: [],
-                                        subjects: [],
-                                        studentGroups: [],
-                                        race: [],
-                                        assessments: [],
-                                        slidePrompt: ''
-                                    })
-                                }}
-                            >
-                                Reset
-                            </Button>
-                            <Button type="submit">Create Slide Deck</Button>
-                        </div>
+                        <Button type="submit" disabled={isCreating || isIngesting || !formData.partnerName || formData.selectedDataSources.length === 0}>
+                            {isIngesting ? 'Ingesting Data & Generating Charts...' : isCreating ? 'Creating Slide Deck...' : 'Create Slide Deck'}
+                        </Button>
                     </div>
                 </form>
             </div>
