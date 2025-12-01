@@ -1,7 +1,7 @@
+import type { BaseSettings, PartnerConfig } from '@/types/config'
 import fs from 'fs'
-import path from 'path'
 import yaml from 'js-yaml'
-import type { PartnerConfig, BaseSettings } from '@/types/config'
+import path from 'path'
 
 /**
  * Locate and load settings.yaml, then load partner-specific YAML from /config_files/{partner_name}.yaml.
@@ -88,7 +88,7 @@ export function loadConfig(configPath?: string): PartnerConfig {
     const cfg = yaml.load(partnerCfgContent) as PartnerConfig
 
     // Recursively replace {partner_name} placeholders
-    function replacePlaceholders(obj: any): any {
+    function replacePlaceholders(obj: unknown): unknown {
         if (typeof obj === 'string') {
             return obj.replace(/{partner_name}/g, partnerName)
         }
@@ -96,7 +96,7 @@ export function loadConfig(configPath?: string): PartnerConfig {
             return obj.map(replacePlaceholders)
         }
         if (obj && typeof obj === 'object') {
-            const result: any = {}
+            const result: Record<string, unknown> = {}
             for (const [key, value] of Object.entries(obj)) {
                 result[key] = replacePlaceholders(value)
             }

@@ -1,4 +1,4 @@
-import type { PartnerConfig } from '@/types/config'
+// PartnerConfig type not used in this file but kept for future reference
 
 export function sqlCers(tableId: string): string {
     return `

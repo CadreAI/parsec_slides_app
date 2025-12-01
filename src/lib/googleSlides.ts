@@ -22,7 +22,7 @@ function createOAuthClient() {
     return new google.auth.OAuth2(client_id, client_secret, redirectUri)
 }
 
-async function getNewToken(oAuth2Client: any): Promise<any> {
+async function getNewToken(oAuth2Client: google.auth.OAuth2Client): Promise<google.auth.Credentials> {
     const authUrl = oAuth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES
@@ -95,7 +95,7 @@ export async function getSlidesClient() {
     try {
         const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'))
         oAuth2Client.setCredentials(token)
-    } catch (err) {
+    } catch {
         // First-time setup: run in terminal to generate token
         const token = await getNewToken(oAuth2Client)
         oAuth2Client.setCredentials(token)
@@ -110,7 +110,7 @@ export async function getDriveClient() {
     try {
         const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'))
         oAuth2Client.setCredentials(token)
-    } catch (err) {
+    } catch {
         // First-time setup: run in terminal to generate token
         const token = await getNewToken(oAuth2Client)
         oAuth2Client.setCredentials(token)
@@ -162,7 +162,7 @@ export async function uploadImageToDrive(imagePath: string, fileName?: string, f
     const fileStream = fs.createReadStream(imagePath)
 
     // Upload file to Drive
-    const fileMetadata: any = {
+    const fileMetadata: { name: string; mimeType: string; parents?: string[] } = {
         name: name,
         mimeType: mimeType
     }

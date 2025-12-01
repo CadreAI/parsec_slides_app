@@ -60,8 +60,9 @@ export async function generateCharts(options: ChartGenerationOptions): Promise<s
             if (chartPaths && chartPaths.length > 0) {
                 generatedCharts.push(...chartPaths)
             }
-        } catch (error: any) {
-            console.warn(`Failed to generate chart for ${source}:`, error.message)
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+            console.warn(`Failed to generate chart for ${source}:`, errorMessage)
         }
     }
 
@@ -173,8 +174,9 @@ async function generateChartForSource(options: {
                                 console.warn(`[${source} chart] file_path column not found in chart_index.csv`)
                             }
                         }
-                    } catch (error: any) {
-                        console.warn(`[${source} chart] Failed to read chart_index.csv:`, error.message)
+                    } catch (error: unknown) {
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                        console.warn(`[${source} chart] Failed to read chart_index.csv:`, errorMessage)
                     }
                 }
 
@@ -236,8 +238,9 @@ async function generateChartForSource(options: {
                         scanDir(chartsOutputDir)
                         normalizedPaths = recentFiles
                         console.log(`[${source} chart] Found ${normalizedPaths.length} recent chart(s) from directory scan`)
-                    } catch (error: any) {
-                        console.warn(`[${source} chart] Directory scan failed:`, error.message)
+                    } catch (error: unknown) {
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                        console.warn(`[${source} chart] Directory scan failed:`, errorMessage)
                     }
                 }
 

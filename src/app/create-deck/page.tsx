@@ -27,7 +27,6 @@ export default function CreateSlide() {
     const router = useRouter()
     const [isIngesting, setIsIngesting] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
-    const [ingestedCharts, setIngestedCharts] = useState<string[]>([])
     const [formData, setFormData] = useState({
         // Partner & Data Configuration
         partnerName: '',
@@ -47,17 +46,8 @@ export default function CreateSlide() {
         slidePrompt: ''
     })
 
-    // Assessment BigQuery table mappings
-    const assessmentTables: Record<string, (partnerName: string) => string> = {
-        calpads: (partnerName: string) => `parsecgo.demodashboard.calpads`,
-        nwea: (partnerName: string) => `parsecgo.demodashboard.Nwea_production_calpads_v4_2`,
-        iready: (partnerName: string) => `parsecgo.demodashboard.iready_production_calpads_v4_2`,
-        star: (partnerName: string) => `parsecgo.demodashboard.renaissance_production_calpads_v4_2`,
-        cers: (partnerName: string) => `parsecgo.demodashboard.cers_production`,
-        iab: (partnerName: string) => `parsecgo.demodashboard.cers_iab`
-    }
-
-    // Student group mappings for filtering
+    // Student group mappings for filtering (used in config)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const studentGroupMappings: Record<string, { type?: string; column?: string; in?: (string | number)[] }> = {
         'All Students': { type: 'all' },
         'English Learners': { column: 'englishlearner', in: ['Y', 'Yes', 'True', 1] },
@@ -79,7 +69,8 @@ export default function CreateSlide() {
         Homeless: { column: 'homeless', in: ['Y', 'Yes', 'True', 1] }
     }
 
-    // Student group order for consistent sorting
+    // Student group order for consistent sorting (used in config)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const studentGroupOrder: Record<string, number> = {
         'All Students': 1,
         'English Learners': 2,
@@ -183,148 +174,6 @@ export default function CreateSlide() {
                 [sourceId]: value
             }
         }))
-    }
-
-    // Step 1: Ingest data (optional)
-    const handleIngestData = async () => {
-        if (!formData.partnerName.trim()) {
-            toast.error('Please enter a partner name')
-            return
-        }
-
-        if (formData.selectedDataSources.length === 0) {
-            toast.error('Please select at least one data source')
-            return
-        }
-
-        setIsIngesting(true)
-        toast.info('Starting data ingestion...')
-
-        try {
-            // Build sources object
-            const sources: Record<string, string> = {}
-            formData.selectedDataSources.forEach((sourceId) => {
-                const customTable = formData.customDataSources[sourceId]
-                const defaultSource = ASSESSMENT_SOURCES.find((s) => s.id === sourceId)
-                // Use custom table if provided, otherwise use default (already has demodashboard)
-                sources[sourceId] = customTable || defaultSource?.defaultTable || ''
-            })
-
-            // Use selected districts from scope selection
-            const districtList = formData.districtNames.length > 0 ? formData.districtNames : ['Parsec Academy']
-
-            // Build config object matching demodashboard.yaml structure
-            const config = {
-                partner_name: formData.partnerName || 'demodashboard',
-                district_name: districtList.length > 0 ? districtList : ['Parsec Academy'],
-                school_name_map: {
-                    'Parsec Academy': 'Parsec Academy',
-                    '': 'No assigned program'
-                },
-                gcp: {
-                    project_id: formData.projectId,
-                    location: formData.location
-                },
-                sources: sources,
-                exclude_cols: {},
-                student_groups: {
-                    'All Students': { type: 'all' },
-                    'English Learners': { column: 'englishlearner', in: ['Y', 'Yes', 'True', 1] },
-                    'Students with Disabilities': { column: 'studentswithdisabilities', in: ['Y', 'Yes', 'True', 1] },
-                    'Socioeconomically Disadvantaged': { column: 'socioeconomicallydisadvantaged', in: ['Y', 'Yes', 'True', 1] },
-                    'Hispanic or Latino': { column: 'ethnicityrace', in: ['Hispanic', 'Hispanic or Latino'] },
-                    White: { column: 'ethnicityrace', in: ['White'] },
-                    'Black or African American': { column: 'ethnicityrace', in: ['Black', 'African American', 'Black or African American'] },
-                    Asian: { column: 'ethnicityrace', in: ['Asian'] },
-                    Filipino: { column: 'ethnicityrace', in: ['Filipino'] },
-                    'American Indian or Alaska Native': {
-                        column: 'ethnicityrace',
-                        in: ['American Indian', 'Alaska Native', 'American Indian or Alaska Native']
-                    },
-                    'Native Hawaiian or Pacific Islander': {
-                        column: 'ethnicityrace',
-                        in: ['Pacific Islander', 'Native Hawaiian', 'Native Hawaiian or Other Pacific Islander']
-                    },
-                    'Two or More Races': { column: 'ethnicityrace', in: ['Two or More Races', 'Multiracial', 'Multiple Races'] },
-                    'Not Stated': { column: 'ethnicityrace', in: ['Not Stated', 'Unknown', ''] },
-                    Foster: { column: 'foster', in: ['Y', 'Yes', 'True', 1] },
-                    Homeless: { column: 'homeless', in: ['Y', 'Yes', 'True', 1] }
-                },
-                student_group_order: {
-                    'All Students': 1,
-                    'English Learners': 2,
-                    'Students with Disabilities': 3,
-                    'Socioeconomically Disadvantaged': 4,
-                    'Hispanic or Latino': 5,
-                    White: 6,
-                    'Black or African American': 7,
-                    Asian: 8,
-                    Filipino: 9,
-                    'American Indian or Alaska Native': 10,
-                    'Native Hawaiian or Pacific Islander': 11,
-                    'Two or More Races': 12,
-                    'Not Stated': 13,
-                    Foster: 14,
-                    Homeless: 15
-                },
-                options: {
-                    cache_csv: true,
-                    preview: true
-                },
-                paths: {
-                    data_dir: './data',
-                    charts_dir: './charts',
-                    config_dir: '.'
-                },
-                // Chart generation filters
-                chart_filters: {
-                    grades:
-                        formData.grades.length > 0
-                            ? formData.grades
-                                  .map((g) => {
-                                      // Handle "K" (Kindergarten) as 0
-                                      if (g === 'K') return 0
-                                      const parsed = parseInt(g)
-                                      return isNaN(parsed) ? null : parsed
-                                  })
-                                  .filter((g) => g !== null)
-                            : undefined,
-                    years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
-                    subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
-                    student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
-                    race: formData.race.length > 0 ? formData.race : undefined
-                }
-            }
-
-            // Call the data ingestion API
-            const res = await fetch('/api/data/ingest', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ config })
-            })
-
-            const data = await res.json()
-
-            if (!res.ok) {
-                throw new Error(data.error || data.details || 'Failed to ingest data')
-            }
-
-            const chartCount = data.charts?.length || 0
-            toast.success(
-                `Data ingestion completed! Ingested ${data.totalRows || 0} total rows from ${data.dataSources?.length || 0} sources.${chartCount > 0 ? ` Generated ${chartCount} charts.` : ''}`
-            )
-
-            // Store chart paths for slide creation
-            if (data.charts && data.charts.length > 0) {
-                setIngestedCharts(data.charts)
-                console.log('Generated charts:', data.charts)
-            }
-        } catch (error: any) {
-            console.error('Data ingestion error:', error)
-            toast.error(`Failed to ingest data: ${error.message || 'Unknown error'}`)
-        } finally {
-            setIsIngesting(false)
-        }
     }
 
     // Combined: Ingest data, generate charts, then create slide deck
@@ -505,9 +354,10 @@ export default function CreateSlide() {
             setTimeout(() => {
                 router.push('/dashboard')
             }, 2000)
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error:', error)
-            toast.error(`Failed: ${error.message || 'Unknown error'}`)
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+            toast.error(`Failed: ${errorMessage}`)
         } finally {
             setIsCreating(false)
             setIsIngesting(false)

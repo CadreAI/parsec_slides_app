@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { loadConfig } from '@/lib/configLoader'
 import { ingestAll } from '@/lib/dataIngestion'
 import { generateCharts } from '@/lib/chartGenerator'
+import type { PartnerConfig } from '@/types/config'
 import path from 'path'
 
 /**
@@ -22,10 +23,10 @@ export async function POST(req: NextRequest) {
         const body = await req.json().catch(() => ({}))
 
         // Check if config object is provided directly (from UI)
-        let cfg: any
+        let cfg: PartnerConfig
         if (body.config && typeof body.config === 'object') {
             // Use config directly from request body
-            cfg = body.config
+            cfg = body.config as PartnerConfig
         } else {
             // Fall back to loading from YAML file
             const configPath = body.config || req.nextUrl.searchParams.get('config') || undefined
@@ -57,8 +58,9 @@ export async function POST(req: NextRequest) {
                 devMode: false // Always false to prevent charts from opening/previewing
             })
             console.log(`Generated ${charts.length} charts`)
-        } catch (error: any) {
-            console.warn('Chart generation failed (non-critical):', error.message)
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+            console.warn('Chart generation failed (non-critical):', errorMessage)
             // Don't fail the entire request if chart generation fails
         }
 
@@ -71,13 +73,15 @@ export async function POST(req: NextRequest) {
             charts: charts.length > 0 ? charts : undefined,
             message: 'Data ingested successfully. Data saved to CSV files.'
         })
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Data ingestion error:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Failed to ingest data'
+        const errorStack = error instanceof Error ? error.stack : undefined
         return NextResponse.json(
             {
                 success: false,
-                error: error.message || 'Failed to ingest data',
-                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                error: errorMessage,
+                details: process.env.NODE_ENV === 'development' ? errorStack : undefined
             },
             { status: 500 }
         )
@@ -117,8 +121,9 @@ export async function GET(req: NextRequest) {
                 devMode: false // Always false to prevent charts from opening/previewing
             })
             console.log(`Generated ${charts.length} charts`)
-        } catch (error: any) {
-            console.warn('Chart generation failed (non-critical):', error.message)
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+            console.warn('Chart generation failed (non-critical):', errorMessage)
             // Don't fail the entire request if chart generation fails
         }
 
@@ -131,13 +136,15 @@ export async function GET(req: NextRequest) {
             charts: charts.length > 0 ? charts : undefined,
             message: 'Data ingested successfully. Data saved to CSV files.'
         })
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Data ingestion error:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Failed to ingest data'
+        const errorStack = error instanceof Error ? error.stack : undefined
         return NextResponse.json(
             {
                 success: false,
-                error: error.message || 'Failed to ingest data',
-                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                error: errorMessage,
+                details: process.env.NODE_ENV === 'development' ? errorStack : undefined
             },
             { status: 500 }
         )

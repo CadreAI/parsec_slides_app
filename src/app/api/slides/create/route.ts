@@ -151,7 +151,10 @@ export async function POST(req: NextRequest) {
         const nweaSlideId = 'nwea_slide_001'
 
         // Create slide requests using the extracted functions
-        const createSlideRequests: any[] = [...createCoverSlideRequests(coverSlideId), ...createNweaSlideRequests(nweaSlideId)]
+        const createSlideRequests: Array<{ createSlide?: unknown; insertText?: unknown; updateTextStyle?: unknown; updateParagraphStyle?: unknown }> = [
+            ...createCoverSlideRequests(coverSlideId),
+            ...createNweaSlideRequests(nweaSlideId)
+        ]
 
         // Add chart slides if charts are provided
         let chartSlideCount = 0
@@ -221,8 +224,9 @@ export async function POST(req: NextRequest) {
                     chartUrls.push(driveUrl)
                     const folderInfo = folderId ? ` (in folder ${folderId})` : ''
                     console.log(`✓ Uploaded ${fileName} to Drive${folderInfo}`)
-                } catch (error: any) {
-                    console.error(`Failed to upload chart ${chartPath}:`, error.message)
+                } catch (error: unknown) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                    console.error(`Failed to upload chart ${chartPath}:`, errorMessage)
                     // Continue with other charts even if one fails
                 }
             }
@@ -291,7 +295,7 @@ export async function POST(req: NextRequest) {
                     const slide = allSlides[slideIndex]
                     const slideInfo = slidesToCreate[i]
                     const slideObjectId = slide.objectId
-                    const updateRequests: any[] = []
+                    const updateRequests: Array<{ insertText?: unknown; updateTextStyle?: unknown; updateParagraphStyle?: unknown }> = []
 
                     // Add text elements with formatting support
                     if (slideInfo.text && slideInfo.text.length > 0) {
@@ -345,7 +349,7 @@ export async function POST(req: NextRequest) {
 
                                     // Apply formatting
                                     const styleFields: string[] = []
-                                    const style: any = {}
+                                    const style: Record<string, unknown> = {}
 
                                     if (segment.fontSize !== undefined) {
                                         styleFields.push('fontSize')
@@ -416,7 +420,7 @@ export async function POST(req: NextRequest) {
 
                                 // Apply default formatting if specified
                                 const styleFields: string[] = []
-                                const style: any = {}
+                                const style: Record<string, unknown> = {}
 
                                 if (textElement.fontSize !== undefined) {
                                     styleFields.push('fontSize')
@@ -630,8 +634,9 @@ export async function POST(req: NextRequest) {
                                     requests: updateRequests
                                 }
                             })
-                        } catch (updateError: any) {
-                            console.warn(`Failed to update slide ${i + 1}:`, updateError?.message)
+                        } catch (updateError: unknown) {
+                            const errorMessage = updateError instanceof Error ? updateError.message : 'Unknown error'
+                            console.warn(`Failed to update slide ${i + 1}:`, errorMessage)
                         }
                     }
                 }
@@ -646,12 +651,13 @@ export async function POST(req: NextRequest) {
             presentationUrl: presentationUrl,
             title: response.data.title || title
         })
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Slides API error:', err)
-        console.error('Error details:', JSON.stringify(err, null, 2))
+        const errorObj = err as { message?: string; error?: { message?: string } }
+        console.error('Error details:', JSON.stringify(errorObj, null, 2))
 
         // Extract more detailed error information
-        const errorMessage = err?.message || err?.error?.message || 'Unknown error'
+        const errorMessage = errorObj?.message || errorObj?.error?.message || 'Unknown error'
         const errorDetails = err?.response?.data || err?.error || err
 
         return NextResponse.json(

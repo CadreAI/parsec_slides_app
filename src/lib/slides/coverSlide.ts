@@ -19,7 +19,13 @@ function hexToRgbColor(hex: string) {
  * Creates the cover slide requests for the presentation.
  * Returns an array of batch update requests for the cover slide.
  */
-export function createCoverSlideRequests(coverSlideId: string): any[] {
+interface SlideRequest {
+    insertText?: unknown
+    updateTextStyle?: unknown
+    updateParagraphStyle?: unknown
+}
+
+export function createCoverSlideRequests(coverSlideId: string): SlideRequest[] {
     const slideWidthEMU = SLIDE_WIDTH_EMU
     const slideHeightEMU = (slideWidthEMU * 9) / 16 // 16:9 aspect ratio
     const headerHeightEMU = 1500000 // ~1.64 inches for header

@@ -166,28 +166,54 @@ export function resolveServiceAccountCredentialsPath(): string {
     )
 }
 
+interface OAuthCredentials {
+    installed?: {
+        client_id: string
+        client_secret: string
+        redirect_uris: string[]
+    }
+    web?: {
+        client_id: string
+        client_secret: string
+        redirect_uris: string[]
+    }
+}
+
+interface ServiceAccountCredentials {
+    type: string
+    project_id: string
+    private_key_id: string
+    private_key: string
+    client_email: string
+    client_id: string
+    auth_uri: string
+    token_uri: string
+    auth_provider_x509_cert_url: string
+    client_x509_cert_url: string
+}
+
 /**
  * Load and parse OAuth credentials.json (for Google Slides)
  */
-export function loadOAuthCredentials(): any {
+export function loadOAuthCredentials(): OAuthCredentials {
     const credsPath = resolveOAuthCredentialsPath()
     const content = fs.readFileSync(credsPath, 'utf-8')
-    return JSON.parse(content)
+    return JSON.parse(content) as OAuthCredentials
 }
 
 /**
  * Load and parse service account credentials.json (for BigQuery)
  */
-export function loadServiceAccountCredentials(): any {
+export function loadServiceAccountCredentials(): ServiceAccountCredentials {
     const credsPath = resolveServiceAccountCredentialsPath()
     const content = fs.readFileSync(credsPath, 'utf-8')
-    return JSON.parse(content)
+    return JSON.parse(content) as ServiceAccountCredentials
 }
 
 /**
  * @deprecated Use loadOAuthCredentials() instead
  * Load and parse credentials.json from resolved path (OAuth only)
  */
-export function loadCredentials(): any {
+export function loadCredentials(): OAuthCredentials {
     return loadOAuthCredentials()
 }

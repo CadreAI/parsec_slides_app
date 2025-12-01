@@ -19,7 +19,13 @@ function hexToRgbColor(hex: string) {
  * Creates the NWEA summary slide requests for the presentation.
  * Returns an array of batch update requests for the NWEA slide.
  */
-export function createNweaSlideRequests(nweaSlideId: string): any[] {
+interface SlideRequest {
+    insertText?: unknown
+    updateTextStyle?: unknown
+    updateParagraphStyle?: unknown
+}
+
+export function createNweaSlideRequests(nweaSlideId: string): SlideRequest[] {
     const slideWidthEMU = SLIDE_WIDTH_EMU
 
     return [

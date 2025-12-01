@@ -19,7 +19,7 @@ export function getBigQueryClient(cfg: PartnerConfig): BigQuery {
             if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
                 process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
             }
-        } catch (error) {
+        } catch {
             // If service account credentials not found, BigQuery will use
             // Application Default Credentials (ADC) or GOOGLE_APPLICATION_CREDENTIALS
             // if already set
@@ -54,9 +54,10 @@ export async function tableExists(tableId: string, client: BigQuery): Promise<bo
         // Check if table exists by getting metadata
         await table.get()
         return true
-    } catch (error: any) {
+    } catch (error: unknown) {
         // Handle various error codes that indicate table doesn't exist
-        if (error.code === 404 || error.code === 403 || error.code === 'ENOTFOUND' || error.message?.includes('Not found')) {
+        const err = error as { code?: number | string; message?: string }
+        if (err.code === 404 || err.code === 403 || err.code === 'ENOTFOUND' || err.message?.includes('Not found')) {
             console.log(`  [DEBUG] Table not found or permission denied: ${tableId}`)
             return false
         }
@@ -67,10 +68,18 @@ export async function tableExists(tableId: string, client: BigQuery): Promise<bo
 /**
  * Run a BigQuery SQL query and return results as an array of objects
  */
-export async function runQuery(sql: string, client: BigQuery, params?: { districts?: string[] }): Promise<any[]> {
+export async function runQuery(sql: string, client: BigQuery, params?: { districts?: string[] }): Promise<Record<string, unknown>[]> {
     console.log('Executing query...')
 
-    const options: any = {
+    const options: {
+        query: string
+        location?: string
+        queryParameters?: Array<{
+            name: string
+            parameterType: { arrayType: { type: string } }
+            parameterValue: { arrayValues: Array<{ value: string }> }
+        }>
+    } = {
         query: sql
     }
 

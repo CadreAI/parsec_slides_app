@@ -24,7 +24,7 @@ function getDataDir(cfg: PartnerConfig): string {
 /**
  * Clean column names (convert to lowercase, replace spaces with underscores)
  */
-function cleanColumnNames(data: any[]): any[] {
+function cleanColumnNames(data: Record<string, unknown>[]): Record<string, unknown>[] {
     if (data.length === 0) return data
 
     // Build column name mapping once (more efficient for large datasets)
@@ -40,7 +40,7 @@ function cleanColumnNames(data: any[]): any[] {
 
     // Apply mapping to all rows
     const cleaned = data.map((row) => {
-        const newRow: any = {}
+        const newRow: Record<string, unknown> = {}
         for (const [key, value] of Object.entries(row)) {
             newRow[columnMap[key]] = value
         }
@@ -52,7 +52,13 @@ function cleanColumnNames(data: any[]): any[] {
 /**
  * Load CSV from cache or query BigQuery
  */
-async function cacheOrQuery(csvPath: string, sql: string, client: any, params?: { districts?: string[] }, cfg?: PartnerConfig): Promise<any[]> {
+async function cacheOrQuery(
+    csvPath: string,
+    sql: string,
+    client: BigQuery,
+    params?: { districts?: string[] },
+    cfg?: PartnerConfig
+): Promise<Record<string, unknown>[]> {
     const useCache = cfg?.options?.cache_csv !== false
 
     if (useCache && fs.existsSync(csvPath)) {
@@ -92,7 +98,7 @@ export async function ingestOptional(
     sqlBuilder: SqlBuilder,
     cfg: PartnerConfig,
     params?: { districts?: string[] }
-): Promise<any[]> {
+): Promise<Record<string, unknown>[]> {
     const tableId = resolveSource(sourceKey, cfg)
     console.log(`[DEBUG] Resolved ${sourceKey} → ${tableId}`)
 
@@ -135,8 +141,9 @@ export async function ingestOptional(
         }
 
         return data
-    } catch (error: any) {
-        console.log(`Skip ${sourceKey}: query error: ${error.message}`)
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        console.log(`Skip ${sourceKey}: query error: ${errorMessage}`)
         return []
     }
 }
@@ -144,13 +151,13 @@ export async function ingestOptional(
 /**
  * Main ingestion function - ingests all configured sources
  */
-export async function ingestAll(cfg: PartnerConfig): Promise<Record<string, any[]>> {
+export async function ingestAll(cfg: PartnerConfig): Promise<Record<string, Record<string, unknown>[]>> {
     console.log(`Partner: ${cfg.partner_name}`)
     console.log(`Districts: ${cfg.district_name?.join(', ') || 'N/A'}`)
 
     const districts = cfg.district_name || []
 
-    const results: Record<string, any[]> = {}
+    const results: Record<string, Record<string, unknown>[]> = {}
 
     // Ingest each source
     results.iab = await ingestOptional('iab', 'iab_data.csv', sqlIab, cfg)
@@ -163,7 +170,7 @@ export async function ingestAll(cfg: PartnerConfig): Promise<Record<string, any[
     results.iready = await ingestOptional('iready', 'iready_data.csv', sqlIready, cfg)
 
     // Summary
-    function summarize(name: string, data: any[]) {
+    function summarize(name: string, data: Record<string, unknown>[]) {
         if (data.length === 0) {
             console.log(`${name}: skipped or empty\n`)
             return

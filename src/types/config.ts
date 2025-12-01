@@ -51,10 +51,10 @@ export interface PartnerConfig {
     options?: OptionsConfig
     paths?: PathsConfig
     school_name_map?: Record<string, string>
-    [key: string]: any
+    [key: string]: unknown
 }
 
 export interface BaseSettings {
     partner_name: string
-    [key: string]: any
+    [key: string]: unknown
 }

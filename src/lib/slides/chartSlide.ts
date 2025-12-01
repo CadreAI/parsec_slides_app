@@ -1,9 +1,27 @@
-import fs from 'fs'
-import path from 'path'
-
 const EMU_PER_INCH = 914400
 const SLIDE_WIDTH_EMU = 10 * EMU_PER_INCH
 const SLIDE_HEIGHT_EMU = (SLIDE_WIDTH_EMU * 9) / 16 // 16:9 aspect ratio
+
+interface ChartSlideRequest {
+    createImage: {
+        objectId: string
+        url: string
+        elementProperties: {
+            pageObjectId: string
+            size: {
+                width: { magnitude: number; unit: string }
+                height: { magnitude: number; unit: string }
+            }
+            transform: {
+                scaleX: number
+                scaleY: number
+                translateX: number
+                translateY: number
+                unit: string
+            }
+        }
+    }
+}
 
 /**
  * Create slide requests for adding charts to a slide
@@ -16,8 +34,8 @@ export function createChartSlideRequests(
     slideWidthEMU: number = SLIDE_WIDTH_EMU,
     slideHeightEMU: number = SLIDE_HEIGHT_EMU,
     startIndex: number = 0
-): any[] {
-    const requests: any[] = []
+): ChartSlideRequest[] {
+    const requests: ChartSlideRequest[] = []
 
     if (chartUrls.length === 0) {
         return requests
@@ -76,7 +94,7 @@ export function createChartSlideRequests(
 /**
  * Create a new slide with charts
  */
-export function createChartSlideRequest(presentationId: string, slideObjectId: string, insertionIndex: number): any {
+export function createChartSlideRequest(presentationId: string, slideObjectId: string, insertionIndex: number): CreateSlideRequest {
     return {
         createSlide: {
             objectId: slideObjectId,
