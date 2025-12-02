@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { generateCharts } from '@/lib/chartGenerator'
 import { loadConfig } from '@/lib/configLoader'
 import { ingestAll } from '@/lib/dataIngestion'
-import { generateCharts } from '@/lib/chartGenerator'
 import type { PartnerConfig } from '@/types/config'
+import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 
 /**

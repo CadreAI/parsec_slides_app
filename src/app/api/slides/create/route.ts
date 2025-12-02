@@ -2,6 +2,7 @@ import { extractFolderIdFromUrl, getSlidesClient, uploadImageToDrive } from '@/l
 import { createChartSlideRequest, createDualChartSlideRequests, createSingleChartSlideRequests } from '@/lib/slides/chartSlide'
 import { createCoverSlideRequests } from '@/lib/slides/coverSlide'
 import type { SlideData, TextSegment } from '@/types/slide'
+import fs from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 
@@ -22,10 +23,62 @@ function hexToRgbColor(hex: string) {
     }
 }
 
+interface PresentationMetadata {
+    presentationId: string
+    title: string
+    presentationUrl: string
+    createdAt: string
+    period: 'BOY' | 'MOY' | 'EOY' // Beginning/Middle/End of Year
+    school: string // e.g., "Parsec Academy"
+    partnerName?: string
+    chartCount?: number
+}
+
+function determinePeriod(quarters: string[]): 'BOY' | 'MOY' | 'EOY' {
+    // BOY = Beginning of Year (Fall)
+    // MOY = Middle of Year (Winter)
+    // EOY = End of Year (Spring)
+    if (quarters && quarters.length > 0) {
+        if (quarters.includes('Fall')) return 'BOY'
+        if (quarters.includes('Winter')) return 'MOY'
+        if (quarters.includes('Spring')) return 'EOY'
+    }
+    return 'BOY' // Default
+}
+
+function savePresentationMetadata(metadata: PresentationMetadata): void {
+    try {
+        const dataDir = path.join(process.cwd(), 'data')
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true })
+        }
+
+        const metadataFile = path.join(dataDir, 'presentations.json')
+        let presentations: PresentationMetadata[] = []
+
+        if (fs.existsSync(metadataFile)) {
+            try {
+                const content = fs.readFileSync(metadataFile, 'utf-8')
+                presentations = JSON.parse(content)
+            } catch (error) {
+                console.warn('Failed to read presentations metadata, starting fresh')
+            }
+        }
+
+        presentations.push(metadata)
+        fs.writeFileSync(metadataFile, JSON.stringify(presentations, null, 2))
+        console.log(`[Metadata] Saved presentation: ${metadata.title} (${metadata.period})`)
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        console.warn(`[Metadata] Failed to save presentation metadata: ${errorMessage}`)
+        // Don't fail the entire request if metadata saving fails
+    }
+}
+
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json()
-        const { title, assessments, slides: slidesData, charts: chartPaths, driveFolderUrl } = body
+        const { title, assessments, slides: slidesData, charts: chartPaths, driveFolderUrl, schoolName, quarters, partnerName } = body
 
         if (!title) {
             return NextResponse.json({ error: 'title is required' }, { status: 400 })
@@ -751,6 +804,20 @@ export async function POST(req: NextRequest) {
         }
 
         const presentationUrl = `https://docs.google.com/presentation/d/${presentationId}/edit`
+
+        // Save presentation metadata
+        const period = determinePeriod(quarters || [])
+        const school = schoolName || 'Parsec Academy'
+        savePresentationMetadata({
+            presentationId: presentationId,
+            title: response.data.title || title,
+            presentationUrl: presentationUrl,
+            createdAt: new Date().toISOString(),
+            period: period,
+            school: school,
+            partnerName: partnerName,
+            chartCount: normalizedCharts.length
+        })
 
         return NextResponse.json({
             success: true,

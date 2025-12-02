@@ -16,12 +16,10 @@ import { toast } from 'sonner'
 
 // Available assessment sources for data ingestion
 const ASSESSMENT_SOURCES = [
-    { id: 'calpads', label: 'CALPADS', defaultTable: 'parsecgo.demodashboard.calpads' },
-    { id: 'nwea', label: 'NWEA', defaultTable: 'parsecgo.demodashboard.Nwea_production_calpads_v4_2' },
+    { id: 'nwea', label: 'NWEA Map Growth', defaultTable: 'parsecgo.demodashboard.Nwea_production_calpads_v4_2' },
     { id: 'iready', label: 'iReady', defaultTable: 'parsecgo.demodashboard.iready_production_calpads_v4_2' },
     { id: 'star', label: 'STAR', defaultTable: 'parsecgo.demodashboard.renaissance_production_calpads_v4_2' },
-    { id: 'cers', label: 'CERS', defaultTable: 'parsecgo.demodashboard.cers_production' },
-    { id: 'iab', label: 'IAB', defaultTable: 'parsecgo.demodashboard.cers_iab' }
+    { id: 'cers', label: 'CERS', defaultTable: 'parsecgo.demodashboard.cers_production' }
 ]
 
 export default function CreateSlide() {
@@ -473,7 +471,10 @@ export default function CreateSlide() {
                     title: presentationTitle,
                     assessments: assessmentsToUse,
                     charts: charts.length > 0 ? charts : undefined,
-                    driveFolderUrl: driveFolderUrl
+                    driveFolderUrl: driveFolderUrl,
+                    schoolName: 'Parsec Academy',
+                    quarters: formData.quarters,
+                    partnerName: formData.partnerName
                 })
             })
 
@@ -718,10 +719,10 @@ export default function CreateSlide() {
 
                             {/* Data Sources & Assessments */}
                             <div className="space-y-4 border-b pb-4">
-                                <h3 className="text-lg font-semibold">Data Sources & Assessments</h3>
+                                <h3 className="text-lg font-semibold">Assessments</h3>
                                 <div className="space-y-2">
                                     <Label>
-                                        Select Data Sources/Assessments <span className="text-destructive">*</span>
+                                        Select Assessments <span className="text-destructive">*</span>
                                     </Label>
                                     <p className="mb-2 text-xs text-muted-foreground">
                                         Selected sources will be used for data ingestion, chart generation, and slide content
