@@ -7,7 +7,7 @@ import { getBigQueryClient, runQuery, tableExists } from './bigquery'
 import { resolveSource } from './configLoader'
 import { sqlCalpads, sqlCers, sqlIab, sqlIready, sqlNwea, sqlStar } from './sqlBuilders'
 
-type SqlBuilder = (tableId: string, excludeCols?: string[]) => string
+type SqlBuilder = (tableId: string, excludeCols?: string[], filters?: { districts?: string[]; years?: number[]; schools?: string[] }) => string
 
 /**
  * Get data directory path, creating it if needed
@@ -56,7 +56,7 @@ async function cacheOrQuery(
     csvPath: string,
     sql: string,
     client: BigQuery,
-    params?: { districts?: string[] },
+    params?: { districts?: string[]; years?: number[]; schools?: string[] },
     cfg?: PartnerConfig
 ): Promise<Record<string, unknown>[]> {
     const useCache = cfg?.options?.cache_csv !== false
@@ -97,7 +97,7 @@ export async function ingestOptional(
     csvName: string,
     sqlBuilder: SqlBuilder,
     cfg: PartnerConfig,
-    params?: { districts?: string[] }
+    params?: { districts?: string[]; years?: number[]; schools?: string[] }
 ): Promise<Record<string, unknown>[]> {
     const tableId = resolveSource(sourceKey, cfg)
     console.log(`[DEBUG] Resolved ${sourceKey} → ${tableId}`)
@@ -114,7 +114,7 @@ export async function ingestOptional(
     }
 
     const excludeCols = cfg.exclude_cols?.[sourceKey] || []
-    const sql = sqlBuilder(tableId, excludeCols)
+    const sql = sqlBuilder(tableId, excludeCols, params)
 
     const dataDir = getDataDir(cfg)
     const csvPath = path.join(dataDir, csvName)
@@ -156,18 +156,38 @@ export async function ingestAll(cfg: PartnerConfig): Promise<Record<string, Reco
     console.log(`Districts: ${cfg.district_name?.join(', ') || 'N/A'}`)
 
     const districts = cfg.district_name || []
+    const years = cfg.chart_filters?.years
+    const schools = cfg.selected_schools || []
+
+    // Build filter params for queries
+    const filterParams: { districts?: string[]; years?: number[]; schools?: string[] } = {}
+    if (districts.length > 0) filterParams.districts = districts
+    if (years && years.length > 0) filterParams.years = years
+    if (schools.length > 0) filterParams.schools = schools
+
+    if (Object.keys(filterParams).length > 0) {
+        console.log(`Applying filters:`, filterParams)
+    }
 
     const results: Record<string, Record<string, unknown>[]> = {}
 
-    // Ingest each source
-    results.iab = await ingestOptional('iab', 'iab_data.csv', sqlIab, cfg)
-    results.cers = await ingestOptional('cers', 'cers_data.csv', sqlCers, cfg, {
-        districts
-    })
-    results.calpads = await ingestOptional('calpads', 'calpads_data.csv', sqlCalpads, cfg)
-    results.nwea = await ingestOptional('nwea', 'nwea_data.csv', sqlNwea, cfg)
-    results.star = await ingestOptional('star', 'star_data.csv', sqlStar, cfg)
-    results.iready = await ingestOptional('iready', 'iready_data.csv', sqlIready, cfg)
+    // Ingest sources in parallel for faster execution
+    // Sources that don't depend on each other can run concurrently
+    const [iab, cers, calpads, nwea, star, iready] = await Promise.all([
+        ingestOptional('iab', 'iab_data.csv', sqlIab, cfg, filterParams),
+        ingestOptional('cers', 'cers_data.csv', sqlCers, cfg, { ...filterParams, districts }),
+        ingestOptional('calpads', 'calpads_data.csv', sqlCalpads, cfg, filterParams),
+        ingestOptional('nwea', 'nwea_data.csv', sqlNwea, cfg, filterParams),
+        ingestOptional('star', 'star_data.csv', sqlStar, cfg, filterParams),
+        ingestOptional('iready', 'iready_data.csv', sqlIready, cfg, filterParams)
+    ])
+
+    results.iab = iab
+    results.cers = cers
+    results.calpads = calpads
+    results.nwea = nwea
+    results.star = star
+    results.iready = iready
 
     // Summary
     function summarize(name: string, data: Record<string, unknown>[]) {

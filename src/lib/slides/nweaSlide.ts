@@ -20,9 +20,13 @@ function hexToRgbColor(hex: string) {
  * Returns an array of batch update requests for the NWEA slide.
  */
 interface SlideRequest {
+    createSlide?: unknown
+    createShape?: unknown
+    updateShapeProperties?: unknown
     insertText?: unknown
     updateTextStyle?: unknown
     updateParagraphStyle?: unknown
+    [key: string]: unknown // Allow any other properties for Google Slides API
 }
 
 export function createNweaSlideRequests(nweaSlideId: string): SlideRequest[] {
@@ -39,15 +43,15 @@ export function createNweaSlideRequests(nweaSlideId: string): SlideRequest[] {
                 insertionIndex: 1 // Insert after cover slide
             }
         },
-        // Top bar 1 (left side) for NWEA slide
+        // Top bar (full width) for NWEA slide
         {
             createShape: {
-                objectId: 'top_bar_1',
+                objectId: 'top_bar',
                 shapeType: 'RECTANGLE',
                 elementProperties: {
                     pageObjectId: nweaSlideId,
                     size: {
-                        width: { magnitude: slideWidthEMU / 2, unit: 'EMU' },
+                        width: { magnitude: slideWidthEMU, unit: 'EMU' },
                         height: { magnitude: 200000, unit: 'EMU' } // ~0.22 inches
                     },
                     transform: {
@@ -62,47 +66,7 @@ export function createNweaSlideRequests(nweaSlideId: string): SlideRequest[] {
         },
         {
             updateShapeProperties: {
-                objectId: 'top_bar_1',
-                shapeProperties: {
-                    shapeBackgroundFill: {
-                        solidFill: {
-                            color: {
-                                rgbColor: {
-                                    red: 0.0, // Blue #0094bd
-                                    green: 0.5803921568627451,
-                                    blue: 0.7411764705882353
-                                }
-                            }
-                        }
-                    }
-                },
-                fields: 'shapeBackgroundFill.solidFill.color'
-            }
-        },
-        // Top bar 2 (right side)
-        {
-            createShape: {
-                objectId: 'top_bar_2',
-                shapeType: 'RECTANGLE',
-                elementProperties: {
-                    pageObjectId: nweaSlideId,
-                    size: {
-                        width: { magnitude: slideWidthEMU / 2, unit: 'EMU' },
-                        height: { magnitude: 200000, unit: 'EMU' } // ~0.22 inches
-                    },
-                    transform: {
-                        scaleX: 1,
-                        scaleY: 1,
-                        translateX: slideWidthEMU / 2,
-                        translateY: 0,
-                        unit: 'EMU'
-                    }
-                }
-            }
-        },
-        {
-            updateShapeProperties: {
-                objectId: 'top_bar_2',
+                objectId: 'top_bar',
                 shapeProperties: {
                     shapeBackgroundFill: {
                         solidFill: {

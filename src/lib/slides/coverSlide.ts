@@ -20,9 +20,13 @@ function hexToRgbColor(hex: string) {
  * Returns an array of batch update requests for the cover slide.
  */
 interface SlideRequest {
+    createSlide?: unknown
+    createShape?: unknown
+    updateShapeProperties?: unknown
     insertText?: unknown
     updateTextStyle?: unknown
     updateParagraphStyle?: unknown
+    [key: string]: unknown // Allow any other properties for Google Slides API
 }
 
 export function createCoverSlideRequests(coverSlideId: string): SlideRequest[] {

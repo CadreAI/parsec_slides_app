@@ -1,6 +1,6 @@
 // PartnerConfig type not used in this file but kept for future reference
 
-export function sqlCers(tableId: string): string {
+export function sqlCers(tableId: string, excludeCols?: string[], filters?: { districts?: string[]; years?: number[]; schools?: string[] }): string {
     return `
     SELECT DISTINCT *
     FROM \`${tableId}\`
@@ -15,7 +15,7 @@ export function sqlCers(tableId: string): string {
     `
 }
 
-export function sqlIab(tableId: string): string {
+export function sqlIab(tableId: string, excludeCols?: string[], filters?: { districts?: string[]; years?: number[]; schools?: string[] }): string {
     return `
     SELECT DISTINCT *
     FROM \`${tableId}\`
@@ -30,7 +30,7 @@ export function sqlIab(tableId: string): string {
     `
 }
 
-export function sqlCalpads(tableId: string): string {
+export function sqlCalpads(tableId: string, excludeCols?: string[], filters?: { districts?: string[]; years?: number[]; schools?: string[] }): string {
     return `
     SELECT DISTINCT *
     FROM \`${tableId}\`
@@ -44,11 +44,41 @@ export function sqlCalpads(tableId: string): string {
     `
 }
 
-export function sqlNwea(tableId: string, excludeCols: string[] = []): string {
+export function sqlNwea(tableId: string, excludeCols: string[] = [], filters?: { districts?: string[]; years?: number[]; schools?: string[] }): string {
     const dynamicExcludes = excludeCols.length > 0 ? ',\n        ' + excludeCols.join(',\n        ') : ''
 
+    // Build WHERE clause conditions
+    const whereConditions: string[] = []
+
+    // Year filter - use specific years if provided, otherwise default to last 3 years
+    if (filters?.years && filters.years.length > 0) {
+        const yearList = filters.years.join(', ')
+        whereConditions.push(`Year IN (${yearList})`)
+    } else {
+        // Default: last 3 years
+        whereConditions.push(`Year >= (
+            CASE
+                WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
+                    THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1
+                ELSE EXTRACT(YEAR FROM CURRENT_DATE())
+            END
+        ) - 3`)
+    }
+
+    // District filter
+    if (filters?.districts && filters.districts.length > 0) {
+        whereConditions.push(`DistrictName IN UNNEST(@districts)`)
+    }
+
+    // School filter
+    if (filters?.schools && filters.schools.length > 0) {
+        whereConditions.push(`SchoolName IN UNNEST(@schools)`)
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''
+
     return `
-        SELECT DISTINCT *
+        SELECT *
         EXCEPT (
         -- Comment the fields below that you would like to include in the results
         RapidGuessingPercentage,
@@ -116,17 +146,11 @@ export function sqlNwea(tableId: string, excludeCols: string[] = []): string {
       END AS TestedWithAccommodations
     FROM 
         \`${tableId}\`
-    WHERE Year >= (
-        CASE
-            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
-                THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1
-            ELSE EXTRACT(YEAR FROM CURRENT_DATE())
-        END
-        ) - 3
+    ${whereClause}
     `
 }
 
-export function sqlStar(tableId: string, excludeCols: string[] = []): string {
+export function sqlStar(tableId: string, excludeCols: string[] = [], filters?: { districts?: string[]; years?: number[]; schools?: string[] }): string {
     const dynamicExcludes = excludeCols.length > 0 ? ',\n        ' + excludeCols.join(',\n        ') : ''
 
     return `
@@ -156,7 +180,7 @@ export function sqlStar(tableId: string, excludeCols: string[] = []): string {
     `
 }
 
-export function sqlIready(tableId: string, excludeCols: string[] = []): string {
+export function sqlIready(tableId: string, excludeCols: string[] = [], filters?: { districts?: string[]; years?: number[]; schools?: string[] }): string {
     const dynamicExcludes = excludeCols.length > 0 ? ',\n        ' + excludeCols.join(',\n        ') : ''
 
     return `

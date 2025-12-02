@@ -6,11 +6,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
+import { Progress } from '@/components/ui/progress'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 // Available assessment sources for data ingestion
@@ -27,6 +28,7 @@ export default function CreateSlide() {
     const router = useRouter()
     const [isIngesting, setIsIngesting] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
+    const [slideProgress, setSlideProgress] = useState({ value: 0, step: '' })
     const [formData, setFormData] = useState({
         // Partner & Data Configuration
         partnerName: '',
@@ -35,10 +37,12 @@ export default function CreateSlide() {
         selectedDataSources: [] as string[],
         customDataSources: {} as Record<string, string>,
         // Slide Configuration
-        districtNames: [] as string[],
+        deckName: '',
+        districtName: '',
         schools: [] as string[],
         grades: [] as string[],
         years: [] as string[],
+        quarters: [] as string[],
         subjects: [] as string[],
         studentGroups: [] as string[],
         race: [] as string[],
@@ -99,9 +103,97 @@ export default function CreateSlide() {
         }
     }
 
-    const partnerOptions = [{ value: 'demodashboard', label: 'Parsec Academy' }]
+    const [partnerOptions, setPartnerOptions] = useState<Array<{ value: string; label: string }>>([
+        { value: 'demodashboard', label: 'demodashboard (default)' }
+    ])
+    const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
+    const [availableDistricts, setAvailableDistricts] = useState<string[]>([])
+    const [availableSchools, setAvailableSchools] = useState<string[]>([])
+    const [districtSchoolMap, setDistrictSchoolMap] = useState<Record<string, string[]>>({})
+    const [isLoadingDistrictsSchools, setIsLoadingDistrictsSchools] = useState(false)
+
+    // Fetch datasets from BigQuery when projectId changes
+    useEffect(() => {
+        const fetchDatasets = async () => {
+            if (!formData.projectId || formData.projectId.trim() === '') {
+                return
+            }
+
+            setIsLoadingDatasets(true)
+            try {
+                const res = await fetch(
+                    `/api/bigquery/datasets?projectId=${encodeURIComponent(formData.projectId)}&location=${encodeURIComponent(formData.location)}`
+                )
+                const data = await res.json()
+
+                if (res.ok && data.success && data.datasets) {
+                    const datasetOptions = data.datasets.map((datasetId: string) => ({
+                        value: datasetId,
+                        label: datasetId
+                    }))
+                    setPartnerOptions(datasetOptions)
+                    console.log(`Loaded ${datasetOptions.length} datasets from BigQuery`)
+                } else {
+                    console.warn('Failed to load datasets:', data.error || 'Unknown error')
+                    // Keep default option on error
+                }
+            } catch (error) {
+                console.error('Error fetching datasets:', error)
+                // Keep default option on error
+            } finally {
+                setIsLoadingDatasets(false)
+            }
+        }
+
+        fetchDatasets()
+    }, [formData.projectId, formData.location])
+
+    // Fetch districts and schools from NWEA table when partner is selected
+    useEffect(() => {
+        const fetchDistrictsAndSchools = async () => {
+            if (!formData.partnerName || !formData.projectId || formData.partnerName.trim() === '') {
+                setAvailableDistricts([])
+                setAvailableSchools([])
+                setDistrictSchoolMap({})
+                return
+            }
+
+            setIsLoadingDistrictsSchools(true)
+            try {
+                const res = await fetch(
+                    `/api/bigquery/districts-schools?projectId=${encodeURIComponent(formData.projectId)}&datasetId=${encodeURIComponent(formData.partnerName)}&location=${encodeURIComponent(formData.location)}`
+                )
+                const data = await res.json()
+
+                if (res.ok && data.success) {
+                    setAvailableDistricts(data.districts || [])
+                    setAvailableSchools(data.schools || [])
+                    setDistrictSchoolMap(data.districtSchoolMap || {})
+                    console.log(`Loaded ${data.districts?.length || 0} districts and ${data.schools?.length || 0} schools`)
+                } else {
+                    console.warn('Failed to load districts/schools:', data.error || 'Unknown error')
+                    setAvailableDistricts([])
+                    setAvailableSchools([])
+                    setDistrictSchoolMap({})
+                }
+            } catch (error) {
+                console.error('Error fetching districts and schools:', error)
+                setAvailableDistricts([])
+                setAvailableSchools([])
+                setDistrictSchoolMap({})
+            } finally {
+                setIsLoadingDistrictsSchools(false)
+            }
+        }
+
+        fetchDistrictsAndSchools()
+    }, [formData.partnerName, formData.projectId, formData.location])
 
     const getDistrictOptions = () => {
+        // Use dynamically fetched districts if available, otherwise fall back to partnerConfig
+        if (availableDistricts.length > 0) {
+            return availableDistricts
+        }
         if (!formData.partnerName || !partnerConfig[formData.partnerName]) {
             return []
         }
@@ -109,18 +201,21 @@ export default function CreateSlide() {
     }
 
     const getSchoolOptions = () => {
+        // Use dynamically fetched schools if available
+        if (formData.districtName && Object.keys(districtSchoolMap).length > 0) {
+            // Filter schools by selected district
+            const schools = districtSchoolMap[formData.districtName] || []
+            return schools
+        }
+        if (availableSchools.length > 0) {
+            return availableSchools
+        }
+        // Fall back to partnerConfig
         if (!formData.partnerName || !partnerConfig[formData.partnerName]) {
             return []
         }
-        const selectedDistricts = formData.districtNames
-        const allSchools: string[] = []
-
-        selectedDistricts.forEach((district) => {
-            const schools = partnerConfig[formData.partnerName].schools[district] || []
-            allSchools.push(...schools)
-        })
-
-        return Array.from(new Set(allSchools))
+        const schools = partnerConfig[formData.partnerName].schools[formData.districtName] || []
+        return schools
     }
 
     const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
@@ -152,8 +247,9 @@ export default function CreateSlide() {
         setFormData((prev) => ({
             ...prev,
             partnerName: partner,
-            districtNames: [],
-            schools: []
+            districtName: '',
+            schools: [],
+            quarters: []
         }))
     }
 
@@ -185,8 +281,18 @@ export default function CreateSlide() {
             return
         }
 
+        if (!formData.districtName.trim()) {
+            toast.error('Please select a district')
+            return
+        }
+
         if (formData.selectedDataSources.length === 0) {
             toast.error('Please select at least one data source/assessment')
+            return
+        }
+
+        if (formData.years.length < 2) {
+            toast.error('Please select at least 2 years (2023-2026)')
             return
         }
 
@@ -212,7 +318,7 @@ export default function CreateSlide() {
             })
 
             // Use selected districts from scope selection
-            const districtList = formData.districtNames.length > 0 ? formData.districtNames : ['Parsec Academy']
+            const districtList = formData.districtName ? [formData.districtName] : ['Parsec Academy']
 
             // Build config object
             const config = {
@@ -290,13 +396,14 @@ export default function CreateSlide() {
                                   .filter((g) => g !== null)
                             : undefined,
                     years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
+                    quarters: formData.quarters.length > 0 ? formData.quarters : undefined,
                     subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
                     student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
                     race: formData.race.length > 0 ? formData.race : undefined
                 },
                 // Scope selection: only generate charts for selected schools/districts
                 selected_schools: formData.schools.length > 0 ? formData.schools : [],
-                include_district_scope: formData.districtNames.length > 0 // Include district scope if districts are selected
+                include_district_scope: !!formData.districtName // Include district scope if district is selected
             }
 
             // Call the data ingestion API
@@ -319,14 +426,44 @@ export default function CreateSlide() {
 
             // Step 2: Create slide deck
             toast.info('Step 2/2: Creating slide deck...')
+            setSlideProgress({ value: 0, step: 'Initializing...' })
 
-            const presentationTitle = `Slide Deck - ${formData.partnerName || 'Untitled'}`
+            const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`
 
             // Use selectedDataSources for assessments (they're now combined)
             const assessmentsToUse = formData.assessments.length > 0 ? formData.assessments : formData.selectedDataSources
 
             // Hardcoded Google Drive folder
             const driveFolderUrl = 'https://drive.google.com/drive/folders/1CUOM-Sz6ulyzD2mTREdcYoBXUJLrgngw'
+
+            // Estimate total steps for progress tracking
+            const totalCharts = charts.length
+            const estimatedSteps = Math.max(10, 5 + Math.ceil(totalCharts * 0.5)) // Base steps + chart processing
+            let currentStep = 0
+
+            const updateProgress = (step: string, increment: number = 1) => {
+                currentStep += increment
+                const progress = Math.min(Math.round((currentStep / estimatedSteps) * 100), 95) // Cap at 95% until complete
+                setSlideProgress({ value: progress, step })
+            }
+
+            // Simulate progress updates during API call
+            const progressInterval = setInterval(() => {
+                if (currentStep < estimatedSteps - 1) {
+                    // Gradually increase progress to show activity
+                    const simulatedProgress = Math.min(currentStep + 0.3, estimatedSteps - 1)
+                    const progress = Math.round((simulatedProgress / estimatedSteps) * 100)
+                    setSlideProgress((prev) => ({
+                        value: Math.max(prev.value, Math.min(progress, 95)),
+                        step: prev.step || 'Processing...'
+                    }))
+                }
+            }, 300)
+
+            updateProgress('Creating presentation...', 1)
+            setTimeout(() => updateProgress('Uploading charts to Drive...', 2), 500)
+            setTimeout(() => updateProgress('Creating slides...', 2), 1000)
+            setTimeout(() => updateProgress('Adding charts to slides...', 2), 1500)
 
             // Call the API route to create the presentation
             const res = await fetch('/api/slides/create', {
@@ -340,6 +477,9 @@ export default function CreateSlide() {
                 })
             })
 
+            clearInterval(progressInterval)
+            updateProgress('Finalizing...', estimatedSteps - currentStep)
+
             const data = await res.json()
 
             if (!res.ok) {
@@ -349,6 +489,7 @@ export default function CreateSlide() {
             }
 
             console.log('Presentation created:', data.presentationId)
+            setSlideProgress({ value: 100, step: 'Complete!' })
             toast.success(`✅ Complete! Presentation created. View it here: ${data.presentationUrl}`)
 
             setTimeout(() => {
@@ -361,6 +502,7 @@ export default function CreateSlide() {
         } finally {
             setIsCreating(false)
             setIsIngesting(false)
+            setSlideProgress({ value: 0, step: '' })
         }
     }
 
@@ -390,19 +532,41 @@ export default function CreateSlide() {
                             {/* Basic Settings */}
                             <div className="space-y-4 border-b pb-4">
                                 <h3 className="text-lg font-semibold">Basic Settings</h3>
+                                <div className="space-y-2">
+                                    <Label htmlFor="deckName">
+                                        Deck Name <span className="text-muted-foreground">(Optional)</span>
+                                    </Label>
+                                    <Input
+                                        id="deckName"
+                                        value={formData.deckName}
+                                        onChange={(e) => setFormData((prev) => ({ ...prev, deckName: e.target.value }))}
+                                        placeholder={`Slide Deck - ${formData.partnerName || 'Untitled'}`}
+                                    />
+                                    <p className="text-xs text-muted-foreground">Leave empty to use default name</p>
+                                </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label htmlFor="partnerName">
                                             Partner Name <span className="text-destructive">*</span>
                                         </Label>
-                                        <Select id="partnerName" value={formData.partnerName} onChange={handlePartnerChange} required>
-                                            <option value="">Select a partner...</option>
+                                        <Select
+                                            id="partnerName"
+                                            value={formData.partnerName}
+                                            onChange={handlePartnerChange}
+                                            required
+                                            disabled={isLoadingDatasets}
+                                        >
+                                            <option value="">{isLoadingDatasets ? 'Loading datasets...' : 'Select a dataset/partner...'}</option>
                                             {partnerOptions.map((partner) => (
                                                 <option key={partner.value} value={partner.value}>
                                                     {partner.label}
                                                 </option>
                                             ))}
                                         </Select>
+                                        {isLoadingDatasets && <p className="text-xs text-muted-foreground">Fetching datasets from BigQuery...</p>}
+                                        {!isLoadingDatasets && partnerOptions.length === 1 && (
+                                            <p className="text-xs text-muted-foreground">Enter a GCP Project ID above to load available datasets</p>
+                                        )}
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="projectId">GCP Project ID</Label>
@@ -422,21 +586,29 @@ export default function CreateSlide() {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>
-                                            District(s) <span className="text-destructive">*</span>
+                                            District <span className="text-destructive">*</span>
                                         </Label>
-                                        <MultiSelect
-                                            options={getDistrictOptions()}
-                                            selected={formData.districtNames}
-                                            onChange={(selected) => {
+                                        <Select
+                                            id="districtName"
+                                            value={formData.districtName}
+                                            onChange={(e) => {
                                                 setFormData((prev) => ({
                                                     ...prev,
-                                                    districtNames: selected,
+                                                    districtName: e.target.value,
                                                     schools: []
                                                 }))
                                             }}
-                                            placeholder="Select district(s)..."
-                                            disabled={!formData.partnerName}
-                                        />
+                                            required
+                                            disabled={isLoadingDistrictsSchools || !formData.partnerName}
+                                        >
+                                            <option value="">{isLoadingDistrictsSchools ? 'Loading districts...' : 'Select a district...'}</option>
+                                            {getDistrictOptions().map((district) => (
+                                                <option key={district} value={district}>
+                                                    {district}
+                                                </option>
+                                            ))}
+                                        </Select>
+                                        {isLoadingDistrictsSchools && <p className="text-xs text-muted-foreground">Fetching districts from NWEA table...</p>}
                                     </div>
                                     <div className="space-y-2">
                                         <Label>
@@ -446,9 +618,17 @@ export default function CreateSlide() {
                                             options={getSchoolOptions()}
                                             selected={formData.schools}
                                             onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
-                                            placeholder="Select school(s)..."
-                                            disabled={!formData.partnerName || formData.districtNames.length === 0}
+                                            placeholder={
+                                                isLoadingDistrictsSchools
+                                                    ? 'Loading schools...'
+                                                    : !formData.districtName
+                                                      ? 'Select district first...'
+                                                      : 'Select school(s)...'
+                                            }
+                                            disabled={isLoadingDistrictsSchools || !formData.partnerName || !formData.districtName}
                                         />
+                                        {isLoadingDistrictsSchools && <p className="text-xs text-muted-foreground">Fetching schools from NWEA table...</p>}
+                                        {isLoadingDistrictsSchools && <p className="text-xs text-muted-foreground">Fetching schools from NWEA table...</p>}
                                     </div>
                                 </div>
                             </div>
@@ -473,10 +653,24 @@ export default function CreateSlide() {
                                             Year(s) <span className="text-destructive">*</span>
                                         </Label>
                                         <MultiSelect
-                                            options={['2021', '2022', '2023', '2024', '2025']}
+                                            options={['2023', '2024', '2025', '2026']}
                                             selected={formData.years}
                                             onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
-                                            placeholder="Select year(s)..."
+                                            placeholder="Select at least 2 year(s)..."
+                                        />
+                                        {formData.years.length > 0 && formData.years.length < 2 && (
+                                            <p className="text-sm text-destructive">Please select at least 2 years</p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>
+                                            Quarter(s) <span className="text-destructive">*</span>
+                                        </Label>
+                                        <MultiSelect
+                                            options={['Fall', 'Winter', 'Spring']}
+                                            selected={formData.quarters}
+                                            onChange={(selected) => setFormData((prev) => ({ ...prev, quarters: selected }))}
+                                            placeholder="Select quarter(s)..."
                                         />
                                     </div>
                                 </div>
@@ -585,6 +779,21 @@ export default function CreateSlide() {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* Progress Bar */}
+                    {isCreating && slideProgress.value > 0 && (
+                        <Card className="mb-6">
+                            <CardContent className="pt-6">
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="font-medium">{slideProgress.step}</span>
+                                        <span className="text-muted-foreground">{slideProgress.value}%</span>
+                                    </div>
+                                    <Progress value={slideProgress.value} max={100} />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* Submit Button */}
                     <div className="flex justify-end gap-4">

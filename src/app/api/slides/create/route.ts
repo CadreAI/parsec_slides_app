@@ -1,7 +1,6 @@
-import { getSlidesClient, uploadImageToDrive, extractFolderIdFromUrl } from '@/lib/googleSlides'
-import { createChartSlideRequest, createChartSlideRequests } from '@/lib/slides/chartSlide'
+import { extractFolderIdFromUrl, getSlidesClient, uploadImageToDrive } from '@/lib/googleSlides'
+import { createChartSlideRequest, createDualChartSlideRequests, createSingleChartSlideRequests } from '@/lib/slides/chartSlide'
 import { createCoverSlideRequests } from '@/lib/slides/coverSlide'
-import { createNweaSlideRequests } from '@/lib/slides/nweaSlide'
 import type { SlideData, TextSegment } from '@/types/slide'
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
@@ -133,39 +132,47 @@ export async function POST(req: NextRequest) {
             return locations[location.toLowerCase()] || locations['center']
         }
 
-        // Create slides based on slideData array or fall back to assessments
-        const slidesToCreate =
-            slideData.length > 0
-                ? slideData
-                : (assessments || []).map(
-                      (assessment: string) =>
-                          ({
-                              slideType: 'assessment',
-                              information: assessment,
-                              text: [{ location: 'body', context: assessment }]
-                          }) as SlideData
-                  )
+        // Create slides based on slideData array (assessments are no longer used)
+        const slidesToCreate = slideData.length > 0 ? slideData : []
 
         // Create cover slide as the very first slide
         const coverSlideId = 'cover_slide_001'
-        const nweaSlideId = 'nwea_slide_001'
 
         // Create slide requests using the extracted functions
         const createSlideRequests: Array<{ createSlide?: unknown; insertText?: unknown; updateTextStyle?: unknown; updateParagraphStyle?: unknown }> = [
-            ...createCoverSlideRequests(coverSlideId),
-            ...createNweaSlideRequests(nweaSlideId)
+            ...createCoverSlideRequests(coverSlideId)
         ]
 
         // Add chart slides if charts are provided
+        // Calculate slides needed based on subject graph detection
         let chartSlideCount = 0
         if (normalizedCharts.length > 0) {
-            const chartsPerSlide = 2 // Show 2 charts per slide
-            const totalChartSlidesNeeded = Math.ceil(normalizedCharts.length / chartsPerSlide)
-            console.log(`[Slides] Creating ${totalChartSlidesNeeded} chart slide(s) for ${normalizedCharts.length} chart(s)`)
-            for (let i = 0; i < normalizedCharts.length; i += chartsPerSlide) {
-                const chartSlideId = `chart_slide_${chartSlideCount}`
-                const insertionIndex = 2 + chartSlideCount // After cover and NWEA slides
+            // Helper function to check if charts are subject graphs (math and reading)
+            const isSubjectGraphPair = (chartPaths: string[]): boolean => {
+                if (chartPaths.length < 2) return false
+                const chartNames = chartPaths.map((p) => path.basename(p, path.extname(p)).toLowerCase())
+                const hasMath = chartNames.some((name) => name.includes('math'))
+                const hasReading = chartNames.some((name) => name.includes('reading') || name.includes('read'))
+                return hasMath && hasReading
+            }
 
+            // Calculate how many slides we need
+            let totalSlidesNeeded = 0
+            for (let i = 0; i < normalizedCharts.length; ) {
+                const currentCharts = normalizedCharts.slice(i, i + 2)
+                if (isSubjectGraphPair(currentCharts) && i + 1 < normalizedCharts.length) {
+                    totalSlidesNeeded++ // One slide for the pair
+                    i += 2
+                } else {
+                    totalSlidesNeeded++ // One slide per chart
+                    i += 1
+                }
+            }
+
+            console.log(`[Slides] Creating ${totalSlidesNeeded} chart slide(s) for ${normalizedCharts.length} chart(s)`)
+            for (let i = 0; i < totalSlidesNeeded; i++) {
+                const chartSlideId = `chart_slide_${i}`
+                const insertionIndex = 1 + i // After cover slide
                 createSlideRequests.push(createChartSlideRequest(presentationId, chartSlideId, insertionIndex))
                 chartSlideCount++
             }
@@ -183,14 +190,15 @@ export async function POST(req: NextRequest) {
                         slideLayoutReference: {
                             predefinedLayout: getLayoutForSlideType(slide.slideType)
                         },
-                        insertionIndex: index + 2 + chartSlideCount // Insert after title slide, NWEA slide, and chart slides
+                        insertionIndex: index + 1 + chartSlideCount // Insert after title slide and chart slides
                     }
                 })
             })
         }
 
-        // Execute slide creation (always includes NWEA slide + any additional slides)
-        await slidesClient.presentations.batchUpdate({
+        // Execute slide creation
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (slidesClient.presentations.batchUpdate as any)({
             presentationId: presentationId,
             requestBody: {
                 requests: createSlideRequests
@@ -231,17 +239,49 @@ export async function POST(req: NextRequest) {
                 }
             }
 
-            const chartsPerSlide = 2
+            // Helper function to check if charts are subject graphs (math and reading)
+            const isSubjectGraphPair = (chartPaths: string[]): boolean => {
+                if (chartPaths.length < 2) return false
+
+                const chartNames = chartPaths.map((p) => path.basename(p, path.extname(p)).toLowerCase())
+
+                // Check if we have both math and reading charts
+                const hasMath = chartNames.some((name) => name.includes('math'))
+                const hasReading = chartNames.some((name) => name.includes('reading') || name.includes('read'))
+
+                return hasMath && hasReading
+            }
+
             let globalChartIndex = 0 // Track chart index across all slides
             const chartsAddedToSlides: string[] = []
-            for (let i = 0; i < chartUrls.length; i += chartsPerSlide) {
-                const slideChartUrls = chartUrls.slice(i, i + chartsPerSlide)
-                const slideIndex = 2 + Math.floor(i / chartsPerSlide) // After cover and NWEA slides
+            let slideIndex = 1 // Start after cover slide
+
+            // Process charts, grouping subject pairs (math+reading) together
+            for (let i = 0; i < chartUrls.length; ) {
+                // Check if current chart and next chart form a subject pair
+                const currentCharts = normalizedCharts.slice(i, i + 2)
+                const isSubjectPair = isSubjectGraphPair(currentCharts)
+
+                let slideChartUrls: string[] = []
+                let slideChartPaths: string[] = []
+
+                if (isSubjectPair && i + 1 < chartUrls.length) {
+                    // Use dual template for subject pairs (math + reading)
+                    slideChartUrls = chartUrls.slice(i, i + 2)
+                    slideChartPaths = normalizedCharts.slice(i, i + 2)
+                    i += 2 // Process both charts together
+                } else {
+                    // Use single template for individual charts
+                    slideChartUrls = [chartUrls[i]]
+                    slideChartPaths = [normalizedCharts[i]]
+                    i += 1 // Process one chart at a time
+                }
 
                 if (slideIndex < allSlides.length) {
                     const chartSlide = allSlides[slideIndex]
                     if (!chartSlide.objectId) {
                         console.warn(`Chart slide at index ${slideIndex} has no objectId, skipping`)
+                        slideIndex++
                         continue
                     }
 
@@ -258,44 +298,142 @@ export async function POST(req: NextRequest) {
                     console.log(`[Slides] Adding ${slideChartUrls.length} chart(s) to slide ${slideIndex}:`, chartNames)
                     chartsAddedToSlides.push(...chartNames)
 
-                    const chartRequests = createChartSlideRequests(
-                        chartSlide.objectId,
-                        slideChartUrls,
-                        slideWidthEMU,
-                        slideHeightEMU,
-                        globalChartIndex // Pass starting index for unique IDs
-                    )
+                    let chartRequests: unknown[] = []
+
+                    // Extract grade from chart filename for dual chart slides
+                    const extractGradeFromFilename = (filename: string): string => {
+                        const name = path.basename(filename, path.extname(filename)).toLowerCase()
+
+                        // Try to find grade patterns: "grade_5", "grade5", "grade 5", "5th", "k", "kindergarten", etc.
+                        // Priority: Look for "grade" followed by number, then standalone grade numbers
+                        // Avoid matching numbers from "section3" or other non-grade patterns
+                        let gradeMatch = name.match(/grade[_\s]*(\d+|k|kindergarten)/i)
+                        if (!gradeMatch) {
+                            // Try standalone grade patterns (but avoid matching section numbers)
+                            gradeMatch = name.match(/(?:^|[^a-z])(\d+)(?:th|st|nd|rd)(?:[^a-z]|$)/i)
+                        }
+                        if (!gradeMatch) {
+                            // Last resort: look for k or kindergarten
+                            gradeMatch = name.match(/\b(k|kindergarten)\b/i)
+                        }
+
+                        if (gradeMatch) {
+                            const grade = gradeMatch[1].toLowerCase()
+                            if (grade === 'k' || grade === 'kindergarten') {
+                                return 'Kindergarten'
+                            }
+                            const num = parseInt(grade, 10)
+                            if (!isNaN(num)) {
+                                // Handle Kindergarten (grade 0)
+                                if (num === 0) {
+                                    return 'Kindergarten'
+                                }
+                                // Convert number to ordinal (1st, 2nd, 3rd, 4th, etc.)
+                                const getOrdinalSuffix = (n: number): string => {
+                                    const j = n % 10
+                                    const k = n % 100
+                                    if (j === 1 && k !== 11) return 'st'
+                                    if (j === 2 && k !== 12) return 'nd'
+                                    if (j === 3 && k !== 13) return 'rd'
+                                    return 'th'
+                                }
+                                return `${num}${getOrdinalSuffix(num)} Grade`
+                            }
+                        }
+                        return 'Grade' // Default fallback
+                    }
+
+                    // Extract graph name from filename for single chart slides
+                    const extractGraphNameFromFilename = (filename: string): string => {
+                        const name = path.basename(filename, path.extname(filename))
+                        // Remove common prefixes/suffixes and clean up
+                        let graphName = name
+                            .replace(/^.*_section\d+_/, '') // Remove section prefixes
+                            .replace(/_fall_trends|_winter_trends|_spring_trends|_trends/gi, '') // Remove trend suffixes
+                            .replace(/_/g, ' ') // Replace underscores with spaces
+                            .replace(/\b(grade|gr)\s*\d+/gi, '') // Remove grade references
+                            .replace(/\s+/g, ' ') // Normalize spaces
+                            .trim()
+
+                        // Capitalize first letter of each word
+                        graphName = graphName
+                            .split(' ')
+                            .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ')
+
+                        return graphName || 'Chart' // Default fallback
+                    }
+
+                    // Determine template based on subject graph detection
+                    if (isSubjectPair && slideChartUrls.length === 2) {
+                        // Extract grade from first chart filename for dual chart slides
+                        const firstChartPath = slideChartPaths[0] || ''
+                        const grade = extractGradeFromFilename(firstChartPath)
+                        const title = grade // Just the grade, no "Trends"
+
+                        // Use dual chart template for subject graphs (math & reading)
+                        chartRequests = createDualChartSlideRequests(
+                            chartSlide.objectId,
+                            slideChartUrls[0],
+                            slideChartUrls[1],
+                            title,
+                            slideWidthEMU,
+                            slideHeightEMU,
+                            globalChartIndex
+                        )
+                        console.log(`[Slides] Using dual chart template for subject graphs (math/reading) with title: "${title}"`)
+                    } else {
+                        // Extract graph name from filename for single chart slides
+                        const firstChartPath = slideChartPaths[0] || ''
+                        const title = extractGraphNameFromFilename(firstChartPath)
+
+                        // Use single chart template for all other cases
+                        chartRequests = createSingleChartSlideRequests(
+                            chartSlide.objectId,
+                            slideChartUrls[0],
+                            title,
+                            slideWidthEMU,
+                            slideHeightEMU,
+                            globalChartIndex
+                        )
+                        console.log(`[Slides] Using single chart template with title: "${title}"`)
+                    }
+
                     globalChartIndex += slideChartUrls.length // Update global index
 
                     if (chartRequests.length > 0) {
-                        await slidesClient.presentations.batchUpdate({
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        await (slidesClient.presentations.batchUpdate as any)({
                             presentationId: presentationId,
                             requestBody: {
                                 requests: chartRequests
                             }
                         })
-                        console.log(`[Slides] ✓ Successfully added ${chartRequests.length} chart(s) to slide ${slideIndex}`)
+                        console.log(`[Slides] ✓ Successfully added ${chartRequests.length} chart element(s) to slide ${slideIndex}`)
                     }
+
+                    slideIndex++ // Move to next slide
                 } else {
                     console.warn(
                         `[Slides] Slide index ${slideIndex} is out of bounds (total slides: ${allSlides.length}). Skipping ${slideChartUrls.length} chart(s).`
                     )
+                    break // Stop processing if we run out of slides
                 }
             }
 
-            console.log(`[Slides] Summary: Added ${chartsAddedToSlides.length} chart(s) to ${Math.ceil(chartsAddedToSlides.length / chartsPerSlide)} slide(s)`)
+            console.log(`[Slides] Summary: Added ${chartsAddedToSlides.length} chart(s) to ${slideIndex - 2} slide(s)`)
             console.log(`[Slides] Charts added to slides:`, chartsAddedToSlides)
         }
 
-        // Process each additional slide and add content (skip title slide and NWEA slide)
+        // Process each additional slide and add content (skip title slide)
         if (slidesToCreate.length > 0) {
             for (let i = 0; i < slidesToCreate.length; i++) {
-                const slideIndex = i + 2 // Skip title slide (0) and NWEA slide (1)
+                const slideIndex = i + 1 + chartSlideCount // Skip title slide (0) and chart slides
                 if (slideIndex < allSlides.length) {
                     const slide = allSlides[slideIndex]
                     const slideInfo = slidesToCreate[i]
                     const slideObjectId = slide.objectId
-                    const updateRequests: Array<{ insertText?: unknown; updateTextStyle?: unknown; updateParagraphStyle?: unknown }> = []
+                    const updateRequests: Array<Record<string, unknown>> = []
 
                     // Add text elements with formatting support
                     if (slideInfo.text && slideInfo.text.length > 0) {
@@ -592,38 +730,7 @@ export async function POST(req: NextRequest) {
                         }
                     }
 
-                    // Add information text if provided
-                    if (slideInfo.information) {
-                        const infoLocation = parseLocation('body')
-                        const infoTextBoxId = `InfoBox_${i}`
-                        updateRequests.push({
-                            createShape: {
-                                objectId: infoTextBoxId,
-                                shapeType: 'TEXT_BOX',
-                                elementProperties: {
-                                    pageObjectId: slideObjectId,
-                                    size: {
-                                        width: { magnitude: 600, unit: 'PT' },
-                                        height: { magnitude: 150, unit: 'PT' }
-                                    },
-                                    transform: {
-                                        scaleX: 1,
-                                        scaleY: 1,
-                                        translateX: infoLocation.x - 300,
-                                        translateY: infoLocation.y - 75,
-                                        unit: 'PT'
-                                    }
-                                }
-                            }
-                        })
-                        updateRequests.push({
-                            insertText: {
-                                objectId: infoTextBoxId,
-                                insertionIndex: 0,
-                                text: slideInfo.information
-                            }
-                        })
-                    }
+                    // Assessment information display removed per user request
 
                     // Execute all update requests for this slide
                     if (updateRequests.length > 0) {
@@ -658,7 +765,7 @@ export async function POST(req: NextRequest) {
 
         // Extract more detailed error information
         const errorMessage = errorObj?.message || errorObj?.error?.message || 'Unknown error'
-        const errorDetails = err?.response?.data || err?.error || err
+        const errorDetails = (err as { response?: { data?: unknown }; error?: unknown }).response?.data || (err as { error?: unknown }).error || err
 
         return NextResponse.json(
             {

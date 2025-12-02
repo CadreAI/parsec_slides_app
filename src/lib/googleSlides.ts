@@ -14,7 +14,11 @@ const TOKEN_PATH = path.join(ROOT_DIR, 'google', 'token.json')
 function createOAuthClient() {
     const credentials = loadOAuthCredentials()
 
-    const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web
+    const creds = credentials.installed || credentials.web
+    if (!creds) {
+        throw new Error('No OAuth credentials found')
+    }
+    const { client_secret, client_id, redirect_uris } = creds
 
     // For desktop apps, use the out-of-band redirect URI
     const redirectUri = credentials.installed ? 'urn:ietf:wg:oauth:2.0:oob' : redirect_uris[0]
@@ -22,7 +26,7 @@ function createOAuthClient() {
     return new google.auth.OAuth2(client_id, client_secret, redirectUri)
 }
 
-async function getNewToken(oAuth2Client: google.auth.OAuth2Client): Promise<google.auth.Credentials> {
+async function getNewToken(oAuth2Client: ReturnType<typeof createOAuthClient>): Promise<ReturnType<typeof createOAuthClient>['credentials']> {
     const authUrl = oAuth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES

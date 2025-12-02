@@ -35,6 +35,47 @@ export function getBigQueryClient(cfg: PartnerConfig): BigQuery {
 }
 
 /**
+ * List all datasets in a BigQuery project
+ */
+export async function listDatasets(projectId: string, location?: string): Promise<string[]> {
+    try {
+        // Create a temporary client just for listing datasets
+        // We need to set up credentials first
+        process.env.GOOGLE_CLOUD_PROJECT = projectId
+
+        try {
+            const serviceAccountPath = resolveServiceAccountCredentialsPath()
+            if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+                process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
+            }
+        } catch {
+            // Credentials will use ADC if not found
+        }
+
+        const client = new BigQuery({
+            projectId: projectId,
+            location: location || 'US'
+        })
+
+        const [datasets] = await client.getDatasets()
+        const datasetIds = datasets
+            .map((dataset) => {
+                // Handle both id and datasetId properties
+                const id = (dataset as { id?: string; datasetId?: string }).id || (dataset as { id?: string; datasetId?: string }).datasetId || ''
+                return id
+            })
+            .filter(Boolean)
+
+        console.log(`Found ${datasetIds.length} datasets in project ${projectId}`)
+        return datasetIds.sort()
+    } catch (error: unknown) {
+        const err = error as { code?: number | string; message?: string }
+        console.error('Error listing datasets:', err.message || 'Unknown error')
+        throw error
+    }
+}
+
+/**
  * Check if a BigQuery table exists
  */
 export async function tableExists(tableId: string, client: BigQuery): Promise<boolean> {
@@ -68,7 +109,11 @@ export async function tableExists(tableId: string, client: BigQuery): Promise<bo
 /**
  * Run a BigQuery SQL query and return results as an array of objects
  */
-export async function runQuery(sql: string, client: BigQuery, params?: { districts?: string[] }): Promise<Record<string, unknown>[]> {
+export async function runQuery(
+    sql: string,
+    client: BigQuery,
+    params?: { districts?: string[]; years?: number[]; schools?: string[] }
+): Promise<Record<string, unknown>[]> {
     console.log('Executing query...')
 
     const options: {
@@ -79,27 +124,62 @@ export async function runQuery(sql: string, client: BigQuery, params?: { distric
             parameterType: { arrayType: { type: string } }
             parameterValue: { arrayValues: Array<{ value: string }> }
         }>
+        useQueryCache?: boolean
+        useLegacySql?: boolean
+        priority?: 'INTERACTIVE' | 'BATCH'
+        jobTimeoutMs?: number
+        maximumBytesBilled?: string
     } = {
-        query: sql
+        query: sql,
+        useQueryCache: true, // Use cached results if available (faster)
+        useLegacySql: false, // Use standard SQL (faster)
+        priority: 'INTERACTIVE', // Interactive priority for faster execution
+        jobTimeoutMs: 300000 // 5 minute timeout
     }
 
-    if (params?.districts) {
-        options.queryParameters = [
-            {
-                name: 'districts',
-                parameterType: { arrayType: { type: 'STRING' } },
-                parameterValue: { arrayValues: params.districts.map((d) => ({ value: d })) }
-            }
-        ]
+    // Build query parameters for parameterized queries
+    const queryParameters: Array<{
+        name: string
+        parameterType: { arrayType: { type: string } }
+        parameterValue: { arrayValues: Array<{ value: string }> }
+    }> = []
+
+    if (params?.districts && params.districts.length > 0) {
+        queryParameters.push({
+            name: 'districts',
+            parameterType: { arrayType: { type: 'STRING' } },
+            parameterValue: { arrayValues: params.districts.map((d) => ({ value: d })) }
+        })
     }
 
+    if (params?.schools && params.schools.length > 0) {
+        queryParameters.push({
+            name: 'schools',
+            parameterType: { arrayType: { type: 'STRING' } },
+            parameterValue: { arrayValues: params.schools.map((s) => ({ value: s })) }
+        })
+    }
+
+    if (queryParameters.length > 0) {
+        options.queryParameters = queryParameters
+    }
+
+    const startTime = Date.now()
     const [job] = await client.createQueryJob(options)
     console.log(`Query job ID: ${job.id}`)
-    console.log('Waiting for query to complete...')
 
-    // Use streaming results for large datasets to avoid memory issues
-    const [rows] = await job.getQueryResults()
-    console.log(`✓ Query completed, fetched ${rows.length.toLocaleString()} rows`)
+    // Wait for job completion - getQueryResults() will automatically wait
+    const [rows] = await job.getQueryResults({
+        timeoutMs: 300000 // 5 minute timeout
+    })
+
+    // Get final job metadata for statistics
+    const [metadata] = await job.getMetadata()
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    const bytesProcessed = metadata.statistics?.query?.totalBytesProcessed
+    const mbProcessed = bytesProcessed ? (parseInt(bytesProcessed.toString()) / 1024 / 1024).toFixed(2) : 'unknown'
+
+    console.log(`✓ Query completed in ${elapsed}s (${mbProcessed} MB processed), fetched ${rows.length.toLocaleString()} rows`)
 
     return rows
 }
