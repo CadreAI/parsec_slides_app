@@ -190,7 +190,9 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends.png"
+    # Add prefix to make district vs school charts more noticeable
+    prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
+    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends.png"
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Chart saved to: {out_path}")
@@ -219,7 +221,8 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
     }
     
     # Track chart with data
-    chart_name = f"{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends"
+    prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
+    chart_name = f"{prefix}{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends"
     track_chart(chart_name, str(out_path), scope=scope_label, section=1, chart_data=chart_data)
     
     return str(out_path)
@@ -368,7 +371,9 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_name = f"{scope_label.replace(' ', '_')}-section0_pred_vs_actual_{folder}.png"
+    # Add prefix to make district vs school charts more noticeable
+    prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}-section0_pred_vs_actual_{folder}.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 0: {str(out_path.absolute())}")
@@ -458,8 +463,8 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         return
     
     fig = plt.figure(figsize=figsize, dpi=300)
-    # Use 1 column layout if no cohort data, 2 columns if cohort data exists
-    ncols = 2 if has_cohort_data else 1
+    # Section 2 charts always use 2 columns (Math and Reading side by side)
+    ncols = 2
     gs = fig.add_gridspec(nrows=3, ncols=ncols, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     axes = [[fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
@@ -581,7 +586,9 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     order_map = cfg.get("student_group_order", {})
     group_order_val = order_map.get(group_name, 99)
     safe_group = group_name.replace(" ", "_").replace("/", "_")
-    out_name = f"{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
+    # Add prefix to make district vs school charts more noticeable
+    prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 2: {str(out_path.absolute())}")
@@ -1037,7 +1044,9 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     out_dir = charts_dir / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
     scope = scope_label or (cfg.get("district_name", ["Districtwide"])[0] if school_raw is None else hf._safe_normalize_school_name(school_raw, cfg))
-    out_name = f"{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
+    # Add prefix to make district vs school charts more noticeable
+    prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
+    out_name = f"{prefix}{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     # Print absolute path as string for reliable parsing
@@ -1225,7 +1234,9 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     out_dir = charts_dir / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")
-    out_name = f"{safe_scope}_section4_cgp_fall_to_fall_dualpanel.png"
+    # Add prefix to make district vs school charts more noticeable
+    prefix = "DISTRICT_" if folder_name == "_district" else "SCHOOL_"
+    out_name = f"{prefix}{safe_scope}_section4_cgp_fall_to_fall_dualpanel.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
@@ -1503,14 +1514,19 @@ def main(nwea_data=None):
     # Section 2: Student Group Performance Trends
     print("\n[Section 2] Generating Student Group Performance Trends...")
     student_groups_cfg = cfg.get("student_groups", {})
+    race_ethnicity_cfg = cfg.get("race_ethnicity", {})
     group_order = cfg.get("student_group_order", {})
     
     # Debug: Print filter info
     if chart_filters:
         print(f"  [Debug] Student groups filter: {chart_filters.get('student_groups')}")
         print(f"  [Debug] Race filter: {chart_filters.get('race')}")
+        print(f"  [Debug] Available student groups: {list(student_groups_cfg.keys())}")
+        if race_ethnicity_cfg:
+            print(f"  [Debug] Available race groups: {list(race_ethnicity_cfg.keys())}")
     
     for scope_df, scope_label, folder in scopes:
+        # Process regular student groups
         for group_name, group_def in sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)):
             # Skip "All Students" - it's handled in Section 1
             if group_def.get("type") == "all":
@@ -1521,8 +1537,7 @@ def main(nwea_data=None):
                 if hf.DEV_MODE:
                     print(f"  [Skip] {group_name} - not in selected filters")
                 continue
-            if hf.DEV_MODE:
-                print(f"  [Generate] {group_name}")
+            print(f"  [Generate] {group_name}")
             for quarter in selected_quarters:
                 try:
                     plot_nwea_subject_dashboard_by_group(
@@ -1531,9 +1546,42 @@ def main(nwea_data=None):
                         school_raw=None if folder == "_district" else scope_df["schoolname"].iloc[0] if "schoolname" in scope_df.columns else None,
                         scope_label=scope_label, preview=hf.DEV_MODE)
                 except Exception as e:
+                    print(f"  Error generating Section 2 chart for {scope_label} - {group_name} ({quarter}): {e}")
                     if hf.DEV_MODE:
-                        print(f"  Error generating Section 2 chart for {scope_label} - {group_name} ({quarter}): {e}")
+                        import traceback
+                        traceback.print_exc()
                     continue
+        
+        # Process race/ethnicity groups if race filter is specified
+        race_filters = chart_filters.get("race", []) if chart_filters else []
+        if race_filters and race_ethnicity_cfg:
+            for race_name in race_filters:
+                race_def = race_ethnicity_cfg.get(race_name)
+                if not race_def:
+                    print(f"  [Skip] Race group '{race_name}' not found in race_ethnicity config")
+                    continue
+                
+                # Create a combined group_def for race (similar to student groups structure)
+                combined_group_def = {
+                    "column": race_def.get("column"),
+                    "values": race_def.get("values"),
+                    "type": "race"  # Mark as race type
+                }
+                
+                print(f"  [Generate] Race group: {race_name}")
+                for quarter in selected_quarters:
+                    try:
+                        plot_nwea_subject_dashboard_by_group(
+                            scope_df.copy(), None, quarter, race_name, combined_group_def,
+                            args.output_dir, cfg, figsize=(16, 9),
+                            school_raw=None if folder == "_district" else scope_df["schoolname"].iloc[0] if "schoolname" in scope_df.columns else None,
+                            scope_label=scope_label, preview=hf.DEV_MODE)
+                    except Exception as e:
+                        print(f"  Error generating Section 2 chart for {scope_label} - {race_name} ({quarter}): {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
     
     # Section 3: Overall + Cohort Trends
     print("\n[Section 3] Generating Overall + Cohort Trends...")

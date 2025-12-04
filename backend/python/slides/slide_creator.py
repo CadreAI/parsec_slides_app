@@ -2,6 +2,7 @@
 Google Slides creation module for Python backend
 Ports the slide creation logic from TypeScript to Python
 """
+import re
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from ..google_slides_client import get_slides_client
@@ -26,6 +27,210 @@ def is_subject_graph_pair(chart_paths: List[str]) -> bool:
     has_math = any('math' in name for name in chart_names)
     has_reading = any('reading' in name or 'read' in name for name in chart_names)
     return has_math and has_reading
+
+
+def find_math_reading_pair(chart_paths: List[str], start_index: int, paired_indices: set = None) -> Optional[int]:
+    """
+    Find the index of a chart that pairs with the chart at start_index.
+    Looks for charts with same grade, scope (district/school), and section.
+    If current chart is math, finds reading. If current chart is reading, finds math.
+    
+    Args:
+        chart_paths: List of chart file paths
+        start_index: Index of the current chart to find a pair for
+        paired_indices: Set of indices that are already paired (to skip)
+    """
+    if start_index >= len(chart_paths):
+        return None
+    
+    if paired_indices is None:
+        paired_indices = set()
+    
+    current_chart = Path(chart_paths[start_index]).stem.lower()
+    
+    # Strip DISTRICT_/SCHOOL_ prefix if present for matching
+    chart_without_prefix = current_chart
+    is_district_chart = False
+    if current_chart.startswith('district_'):
+        chart_without_prefix = current_chart.replace('district_', '', 1)
+        is_district_chart = True
+    elif current_chart.startswith('school_'):
+        chart_without_prefix = current_chart.replace('school_', '', 1)
+        is_district_chart = False
+    
+    # Determine what we're looking for (math or reading)
+    is_math = 'math' in chart_without_prefix
+    is_reading = 'reading' in chart_without_prefix or 'read' in chart_without_prefix
+    
+    if not (is_math or is_reading):
+        return None
+    
+    # Extract grade from current chart - be more precise
+    grade_match = re.search(r'grade(\d+)', chart_without_prefix)
+    if not grade_match:
+        return None
+    grade = grade_match.group(1)
+    
+    # Extract section
+    section_match = re.search(r'section(\d+)', chart_without_prefix)
+    if not section_match:
+        return None
+    section = section_match.group(1)
+    
+    # Extract school name pattern for more precise matching (without DISTRICT_/SCHOOL_ prefix)
+    # For district: "parsec_academy_charter_schools"
+    # For school: "parsec_academy" (without charter_schools)
+    school_pattern = None
+    parts_before_section = chart_without_prefix.split('_section')[0].split('_')
+    
+    # Check if it's a district chart by looking for "charter_schools" pattern
+    if 'charter' in parts_before_section and 'schools' in parts_before_section:
+        # Find where charter_schools appears
+        charter_idx = parts_before_section.index('charter')
+        school_pattern = '_'.join(parts_before_section[:charter_idx+2])  # Include charter_schools
+    else:
+        # For school charts, extract school name (everything before section)
+        school_pattern = '_'.join(parts_before_section)
+    
+    # Look ahead for matching chart (opposite subject)
+    # Also look backward if forward search fails (in case charts are out of order)
+    print(f"[Pairing] Searching for pair from index {start_index + 1} to {len(chart_paths) - 1}")
+    found_pair_index = None
+    
+    # First, try forward search (preferred - assumes math comes before reading)
+    for i in range(start_index + 1, len(chart_paths)):
+        # Skip if already paired
+        if i in paired_indices:
+            print(f"[Pairing] Skipping index {i} (already paired)")
+            continue
+            
+        other_chart = Path(chart_paths[i]).stem.lower()
+        print(f"[Pairing] Checking index {i}: {Path(chart_paths[i]).name}")
+        
+        # Strip DISTRICT_/SCHOOL_ prefix from other chart
+        other_chart_without_prefix = other_chart
+        other_is_district_chart = False
+        if other_chart.startswith('district_'):
+            other_chart_without_prefix = other_chart.replace('district_', '', 1)
+            other_is_district_chart = True
+        elif other_chart.startswith('school_'):
+            other_chart_without_prefix = other_chart.replace('school_', '', 1)
+            other_is_district_chart = False
+        
+        # CRITICAL: Must match district vs school scope
+        if other_is_district_chart != is_district_chart:
+            continue  # Scope mismatch - skip
+        
+        # Check if it's the opposite subject
+        other_is_math = 'math' in other_chart_without_prefix
+        other_is_reading = 'reading' in other_chart_without_prefix or 'read' in other_chart_without_prefix
+        
+        if is_math and not other_is_reading:
+            continue
+        if is_reading and not other_is_math:
+            continue
+        
+        # Check if same grade - CRITICAL: must match exactly
+        other_grade_match = re.search(r'grade(\d+)', other_chart_without_prefix)
+        if not other_grade_match:
+            continue
+        other_grade = other_grade_match.group(1)
+        if other_grade != grade:
+            continue  # Grade mismatch - skip this chart
+        
+        # Check if same section
+        other_section_match = re.search(r'section(\d+)', other_chart_without_prefix)
+        if not other_section_match:
+            continue
+        other_section = other_section_match.group(1)
+        if other_section != section:
+            continue
+        
+        # Check if same scope using school pattern (without prefix)
+        other_parts_before_section = other_chart_without_prefix.split('_section')[0].split('_')
+        other_school_pattern = None
+        if 'charter' in other_parts_before_section and 'schools' in other_parts_before_section:
+            charter_idx = other_parts_before_section.index('charter')
+            other_school_pattern = '_'.join(other_parts_before_section[:charter_idx+2])
+        else:
+            other_school_pattern = '_'.join(other_parts_before_section)
+        
+        if school_pattern and other_school_pattern != school_pattern:
+            continue
+        
+        # Found a match!
+        found_pair_index = i
+        break
+    
+    # If no forward match found, try backward search (in case charts are out of order)
+    if found_pair_index is None:
+        print(f"[Pairing] No forward match found, searching backward from index {start_index - 1} to 0")
+        for i in range(start_index - 1, -1, -1):
+            # Skip if already paired
+            if i in paired_indices:
+                print(f"[Pairing] Skipping backward index {i} (already paired)")
+                continue
+                
+            other_chart = Path(chart_paths[i]).stem.lower()
+            print(f"[Pairing] Checking backward index {i}: {Path(chart_paths[i]).name}")
+            
+            # Strip DISTRICT_/SCHOOL_ prefix from other chart
+            other_chart_without_prefix = other_chart
+            other_is_district_chart = False
+            if other_chart.startswith('district_'):
+                other_chart_without_prefix = other_chart.replace('district_', '', 1)
+                other_is_district_chart = True
+            elif other_chart.startswith('school_'):
+                other_chart_without_prefix = other_chart.replace('school_', '', 1)
+                other_is_district_chart = False
+            
+            # CRITICAL: Must match district vs school scope
+            if other_is_district_chart != is_district_chart:
+                continue  # Scope mismatch - skip
+            
+            # Check if it's the opposite subject
+            other_is_math = 'math' in other_chart_without_prefix
+            other_is_reading = 'reading' in other_chart_without_prefix or 'read' in other_chart_without_prefix
+            
+            if is_math and not other_is_reading:
+                continue
+            if is_reading and not other_is_math:
+                continue
+            
+            # Check if same grade - CRITICAL: must match exactly
+            other_grade_match = re.search(r'grade(\d+)', other_chart_without_prefix)
+            if not other_grade_match:
+                continue
+            other_grade = other_grade_match.group(1)
+            if other_grade != grade:
+                continue  # Grade mismatch - skip this chart
+            
+            # Check if same section
+            other_section_match = re.search(r'section(\d+)', other_chart_without_prefix)
+            if not other_section_match:
+                continue
+            other_section = other_section_match.group(1)
+            if other_section != section:
+                continue
+            
+            # Check if same scope using school pattern (without prefix)
+            other_parts_before_section = other_chart_without_prefix.split('_section')[0].split('_')
+            other_school_pattern = None
+            if 'charter' in other_parts_before_section and 'schools' in other_parts_before_section:
+                charter_idx = other_parts_before_section.index('charter')
+                other_school_pattern = '_'.join(other_parts_before_section[:charter_idx+2])
+            else:
+                other_school_pattern = '_'.join(other_parts_before_section)
+            
+            if school_pattern and other_school_pattern != school_pattern:
+                continue
+            
+            # Found a match backward!
+            found_pair_index = i
+            print(f"[Pairing] ✓ Found backward pair at index {i}")
+            break
+    
+    return found_pair_index
 
 
 def create_slides_presentation(
@@ -183,14 +388,86 @@ def create_slides_presentation(
             print(f"[Slides] WARNING: Mismatch - {len(chart_urls)} URLs but {len(normalized_charts)} charts")
         
         i = 0
+        paired_indices = set()  # Track which charts have been paired
         while i < len(chart_urls) and i < len(normalized_charts):
-            current_charts = normalized_charts[i:i+2]
-            current_urls = [url for url in chart_urls[i:i+2] if url is not None]  # Filter out None URLs
-            is_subject_pair = is_subject_graph_pair(current_charts) and len(current_urls) == 2
+            # Skip if this chart was already paired
+            if i in paired_indices:
+                i += 1
+                continue
+            
+            current_chart_name = Path(normalized_charts[i]).stem.lower()
+            is_math = 'math' in current_chart_name
+            is_reading = 'reading' in current_chart_name or 'read' in current_chart_name
+            
+            # Try to find a math+reading pair starting from current index
+            # Only look for pairs if current chart is math or reading
+            pair_index = None
+            if is_math or is_reading:
+                print(f"[Pairing] Looking for pair for chart at index {i}: {Path(normalized_charts[i]).name}")
+                print(f"[Pairing] Current chart is {'math' if is_math else 'reading'}, looking for {'reading' if is_math else 'math'}")
+                pair_index = find_math_reading_pair(normalized_charts, i, paired_indices)
+                if pair_index is not None:
+                    print(f"[Pairing] ✓ Found pair at index {pair_index}: {Path(normalized_charts[pair_index]).name}")
+                else:
+                    print(f"[Pairing] ✗ No pair found for chart at index {i}")
+            
+            if pair_index is not None and pair_index not in paired_indices:
+                # Found a math+reading pair - use those two charts
+                current_charts = [normalized_charts[i], normalized_charts[pair_index]]
+                current_urls = [chart_urls[i], chart_urls[pair_index]]
+                if current_urls[0] is None or current_urls[1] is None:
+                    # Skip if URLs are None
+                    i += 1
+                    continue
+                is_subject_pair = True
+                paired_indices.add(i)
+                paired_indices.add(pair_index)
+            else:
+                # No pair found - process as single chart slide
+                # Only pair sequentially if the next chart is already a valid math+reading pair
+                if i + 1 < len(normalized_charts) and (i + 1) not in paired_indices:
+                    next_chart_name = Path(normalized_charts[i + 1]).stem.lower()
+                    next_is_math = 'math' in next_chart_name
+                    next_is_reading = 'reading' in next_chart_name or 'read' in next_chart_name
+                    # Only pair if current and next form a valid math+reading pair
+                    if ((is_math and next_is_reading) or (is_reading and next_is_math)):
+                        # Check if they're the same grade and scope
+                        current_grade_match = re.search(r'grade(\d+)', current_chart_name)
+                        next_grade_match = re.search(r'grade(\d+)', next_chart_name)
+                        current_is_district = current_chart_name.startswith('district_')
+                        next_is_district = next_chart_name.startswith('district_')
+                        
+                        if (current_grade_match and next_grade_match and 
+                            current_grade_match.group(1) == next_grade_match.group(1) and
+                            current_is_district == next_is_district):
+                            # Valid sequential pair
+                            current_charts = normalized_charts[i:i+2]
+                            current_urls = [url for url in chart_urls[i:i+2] if url is not None]
+                            is_subject_pair = len(current_urls) == 2
+                            paired_indices.add(i)
+                            paired_indices.add(i + 1)
+                        else:
+                            # Not a valid pair - process as single chart
+                            current_charts = [normalized_charts[i]]
+                            current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
+                            is_subject_pair = False
+                    else:
+                        # Not a math+reading pair - process as single chart
+                        current_charts = [normalized_charts[i]]
+                        current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
+                        is_subject_pair = False
+                else:
+                    # No next chart or next chart already paired - process as single chart
+                    current_charts = [normalized_charts[i]]
+                    current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
+                    is_subject_pair = False
             
             # Log which charts we're processing
             chart_names = [Path(p).name for p in current_charts]
-            print(f"[Slides] Processing charts at index {i}: {chart_names}")
+            if pair_index is not None:
+                print(f"[Slides] Processing charts at index {i} (paired with {pair_index}): {chart_names}")
+            else:
+                print(f"[Slides] Processing charts at index {i}: {chart_names}")
             
             if slide_index < len(all_slides):
                 chart_slide = all_slides[slide_index]
@@ -237,17 +514,75 @@ def create_slides_presentation(
                                 insight2 = insight_data
                                 break
                     
-                    # Use title from first chart's insight, or second chart's, or fallback
-                    if insight1:
-                        title_text = insight1.get('title')
-                    elif insight2:
-                        title_text = insight2.get('title')
+                    # Generate a generic title for dual chart slides (both math and reading)
+                    # Extract grade and school from insights or chart filenames
+                    title_text = None
+                    grade = None
+                    school_name = None
                     
-                    if not title_text:
-                        title_text = 'Math & Reading Performance'
-                        print(f"[Slides] No AI insights found for dual chart, using default title")
+                    # Grade name mapping
+                    grade_names = {
+                        0: "Kindergarten", 1: "First Grade", 2: "Second Grade", 3: "Third Grade",
+                        4: "Fourth Grade", 5: "Fifth Grade", 6: "Sixth Grade", 7: "Seventh Grade",
+                        8: "Eighth Grade", 9: "Ninth Grade", 10: "Tenth Grade",
+                        11: "Eleventh Grade", 12: "Twelfth Grade"
+                    }
+                    
+                    # Try to extract grade and school from insights
+                    for insight in [insight1, insight2]:
+                        if insight:
+                            # Extract grade
+                            if not grade:
+                                grade_str = insight.get('grade')
+                                if grade_str:
+                                    # Convert "1" or "Grade 1" to "First Grade"
+                                    try:
+                                        grade_num = int(grade_str.replace('Grade', '').replace('grade', '').strip())
+                                        grade = grade_names.get(grade_num, f"Grade {grade_num}")
+                                    except:
+                                        grade = grade_str
+                            
+                            # Extract school name from title if available
+                            if not school_name:
+                                title = insight.get('title', '')
+                                # Look for "at [School Name]" pattern
+                                if ' at ' in title:
+                                    school_name = title.split(' at ')[-1].strip()
+                    
+                    # If no grade found, try to extract from chart filename
+                    if not grade:
+                        chart_name = Path(current_charts[0]).name.lower()
+                        # Look for "grade1", "grade_1", "grade-1" patterns
+                        grade_match = re.search(r'grade[_\s-]?(\d+)', chart_name)
+                        if grade_match:
+                            grade_num = int(grade_match.group(1))
+                            grade = grade_names.get(grade_num, f"Grade {grade_num}")
+                    
+                    # If no school name found, try to extract from chart filename
+                    if not school_name:
+                        chart_name = Path(current_charts[0]).name
+                        # Look for school name patterns (usually before "section" or "grade")
+                        parts = chart_name.replace('_', ' ').split()
+                        # School name is usually the first part before "section" or "grade"
+                        school_parts = []
+                        for part in parts:
+                            if part.lower() in ['section', 'grade', 'math', 'reading', 'fall', 'trends']:
+                                break
+                            school_parts.append(part)
+                        if school_parts:
+                            school_name = ' '.join(school_parts)
+                    
+                    # Build generic title
+                    if grade and school_name:
+                        title_text = f"{grade} Performance Trends at {school_name}"
+                    elif grade:
+                        title_text = f"{grade} Performance Trends"
+                    elif school_name:
+                        title_text = f"Performance Trends at {school_name}"
                     else:
-                        print(f"[AI] Using AI-generated title for dual chart: {title_text}")
+                        title_text = 'Math & Reading Performance'
+                    
+                    print(f"[Slides] Generated dual chart title: {title_text}")
                     
                     chart_requests = create_dual_chart_slide_requests(
                         slide_object_id,
@@ -261,7 +596,17 @@ def create_slides_presentation(
                     print(f"[Slides] Using dual chart template for subject graphs with title: {title_text}")
                     print(f"[Slides]   Chart 1: {Path(current_charts[0]).name} -> {current_urls[0][:50]}...")
                     print(f"[Slides]   Chart 2: {Path(current_charts[1]).name} -> {current_urls[1][:50]}...")
-                    i += 2
+                    # Advance index based on whether we found a pair or used sequential
+                    if pair_index is not None:
+                        # Skip both charts (math at i, reading at pair_index)
+                        # Need to skip all charts between i and pair_index
+                        i = pair_index + 1
+                    elif len(current_charts) == 2:
+                        # Sequential pair was used
+                        i += 2
+                    else:
+                        # Single chart (shouldn't happen here, but just in case)
+                        i += 1
                 else:
                     # Single chart slide
                     if not current_urls or len(current_urls) == 0:
