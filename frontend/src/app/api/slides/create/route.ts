@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json()
-        const { title, slides: slidesData, charts: chartPaths, driveFolderUrl, schoolName, quarters, partnerName, enableAIInsights } = body
+        const { title, slides: slidesData, charts: chartPaths, driveFolderUrl, schoolName, quarters, partnerName, enableAIInsights, userPrompt } = body
 
         if (!title) {
             return NextResponse.json({ error: 'title is required' }, { status: 400 })
@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
                     charts: chartPaths,
                     driveFolderUrl,
                     enableAIInsights: enableAIInsights !== false, // Default to true
+                    userPrompt: userPrompt || undefined, // Optional user prompt for decision LLM
                     slides: slidesData,
                     schoolName,
                     quarters,

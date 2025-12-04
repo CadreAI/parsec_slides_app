@@ -48,7 +48,8 @@ def load_chart_data(chart_path: str) -> Optional[Dict]:
 def analyze_chart_with_gpt(
     chart_path: str,
     chart_metadata: Optional[Dict] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    analysis_focus: Optional[str] = None
 ) -> Dict:
     """
     Analyze a single chart using OpenAI Vision API
@@ -140,6 +141,17 @@ def analyze_chart_with_gpt(
     if data_context:
         context += data_context
     
+    # Build focus instruction if provided
+    focus_instruction = ""
+    if analysis_focus:
+        focus_instruction = f"\n\nFOCUS AREA: Pay special attention to {analysis_focus} in your analysis. "
+        if "trend" in analysis_focus.lower():
+            focus_instruction += "Emphasize trends over time, changes between periods, and directional patterns."
+        elif "comparison" in analysis_focus.lower():
+            focus_instruction += "Emphasize comparisons between groups, subjects, or time periods."
+        elif "actionable" in analysis_focus.lower() or "insight" in analysis_focus.lower():
+            focus_instruction += "Emphasize actionable insights and recommendations."
+    
     # Create prompt for analysis
     prompt = f"""Analyze this NWEA assessment data visualization chart and provide insights in JSON format.
 
@@ -152,7 +164,7 @@ Please analyze the chart and provide:
 4. Subject (math or reading, if applicable)
 5. Grade level (if visible in chart)
 6. Key metrics or trends observed
-
+{focus_instruction}
 Return your response as a JSON object with this exact structure:
 {{
     "title": "Chart title here",
@@ -308,7 +320,8 @@ If actual chart data is provided above, use those exact numbers and metrics in y
 def analyze_charts_batch(
     chart_batch: List[Tuple[str, Dict]],
     api_key: Optional[str] = None,
-    batch_num: int = 1
+    batch_num: int = 1,
+    analysis_focus: Optional[str] = None
 ) -> List[Dict]:
     """
     Analyze a batch of charts in parallel (up to 10 charts)
@@ -317,6 +330,7 @@ def analyze_charts_batch(
         chart_batch: List of tuples (chart_path, metadata_dict)
         api_key: OpenAI API key
         batch_num: Batch number for logging
+        analysis_focus: Optional focus area for analysis (e.g., "trends", "comparisons")
     
     Returns:
         List of analysis dictionaries
@@ -326,7 +340,7 @@ def analyze_charts_batch(
     def analyze_single(chart_path: str, metadata: Dict) -> Dict:
         """Helper function to analyze a single chart"""
         try:
-            return analyze_chart_with_gpt(chart_path, metadata, api_key)
+            return analyze_chart_with_gpt(chart_path, metadata, api_key, analysis_focus)
         except Exception as e:
             print(f"Error analyzing chart {chart_path}: {e}")
             return {
@@ -379,7 +393,8 @@ def analyze_charts_batch(
 def analyze_charts_batch_paths(
     chart_paths: List[str],
     api_key: Optional[str] = None,
-    batch_size: int = 10
+    batch_size: int = 10,
+    analysis_focus: Optional[str] = None
 ) -> List[Dict]:
     """
     Analyze multiple charts from a list of file paths in batches of 10

@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Any
 from ..google_slides_client import get_slides_client
 from ..google_drive_upload import upload_images_to_drive_batch, extract_folder_id_from_url
 from ..chart_analyzer import analyze_charts_batch_paths
+from ..decision_llm import should_use_ai_insights, parse_chart_instructions
 from .slide_constants import SLIDE_WIDTH_EMU, SLIDE_HEIGHT_EMU
 from .cover_slide import create_cover_slide_requests
 from .chart_slides import (
@@ -31,7 +32,8 @@ def create_slides_presentation(
     title: str,
     chart_paths: List[str],
     drive_folder_url: Optional[str] = None,
-    enable_ai_insights: bool = True
+    enable_ai_insights: bool = True,
+    user_prompt: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Main function to create a Google Slides presentation
@@ -40,10 +42,11 @@ def create_slides_presentation(
         title: Presentation title
         chart_paths: List of paths to chart image files
         drive_folder_url: Optional Google Drive folder URL
-        enable_ai_insights: Whether to use AI-generated insights
+        enable_ai_insights: Whether to use AI-generated insights (can be overridden by decision LLM)
+        user_prompt: Optional user prompt describing preferences (used by decision LLM)
     
     Returns:
-        Dict with presentationId, presentationUrl, title
+        Dict with presentationId, presentationUrl, title, decision_info
     """
     print(f"[Slides] Creating presentation: {title}")
     
@@ -56,6 +59,18 @@ def create_slides_presentation(
         if isinstance(chart_path, str):
             resolved_path = Path(chart_path).resolve() if Path(chart_path).is_absolute() else Path.cwd() / chart_path
             normalized_charts.append(str(resolved_path))
+    
+    # Parse user instructions for chart selection and ordering
+    chart_selection_info = None
+    if user_prompt and user_prompt.strip() and normalized_charts:
+        print(f"[Chart Selection] Parsing user instructions for chart selection...")
+        chart_selection_info = parse_chart_instructions(user_prompt, normalized_charts)
+        if chart_selection_info.get('chart_selection'):
+            original_count = len(normalized_charts)
+            normalized_charts = chart_selection_info['chart_selection']
+            print(f"[Chart Selection] Filtered charts: {original_count} → {len(normalized_charts)}")
+            if chart_selection_info.get('reasoning'):
+                print(f"[Chart Selection] {chart_selection_info['reasoning']}")
     
     # Extract folder ID
     folder_id = extract_folder_id_from_url(drive_folder_url) if drive_folder_url else None
@@ -107,18 +122,45 @@ def create_slides_presentation(
     updated_presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
     all_slides = updated_presentation.get('slides', [])
     
-    # Analyze charts with AI if enabled
+    # Decision LLM: Determine if we should use AI insights
+    decision_info = None
+    use_ai_insights = enable_ai_insights
+    
+    if user_prompt and user_prompt.strip():
+        print(f"[Decision LLM] Evaluating user prompt: '{user_prompt[:100]}...'")
+        decision_info = should_use_ai_insights(
+            user_prompt=user_prompt,
+            chart_count=len(normalized_charts) if normalized_charts else 0,
+            default_enable=enable_ai_insights
+        )
+        use_ai_insights = decision_info['use_ai']
+        print(f"[Decision LLM] Decision: use_ai={use_ai_insights}, confidence={decision_info['confidence']:.2f}")
+        print(f"[Decision LLM] Reasoning: {decision_info['reasoning']}")
+        if decision_info.get('analysis_focus'):
+            print(f"[Decision LLM] Analysis focus: {decision_info['analysis_focus']}")
+    else:
+        print(f"[Decision LLM] No user prompt provided, using enable_ai_insights={enable_ai_insights}")
+    
+    # Analyze charts with AI if decision LLM says yes
     chart_insights_map = {}
-    if normalized_charts and enable_ai_insights:
+    if normalized_charts and use_ai_insights:
         try:
             print(f"[AI] Analyzing {len(normalized_charts)} charts...")
-            analyses = analyze_charts_batch_paths(normalized_charts, batch_size=10)
+            # Pass analysis focus to chart analyzer if available
+            analysis_focus = decision_info.get('analysis_focus') if decision_info else None
+            analyses = analyze_charts_batch_paths(
+                normalized_charts, 
+                batch_size=10,
+                analysis_focus=analysis_focus
+            )
             for insight in analyses:
                 if 'chart_path' in insight:
                     chart_insights_map[insight['chart_path']] = insight
             print(f"[AI] Successfully analyzed {len(chart_insights_map)} charts")
         except Exception as e:
             print(f"[AI] Error analyzing charts: {e}, continuing without AI insights")
+    elif normalized_charts and not use_ai_insights:
+        print(f"[AI] Skipping chart analysis (decision LLM determined AI not needed)")
     
     # Upload charts to Drive
     chart_urls = []

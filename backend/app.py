@@ -279,16 +279,20 @@ def create_slides():
         chart_paths = data.get('charts', [])
         drive_folder_url = data.get('driveFolderUrl')
         enable_ai_insights = data.get('enableAIInsights', True)
+        user_prompt = data.get('userPrompt')  # User preferences for decision LLM
         
         print(f"[Backend] Creating slides presentation: {title}")
         print(f"[Backend] Charts: {len(chart_paths)}")
         print(f"[Backend] AI Insights: {enable_ai_insights}")
+        if user_prompt:
+            print(f"[Backend] User Prompt: {user_prompt[:100]}...")
         
         result = create_slides_presentation(
             title=title,
             chart_paths=chart_paths,
             drive_folder_url=drive_folder_url,
-            enable_ai_insights=enable_ai_insights
+            enable_ai_insights=enable_ai_insights,
+            user_prompt=user_prompt
         )
         
         return jsonify(result), 200

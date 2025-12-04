@@ -474,7 +474,8 @@ export default function CreateSlide() {
                     driveFolderUrl: driveFolderUrl,
                     schoolName: 'Parsec Academy',
                     quarters: formData.quarters,
-                    partnerName: formData.partnerName
+                    partnerName: formData.partnerName,
+                    userPrompt: formData.slidePrompt || undefined // User prompt for decision LLM
                 })
             })
 
