@@ -38,6 +38,9 @@ export interface OptionsConfig {
 
 export interface PathsConfig {
     data_dir?: string
+    charts_dir?: string
+    output_dir?: string
+    config_dir?: string
 }
 
 export interface PartnerConfig {

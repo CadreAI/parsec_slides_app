@@ -3,8 +3,11 @@ NWEA data loading and preparation utilities
 """
 
 import json
+import sys
 from pathlib import Path
 import pandas as pd
+# Add parent directory to path to import helper_functions
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
 
@@ -18,13 +21,9 @@ def load_config_from_args(config_json_str):
         return {}
 
 
-def load_nwea_data(data_dir):
-    """Load and normalize NWEA data"""
-    csv_path = Path(data_dir) / "nwea_data.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Expected CSV not found: {csv_path}. Please run data ingestion first.")
-    
-    nwea_base = pd.read_csv(csv_path)
+def normalize_nwea_dataframe(df):
+    """Normalize NWEA DataFrame (column names, mappings, etc.)"""
+    nwea_base = df.copy()
     nwea_base.columns = nwea_base.columns.str.strip().str.lower()
     
     if "school" in nwea_base.columns and "schoolname" not in nwea_base.columns:
@@ -44,7 +43,44 @@ def load_nwea_data(data_dir):
     if "projectedproficiencylevel2" in nwea_base.columns:
         nwea_base["projectedproficiencylevel2"] = nwea_base["projectedproficiencylevel2"].replace(prof_prof_map)
     
-    print(f"NWEA data loaded: {nwea_base.shape[0]:,} rows, {nwea_base.shape[1]} columns")
+    return nwea_base
+
+
+def load_nwea_data(data_dir=None, nwea_data=None):
+    """
+    Load and normalize NWEA data from CSV file or use provided data
+    
+    Args:
+        data_dir: Directory containing nwea_data.csv (optional if nwea_data provided)
+        nwea_data: List of dicts or DataFrame with NWEA data (optional if data_dir provided)
+    
+    Returns:
+        Normalized DataFrame
+    """
+    if nwea_data is not None:
+        # Convert list of dicts to DataFrame if needed
+        if isinstance(nwea_data, list):
+            nwea_base = pd.DataFrame(nwea_data)
+        elif isinstance(nwea_data, pd.DataFrame):
+            nwea_base = nwea_data.copy()
+        else:
+            raise ValueError(f"nwea_data must be list of dicts or DataFrame, got {type(nwea_data)}")
+        
+        nwea_base = normalize_nwea_dataframe(nwea_base)
+        print(f"NWEA data loaded from memory: {nwea_base.shape[0]:,} rows, {nwea_base.shape[1]} columns")
+        return nwea_base
+    
+    # Fallback to CSV loading for backward compatibility
+    if data_dir is None:
+        raise ValueError("Either data_dir or nwea_data must be provided")
+    
+    csv_path = Path(data_dir) / "nwea_data.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Expected CSV not found: {csv_path}. Please run data ingestion first.")
+    
+    nwea_base = pd.read_csv(csv_path)
+    nwea_base = normalize_nwea_dataframe(nwea_base)
+    print(f"NWEA data loaded from CSV: {nwea_base.shape[0]:,} rows, {nwea_base.shape[1]} columns")
     return nwea_base
 
 
@@ -111,7 +147,7 @@ def _short_year(y):
 
 def prep_nwea_for_charts(df, subject_str, window_filter="Fall"):
     """Filters and aggregates NWEA data for dashboard plotting"""
-    import helper_functions as hf
+    # helper_functions already imported at top
     
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()].copy()

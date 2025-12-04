@@ -20,23 +20,27 @@ from matplotlib.gridspec import GridSpec
 import matplotlib as mpl
 from matplotlib import transforms as mtransforms
 from matplotlib import lines as mlines
+import sys
+from pathlib import Path
+# Add parent directory to path to import helper_functions
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
 # Import utility modules
-from nwea_data import (
+from .nwea_data import (
     load_config_from_args,
     load_nwea_data,
     get_scopes,
     prep_nwea_for_charts,
     _short_year
 )
-from nwea_filters import (
+from .nwea_filters import (
     apply_chart_filters,
     should_generate_subject,
     should_generate_student_group,
     should_generate_grade
 )
-from nwea_chart_utils import (
+from .nwea_chart_utils import (
     draw_stacked_bar,
     draw_score_bar,
     draw_insight_card,
@@ -45,16 +49,73 @@ from nwea_chart_utils import (
 
 # Chart tracking for CSV generation
 chart_links = []
+_chart_tracking_set = set()  # Track by file path to prevent duplicates
 
-def track_chart(chart_name, file_path, scope="district", section=None):
-    """Track chart for CSV generation"""
-    chart_links.append({
+def track_chart(chart_name, file_path, scope="district", section=None, chart_data=None):
+    """
+    Track chart for CSV generation and save chart data if provided
+    
+    Args:
+        chart_name: Name of the chart
+        file_path: Path to the chart image file
+        scope: Scope of the chart (district, school, etc.)
+        section: Section number
+        chart_data: Optional dictionary containing chart metrics/data to save as JSON
+    """
+    global _chart_tracking_set
+    
+    chart_path = Path(file_path)
+    normalized_path = str(chart_path.resolve())
+    
+    # Check if this chart was already tracked
+    if normalized_path in _chart_tracking_set:
+        print(f"  ⚠ Skipping duplicate chart: {chart_name}")
+        return
+    
+    # Add to tracking set
+    _chart_tracking_set.add(normalized_path)
+    
+    chart_info = {
         "chart_name": chart_name,
         "scope": scope,
         "section": section,
         "file_path": str(file_path),
-        "file_link": f"file://{Path(file_path).absolute()}"
-    })
+        "file_link": f"file://{chart_path.absolute()}"
+    }
+    
+    # Save chart data as JSON if provided
+    if chart_data is not None:
+        data_path = chart_path.parent / f"{chart_path.stem}_data.json"
+        try:
+            # Convert any numpy/pandas types to native Python types for JSON serialization
+            def convert_to_json_serializable(obj):
+                if isinstance(obj, (np.integer, np.floating)):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, pd.DataFrame):
+                    return obj.to_dict('records')
+                elif isinstance(obj, pd.Series):
+                    return obj.to_dict()
+                elif isinstance(obj, dict):
+                    return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_to_json_serializable(item) for item in obj]
+                elif pd.isna(obj):
+                    return None
+                return obj
+            
+            serializable_data = convert_to_json_serializable(chart_data)
+            
+            with open(data_path, 'w') as f:
+                json.dump(serializable_data, f, indent=2, default=str)
+            
+            chart_info["data_path"] = str(data_path)
+            print(f"  Chart data saved to: {data_path}")
+        except Exception as e:
+            print(f"  Warning: Failed to save chart data: {e}")
+    
+    chart_links.append(chart_info)
 
 # ---------------------------------------------------------------------
 # Unified Dashboard Plotter
@@ -133,6 +194,33 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Chart saved to: {out_path}")
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "subjects": subjects,
+        "metrics": metrics_list,
+        "time_orders": time_orders,
+        "pct_data": [
+            {
+                "subject": subj,
+                "data": pct_df.to_dict('records') if not pct_df.empty else []
+            }
+            for subj, pct_df in zip(subjects, pct_dfs)
+        ],
+        "score_data": [
+            {
+                "subject": subj,
+                "data": score_df.to_dict('records') if not score_df.empty else []
+            }
+            for subj, score_df in zip(subjects, score_dfs)
+        ]
+    }
+    
+    # Track chart with data
+    chart_name = f"{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends"
+    track_chart(chart_name, str(out_path), scope=scope_label, section=1, chart_data=chart_data)
     
     return str(out_path)
 
@@ -370,7 +458,9 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         return
     
     fig = plt.figure(figsize=figsize, dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    # Use 1 column layout if no cohort data, 2 columns if cohort data exists
+    ncols = 2 if has_cohort_data else 1
+    gs = fig.add_gridspec(nrows=3, ncols=ncols, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     axes = [[fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
             [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])],
@@ -749,10 +839,10 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
         print(f"[blended] insufficient time periods ({len(time_order_left)}) for left side - need at least 2")
         return
     
-    # Right side (cohort trends) is optional - if insufficient, we'll still generate chart with just overall trends
+    # Right side (cohort trends) is optional - if insufficient, hide it completely
     has_cohort_data = not (pct_df_right.empty or score_df_right.empty) and len(time_order_right) >= 2
     if not has_cohort_data:
-        print(f"[blended] insufficient cohort data for Grade {current_grade} {course_str} - generating overall trends only")
+        print(f"[blended] insufficient cohort data for Grade {current_grade} {course_str} - generating overall trends only (hiding cohort section)")
         # Create empty cohort dataframes with proper structure
         pct_df_right = pd.DataFrame(columns=["time_label", "achievementquintile", "pct", "n", "N_total"])
         score_df_right = pd.DataFrame(columns=["time_label", "avg_score"])
@@ -761,7 +851,9 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                         "lo_now": None, "lo_delta": None, "score_now": None, "score_delta": None}
     
     fig = plt.figure(figsize=figsize, dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    # Use 1 column layout if no cohort data, 2 columns if cohort data exists
+    ncols = 2 if has_cohort_data else 1
+    gs = fig.add_gridspec(nrows=3, ncols=ncols, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
     def draw_stacked_bar(ax, stack_df, pct_df, time_labels):
@@ -798,21 +890,17 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
               bbox_to_anchor=(0.5, 0.95), ncol=len(hf.NWEA_ORDER), frameon=False,
               fontsize=9, handlelength=1.5, handletextpad=0.4, columnspacing=1.0)
     
-    ax2 = fig.add_subplot(gs[0, 1])
-    if has_cohort_data and not pct_df_right.empty:
-        cohort_df_for_pivot = pct_df_right.copy()
-        cohort_df_for_pivot = cohort_df_for_pivot.groupby(["time_label", "achievementquintile"], as_index=False).agg({"pct": "mean", "n": "sum", "N_total": "max"})
-        stack_df_right = (cohort_df_for_pivot.pivot(index="time_label", columns="achievementquintile", values="pct")
-                         .reindex(columns=hf.NWEA_ORDER).fillna(0))
-        x_labels_cohort = stack_df_right.index.tolist()
-        draw_stacked_bar(ax2, stack_df_right, cohort_df_for_pivot, x_labels_cohort)
-        ax2.set_title("Cohort Trends", fontsize=14, fontweight="bold", pad=30)
-    else:
-        ax2.axis("off")
-        ax2.text(0.5, 0.5, "Insufficient cohort data\n(need multiple years)", 
-                ha="center", va="center", fontsize=12, color="#999999",
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc"))
-        ax2.set_title("Cohort Trends", fontsize=14, fontweight="bold", pad=30)
+    # Only create cohort trends subplot if cohort data exists
+    if has_cohort_data:
+        ax2 = fig.add_subplot(gs[0, 1])
+        if not pct_df_right.empty:
+            cohort_df_for_pivot = pct_df_right.copy()
+            cohort_df_for_pivot = cohort_df_for_pivot.groupby(["time_label", "achievementquintile"], as_index=False).agg({"pct": "mean", "n": "sum", "N_total": "max"})
+            stack_df_right = (cohort_df_for_pivot.pivot(index="time_label", columns="achievementquintile", values="pct")
+                             .reindex(columns=hf.NWEA_ORDER).fillna(0))
+            x_labels_cohort = stack_df_right.index.tolist()
+            draw_stacked_bar(ax2, stack_df_right, cohort_df_for_pivot, x_labels_cohort)
+            ax2.set_title("Cohort Trends", fontsize=14, fontweight="bold", pad=30)
     
     ax3 = fig.add_subplot(gs[1, 0])
     rit_x = np.arange(len(score_df_left["time_label"]))
@@ -844,46 +932,43 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     ax3.spines["top"].set_visible(False)
     ax3.spines["right"].set_visible(False)
     
-    ax4 = fig.add_subplot(gs[1, 1])
-    if has_cohort_data and not score_df_right.empty and len(score_df_right) > 0:
-        rit_xr = np.arange(len(score_df_right["time_label"]))
-        rit_valsr = score_df_right["avg_score"].to_numpy()
-        rit_barsr = ax4.bar(rit_xr, rit_valsr, color=hf.default_quintile_colors[4], edgecolor="white", linewidth=1.2)
-        for rect, v in zip(rit_barsr, rit_valsr):
-            ax4.text(rect.get_x() + rect.get_width() / 2, rect.get_height(), f"{v:.2f}",
-                    ha="center", va="bottom", fontsize=9, fontweight="bold", color="#434343")
-        
-        if has_cohort_data and not pct_df_right.empty:
-            cohort_df_for_pivot = pct_df_right.copy()
-            cohort_df_for_pivot = cohort_df_for_pivot.groupby(["time_label", "achievementquintile"], as_index=False).agg({"pct": "mean", "n": "sum", "N_total": "max"})
-            if "N_total" in cohort_df_for_pivot.columns:
-                n_map_right = cohort_df_for_pivot.groupby("time_label")["N_total"].max().reset_index().rename(columns={"N_total": "n"})
-            else:
-                n_map_right = pd.DataFrame(columns=["time_label", "n"])
+    # Only create cohort RIT score subplot if cohort data exists
+    if has_cohort_data:
+        ax4 = fig.add_subplot(gs[1, 1])
+        if not score_df_right.empty and len(score_df_right) > 0:
+            rit_xr = np.arange(len(score_df_right["time_label"]))
+            rit_valsr = score_df_right["avg_score"].to_numpy()
+            rit_barsr = ax4.bar(rit_xr, rit_valsr, color=hf.default_quintile_colors[4], edgecolor="white", linewidth=1.2)
+            for rect, v in zip(rit_barsr, rit_valsr):
+                ax4.text(rect.get_x() + rect.get_width() / 2, rect.get_height(), f"{v:.2f}",
+                        ha="center", va="bottom", fontsize=9, fontweight="bold", color="#434343")
             
-            if not n_map_right.empty:
-                label_map_right = {row["time_label"]: f"{row['time_label']}\n(n = {int(row['n'])})"
-                                  for _, row in n_map_right.iterrows() if not pd.isna(row["n"])}
-                x_labels_right = [label_map_right.get(lbl, str(lbl)) for lbl in score_df_right["time_label"]]
+            if not pct_df_right.empty:
+                cohort_df_for_pivot = pct_df_right.copy()
+                cohort_df_for_pivot = cohort_df_for_pivot.groupby(["time_label", "achievementquintile"], as_index=False).agg({"pct": "mean", "n": "sum", "N_total": "max"})
+                if "N_total" in cohort_df_for_pivot.columns:
+                    n_map_right = cohort_df_for_pivot.groupby("time_label")["N_total"].max().reset_index().rename(columns={"N_total": "n"})
+                else:
+                    n_map_right = pd.DataFrame(columns=["time_label", "n"])
+                
+                if not n_map_right.empty:
+                    label_map_right = {row["time_label"]: f"{row['time_label']}\n(n = {int(row['n'])})"
+                                      for _, row in n_map_right.iterrows() if not pd.isna(row["n"])}
+                    x_labels_right = [label_map_right.get(lbl, str(lbl)) for lbl in score_df_right["time_label"]]
+                else:
+                    x_labels_right = score_df_right["time_label"].astype(str).tolist()
             else:
                 x_labels_right = score_df_right["time_label"].astype(str).tolist()
-        else:
-            x_labels_right = score_df_right["time_label"].astype(str).tolist()
-        
-        ax4.set_ylabel("Avg RIT", labelpad=10)
-        ax4.set_xticks(rit_xr)
-        ax4.set_xticklabels(x_labels_right, ha="center")
-        for label in ax4.get_xticklabels():
-            label.set_y(-0.09)
-        ax4.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
-        ax4.grid(axis="y", alpha=0.2)
-        ax4.spines["top"].set_visible(False)
-        ax4.spines["right"].set_visible(False)
-    else:
-        ax4.axis("off")
-        ax4.text(0.5, 0.5, "Insufficient cohort data", 
-                ha="center", va="center", fontsize=10, color="#999999")
-        ax4.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
+            
+            ax4.set_ylabel("Avg RIT", labelpad=10)
+            ax4.set_xticks(rit_xr)
+            ax4.set_xticklabels(x_labels_right, ha="center")
+            for label in ax4.get_xticklabels():
+                label.set_y(-0.09)
+            ax4.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
+            ax4.grid(axis="y", alpha=0.2)
+            ax4.spines["top"].set_visible(False)
+            ax4.spines["right"].set_visible(False)
     
     ax5 = fig.add_subplot(gs[2, 0])
     ax5.axis("off")
@@ -914,34 +999,36 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             ha="center", va="center", wrap=True, usetex=False,
             bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
-    ax6 = fig.add_subplot(gs[2, 1])
-    ax6.axis("off")
-    if has_cohort_data and metrics_right.get("t_prev"):
-        t_prev = metrics_right["t_prev"]
-        t_curr = metrics_right["t_curr"]
+    # Only create cohort insights subplot if cohort data exists
+    if has_cohort_data:
+        ax6 = fig.add_subplot(gs[2, 1])
+        ax6.axis("off")
+        if metrics_right.get("t_prev"):
+            t_prev = metrics_right["t_prev"]
+            t_curr = metrics_right["t_curr"]
+            
+            def _pct_for_bucket_right(bucket_name, tlabel):
+                return pct_df_right[(pct_df_right["time_label"] == tlabel) & (pct_df_right["achievementquintile"] == bucket_name)]["pct"].sum()
+            
+            high_now = _pct_for_bucket_right("High", t_curr)
+            high_prev = _pct_for_bucket_right("High", t_prev)
+            high_delta = high_now - high_prev
+            hi_delta = metrics_right["hi_delta"]
+            lo_delta = metrics_right["lo_delta"]
+            score_delta = metrics_right["score_delta"]
+            
+            title_line = "Change calculations from previous to current year\n"
+            line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
+            line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
+            line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
+            line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
+            insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
+        else:
+            insight_lines = ["Insufficient cohort data\n(need multiple years)"]
         
-        def _pct_for_bucket_right(bucket_name, tlabel):
-            return pct_df_right[(pct_df_right["time_label"] == tlabel) & (pct_df_right["achievementquintile"] == bucket_name)]["pct"].sum()
-        
-        high_now = _pct_for_bucket_right("High", t_curr)
-        high_prev = _pct_for_bucket_right("High", t_prev)
-        high_delta = high_now - high_prev
-        hi_delta = metrics_right["hi_delta"]
-        lo_delta = metrics_right["lo_delta"]
-        score_delta = metrics_right["score_delta"]
-        
-        title_line = "Change calculations from previous to current year\n"
-        line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-        line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-        line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-        line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
-        insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
-    else:
-        insight_lines = ["Insufficient cohort data\n(need multiple years)"]
-    
-    ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
-            ha="center", va="center", wrap=True, usetex=False,
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+        ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
+                ha="center", va="center", wrap=True, usetex=False,
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
     fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
                 fontsize=20, fontweight="bold", y=1)
@@ -1262,10 +1349,22 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
 # Main Execution
 # ---------------------------------------------------------------------
 
-def main():
+def main(nwea_data=None):
+    """
+    Main function to generate NWEA charts
+    
+    Args:
+        nwea_data: Optional list of dicts or DataFrame with NWEA data.
+                   If None, will load from CSV using args.data_dir
+    """
+    # Reset chart tracking for each run
+    global chart_links, _chart_tracking_set
+    chart_links = []
+    _chart_tracking_set = set()
+    
     parser = argparse.ArgumentParser(description='Generate NWEA charts')
     parser.add_argument('--partner', required=True, help='Partner name')
-    parser.add_argument('--data-dir', required=True, help='Data directory path')
+    parser.add_argument('--data-dir', required=False, help='Data directory path')
     parser.add_argument('--output-dir', required=True, help='Output directory path')
     parser.add_argument('--dev-mode', default='false', help='Development mode')
     parser.add_argument('--config', default='{}', help='Config JSON string')
@@ -1307,18 +1406,15 @@ def main():
             print("\n[Skip] NWEA charts skipped - selected subjects don't include Math or Reading")
             print(f"  Selected subjects: {chart_filters['subjects']}")
             print(f"  NWEA supports: Math, Reading")
-            # Still generate chart index for any existing charts
-            charts_dir = Path(args.output_dir).resolve()
-            if charts_dir.exists() and chart_links:
-                df_charts = pd.DataFrame(chart_links)
-                df_charts = df_charts.sort_values(["scope", "section", "chart_name"])
-                index_path = charts_dir / "chart_index.csv"
-                df_charts.to_csv(index_path, index=False)
-                print(f"✅ Chart index saved: {len(chart_links)} tracked charts -> {index_path}")
             return []
     
-    # Load data
-    nwea_base = load_nwea_data(args.data_dir)
+    # Load data - use provided data if available, otherwise load from CSV
+    if nwea_data is not None:
+        nwea_base = load_nwea_data(nwea_data=nwea_data)
+    else:
+        if not args.data_dir:
+            raise ValueError("Either nwea_data must be provided or --data-dir must be specified")
+        nwea_base = load_nwea_data(data_dir=args.data_dir)
     
     # Apply filters to base data
     if chart_filters:
@@ -1563,37 +1659,6 @@ def main():
                     print(f"  Error plotting 2026 projections for {scope_label}: {e}")
     
     # Generate chart index
-    print("\n" + "="*80)
-    print("Generating chart index CSV...")
-    charts_dir = Path(args.output_dir).resolve()
-    
-    # Use tracked charts if available, otherwise scan directory
-    if chart_links:
-        df_charts = pd.DataFrame(chart_links)
-        df_charts = df_charts.sort_values(["scope", "section", "chart_name"])
-        index_path = charts_dir / "chart_index.csv"
-        df_charts.to_csv(index_path, index=False)
-        print(f"✅ Chart index saved: {len(chart_links)} tracked charts -> {index_path}")
-    elif charts_dir.exists():
-        chart_files = []
-        for f in charts_dir.rglob("*.png"):
-            chart_files.append({
-                "chart_name": f.stem,
-                "folder": f.parent.name,
-                "file_path": str(f.relative_to(charts_dir)),
-                "file_link": f"file://{f.absolute()}"
-            })
-        
-        if chart_files:
-            df_charts = pd.DataFrame(chart_files).sort_values(["folder", "chart_name"])
-            index_path = charts_dir / "chart_index.csv"
-            df_charts.to_csv(index_path, index=False)
-            print(f"✅ Chart index saved: {len(chart_files)} charts -> {index_path}")
-        else:
-            print("⚠️  No chart files found to index")
-    else:
-        print(f"⚠️  Charts directory does not exist: {charts_dir}")
-    print("="*80)
     
     # Build chart_paths from tracked charts if chart_paths is incomplete
     # This ensures all tracked charts are returned, not just those from sections 0 and 1
@@ -1604,7 +1669,21 @@ def main():
         chart_paths = [str(Path(chart['file_path']).absolute()) for chart in chart_links]
         print(f"[Chart Tracking] Built {len(chart_paths)} chart paths from tracked charts")
     
-    print(f"\n✅ Generated {len(chart_paths)} NWEA charts")
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_chart_paths = []
+    for chart_path in chart_paths:
+        # Normalize path for comparison
+        normalized_path = str(Path(chart_path).resolve())
+        if normalized_path not in seen:
+            seen.add(normalized_path)
+            unique_chart_paths.append(chart_path)
+    
+    if len(chart_paths) != len(unique_chart_paths):
+        print(f"[Deduplication] Removed {len(chart_paths) - len(unique_chart_paths)} duplicate chart(s)")
+        chart_paths = unique_chart_paths
+    
+    print(f"\n✅ Generated {len(chart_paths)} unique NWEA charts")
     return chart_paths
 
 def generate_nwea_charts(
@@ -1612,7 +1691,8 @@ def generate_nwea_charts(
     output_dir: str,
     config: dict = None,
     chart_filters: dict = None,
-    data_dir: str = './data'
+    data_dir: str = './data',
+    nwea_data: list = None
 ) -> list:
     """
     Generate NWEA charts (wrapper function for Flask backend)
@@ -1622,11 +1702,18 @@ def generate_nwea_charts(
         output_dir: Output directory for charts
         config: Partner configuration dict
         chart_filters: Chart filters dict
-        data_dir: Data directory path
+        data_dir: Data directory path (used only if nwea_data is None)
+        nwea_data: Optional list of dicts with NWEA data (preferred over CSV loading)
     
     Returns:
         List of chart file paths
     """
+    # Reset global chart tracking state at the start of each request
+    # This prevents collisions when multiple requests run concurrently
+    global chart_links, _chart_tracking_set
+    chart_links = []
+    _chart_tracking_set = set()
+    
     # Set up config
     cfg = config or {}
     if chart_filters:
@@ -1639,7 +1726,7 @@ def generate_nwea_charts(
     class Args:
         def __init__(self):
             self.partner = partner_name
-            self.data_dir = data_dir
+            self.data_dir = data_dir if nwea_data is None else None  # Only use data_dir if no data provided
             self.output_dir = output_dir
             self.dev_mode = 'true' if hf.DEV_MODE else 'false'
             self.config = json.dumps(cfg) if cfg else '{}'
@@ -1653,12 +1740,15 @@ def generate_nwea_charts(
         sys.argv = [
             'nwea_charts.py',
             '--partner', args.partner,
-            '--data-dir', args.data_dir,
             '--output-dir', args.output_dir,
             '--dev-mode', args.dev_mode,
             '--config', args.config
         ]
-        chart_paths = main()
+        # Add --data-dir only if needed (when nwea_data is None)
+        if args.data_dir:
+            sys.argv.extend(['--data-dir', args.data_dir])
+        
+        chart_paths = main(nwea_data=nwea_data)
     finally:
         sys.argv = old_argv
     

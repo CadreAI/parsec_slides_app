@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
         // Call backend Flask API for data ingestion and chart generation
         const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000'
-        const outputDir = cfg.paths?.output_dir || './charts'
+        const outputDir = cfg.paths?.charts_dir || cfg.paths?.output_dir || './charts'
         const resolvedOutputDir = path.resolve(process.cwd(), outputDir)
 
         // Extract chart filters from config

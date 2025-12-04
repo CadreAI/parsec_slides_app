@@ -58,9 +58,11 @@ yarn-error.log*
 next-env.d.ts
 
 # google api credentials
-/google/credentials.json
-/google/service_account.json
-/google/token.json
+/google/
+/google/**/*
+/backend/google/
+/backend/google/**/*
+*.backup
 
 # Data ingestion
 /data/

@@ -108,34 +108,52 @@ def run_query(sql: str, client: bigquery.Client, params: dict = None):
     job_config.priority = bigquery.QueryPriority.INTERACTIVE
     
     print(f"[BigQuery] Executing query...")
-    query_job = client.query(sql, job_config=job_config)
-    
-    # Wait for query to complete and log progress
-    import time
-    start_time = time.time()
-    status_check_interval = 10  # seconds
-    
-    while not query_job.done():
-        elapsed = time.time() - start_time
-        if elapsed > status_check_interval:
-            print(f"[BigQuery] Still running... ({elapsed:.1f}s elapsed)")
-            status_check_interval += 10
-    
-    # Get results
-    print(f"[BigQuery] Query completed in {time.time() - start_time:.1f}s")
-    print(f"[BigQuery] Converting results to list...")
-    
-    results = query_job.result()
-    rows = []
-    
-    # Log progress every 5,000 rows (more frequent updates for large datasets)
-    log_interval = 5000
-    
-    for i, row in enumerate(results):
-        rows.append(dict(row))
-        if (i + 1) % log_interval == 0:
-            print(f"[BigQuery] Processed {i + 1:,} rows...")
-    
-    print(f"[BigQuery] Total rows: {len(rows):,}")
-    return rows
+    try:
+        query_job = client.query(sql, job_config=job_config)
+        
+        # Wait for query to complete and log progress
+        import time
+        start_time = time.time()
+        status_check_interval = 10  # seconds
+        last_log_time = start_time
+        
+        while not query_job.done():
+            elapsed = time.time() - start_time
+            if elapsed - last_log_time >= status_check_interval:
+                print(f"[BigQuery] Still running... ({elapsed:.1f}s elapsed)")
+                last_log_time = elapsed
+                status_check_interval = min(status_check_interval + 10, 60)  # Cap at 60s intervals
+        
+        # Check for errors
+        if query_job.errors:
+            error_msg = f"Query failed: {query_job.errors}"
+            print(f"[BigQuery] ERROR: {error_msg}")
+            raise Exception(error_msg)
+        
+        # Get results
+        elapsed_time = time.time() - start_time
+        print(f"[BigQuery] Query completed in {elapsed_time:.1f}s")
+        print(f"[BigQuery] Converting results to list...")
+        
+        results = query_job.result()
+        rows = []
+        
+        # Log progress every 5,000 rows (more frequent updates for large datasets)
+        log_interval = 5000
+        row_start_time = time.time()
+        
+        for i, row in enumerate(results):
+            rows.append(dict(row))
+            if (i + 1) % log_interval == 0:
+                elapsed = time.time() - row_start_time
+                print(f"[BigQuery] Processed {i + 1:,} rows... ({elapsed:.1f}s)")
+        
+        print(f"[BigQuery] Total rows: {len(rows):,}")
+        return rows
+    except Exception as e:
+        error_msg = f"BigQuery error: {str(e)}"
+        print(f"[BigQuery] ERROR: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        raise Exception(error_msg) from e
 

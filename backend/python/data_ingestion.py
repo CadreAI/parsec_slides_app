@@ -8,7 +8,7 @@ from datetime import datetime
 import concurrent.futures
 
 from bigquery_client import get_bigquery_client, run_query
-from sql_builders import sql_nwea
+from nwea.sql_builders import sql_nwea
 
 
 def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -127,7 +127,9 @@ def ingest_nwea(
     # Function to query a single year
     def query_year(year: int) -> List[Dict[str, Any]]:
         """Query a single year with its own BigQuery client (thread-safe)"""
+        import traceback
         try:
+            print(f"[Data Ingestion] [Year {year}] Starting query setup...")
             # Create a new client for this thread (thread-safe)
             credentials_path = config.get('gcp', {}).get('credentials_path')
             client = get_bigquery_client(project_id, credentials_path)
@@ -143,7 +145,10 @@ def ingest_nwea(
             print(f"[Data Ingestion] [Year {year}] Retrieved {len(rows):,} rows")
             return rows
         except Exception as e:
-            print(f"[Data Ingestion] [Year {year}] Error: {e}")
+            error_msg = str(e)
+            print(f"[Data Ingestion] [Year {year}] Error: {error_msg}")
+            print(f"[Data Ingestion] [Year {year}] Traceback:")
+            traceback.print_exc()
             return []
     
     # Execute queries in parallel
@@ -157,19 +162,53 @@ def ingest_nwea(
     # Limit to max 5 concurrent queries to avoid overwhelming BigQuery
     max_workers = min(len(years), 5)
     
+    print(f"[Data Ingestion] Using ThreadPoolExecutor with {max_workers} workers for {len(years)} years")
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all year queries
         future_to_year = {executor.submit(query_year, year): year for year in years}
+        print(f"[Data Ingestion] Submitted {len(future_to_year)} queries")
         
-        # Collect results as they complete
-        for future in concurrent.futures.as_completed(future_to_year):
-            year = future_to_year[future]
-            try:
-                rows = future.result()
-                all_rows.extend(rows)
-                print(f"[Data Ingestion] [Year {year}] Completed: {len(rows):,} rows (Total: {len(all_rows):,})")
-            except Exception as e:
-                print(f"[Data Ingestion] [Year {year}] Failed: {e}")
+        # Collect results as they complete with timeout
+        import time
+        start_time = time.time()
+        query_timeout = 300  # 5 minute timeout per query
+        
+        completed_years = set()
+        
+        try:
+            # Wait for all futures with a reasonable timeout
+            total_timeout = query_timeout * len(years) + 60  # Extra buffer
+            for future in concurrent.futures.as_completed(future_to_year, timeout=total_timeout):
+                year = future_to_year[future]
+                elapsed = time.time() - start_time
+                try:
+                    rows = future.result(timeout=30)  # 30 second timeout for result retrieval
+                    all_rows.extend(rows)
+                    completed_years.add(year)
+                    print(f"[Data Ingestion] [Year {year}] Completed: {len(rows):,} rows (Total: {len(all_rows):,}) in {elapsed:.1f}s")
+                except concurrent.futures.TimeoutError:
+                    print(f"[Data Ingestion] [Year {year}] TIMEOUT: Result retrieval took longer than 30s")
+                except Exception as e:
+                    print(f"[Data Ingestion] [Year {year}] Failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+        except concurrent.futures.TimeoutError:
+            print(f"[Data Ingestion] TIMEOUT: Some queries exceeded {total_timeout}s total timeout")
+            # Check which queries are still pending
+            for future, year in future_to_year.items():
+                if year not in completed_years:
+                    if future.running():
+                        print(f"[Data Ingestion] [Year {year}] Still running...")
+                    elif future.done():
+                        try:
+                            rows = future.result(timeout=5)
+                            all_rows.extend(rows)
+                            print(f"[Data Ingestion] [Year {year}] Late completion: {len(rows):,} rows")
+                        except:
+                            print(f"[Data Ingestion] [Year {year}] Failed to retrieve result")
+                    else:
+                        print(f"[Data Ingestion] [Year {year}] Not started")
     
     print(f"[Data Ingestion] All queries completed. Total rows: {len(all_rows):,}")
     
@@ -227,13 +266,6 @@ def ingest_nwea(
     
     # Convert back to list of dicts
     result = df.to_dict('records')
-    
-    # Save to CSV if data_dir is specified
-    data_dir = config.get('paths', {}).get('data_dir', './data')
-    csv_path = Path(data_dir) / 'nwea_data.csv'
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(csv_path, index=False)
-    print(f"[Data Ingestion] Saved to CSV: {csv_path}")
     
     return result
 

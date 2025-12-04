@@ -5,6 +5,10 @@ Common chart drawing utilities for NWEA charts
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import sys
+from pathlib import Path
+# Add parent directory to path to import helper_functions
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
 # Global threshold for inline % labels on stacked bars
