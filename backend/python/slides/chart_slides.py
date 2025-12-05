@@ -200,9 +200,11 @@ def create_dual_chart_slide_requests(
     title: str,
     slide_width_emu: float = SLIDE_WIDTH_EMU,
     slide_height_emu: float = SLIDE_HEIGHT_EMU,
-    start_index: int = 0
+    start_index: int = 0,
+    insight1: Optional[Dict[str, Any]] = None,
+    insight2: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
-    """Create requests for a dual chart slide (math + reading side by side)"""
+    """Create requests for a dual chart slide (math + reading side by side) with context text below each chart"""
     requests = []
     
     if not chart_url1 or not chart_url2:
@@ -212,6 +214,7 @@ def create_dual_chart_slide_requests(
     title_height_emu = 1200000
     chart_spacing_emu = 200000
     top_bar_height_emu = 200000
+    context_text_height_emu = 600000  # Height for context text box below each chart
     
     # Top bar
     top_bar_object_id = f'TopBar_{start_index}'
@@ -275,19 +278,21 @@ def create_dual_chart_slide_requests(
         }
     ])
     
-    # Charts side by side
+    # Charts side by side - moved up by reducing margin
     available_width = slide_width_emu - margin_emu * 2
-    available_height = slide_height_emu - margin_emu * 2 - title_height_emu - top_bar_height_emu
+    # Reserve space for context text below charts
+    available_height = slide_height_emu - margin_emu * 2 - title_height_emu - top_bar_height_emu - context_text_height_emu - 100000
     chart_width = (available_width - chart_spacing_emu) / 2
     chart_height = available_height
     
+    # Move charts up by reducing Y position (reduce margin from margin_emu to margin_emu * 0.5)
     chart1_object_id = f'Chart_{start_index}'
     chart1_x = margin_emu
-    chart1_y = top_bar_height_emu + title_height_emu + margin_emu
+    chart1_y = top_bar_height_emu + title_height_emu + margin_emu * 0.5
     
     chart2_object_id = f'Chart_{start_index + 1}'
     chart2_x = margin_emu + chart_width + chart_spacing_emu
-    chart2_y = top_bar_height_emu + title_height_emu + margin_emu
+    chart2_y = top_bar_height_emu + title_height_emu + margin_emu * 0.5
     
     requests.extend([
         {
@@ -313,6 +318,95 @@ def create_dual_chart_slide_requests(
             }
         }
     ])
+    
+    # Add context text boxes below each chart with the most important insight
+    # Context for chart 1 (left chart)
+    context1_text = ""
+    if insight1 and insight1.get('insights'):
+        insights_list = insight1.get('insights', [])
+        if insights_list:
+            # Use the first insight as the most important
+            context1_text = insights_list[0]
+    
+    if context1_text:
+        context1_object_id = f'Context1_{start_index}'
+        context1_y = chart1_y + chart_height + 50000  # Position below chart 1
+        requests.extend([
+            {
+                'createShape': {
+                    'objectId': context1_object_id,
+                    'shapeType': 'TEXT_BOX',
+                    'elementProperties': {
+                        'pageObjectId': slide_object_id,
+                        'size': {'width': {'magnitude': chart_width, 'unit': 'EMU'}, 'height': {'magnitude': context_text_height_emu, 'unit': 'EMU'}},
+                        'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': chart1_x, 'translateY': context1_y, 'unit': 'EMU'}
+                    }
+                }
+            },
+            {
+                'insertText': {'objectId': context1_object_id, 'text': context1_text, 'insertionIndex': 0}
+            },
+            {
+                'updateTextStyle': {
+                    'objectId': context1_object_id,
+                    'style': {'fontSize': {'magnitude': 12, 'unit': 'PT'}, 'italic': True},
+                    'fields': 'fontSize,italic',
+                    'textRange': {'type': 'ALL'}
+                }
+            },
+            {
+                'updateParagraphStyle': {
+                    'objectId': context1_object_id,
+                    'style': {'alignment': 'CENTER', 'lineSpacing': 120},
+                    'fields': 'alignment,lineSpacing',
+                    'textRange': {'type': 'ALL'}
+                }
+            }
+        ])
+    
+    # Context for chart 2 (right chart)
+    context2_text = ""
+    if insight2 and insight2.get('insights'):
+        insights_list = insight2.get('insights', [])
+        if insights_list:
+            # Use the first insight as the most important
+            context2_text = insights_list[0]
+    
+    if context2_text:
+        context2_object_id = f'Context2_{start_index}'
+        context2_y = chart2_y + chart_height + 50000  # Position below chart 2
+        requests.extend([
+            {
+                'createShape': {
+                    'objectId': context2_object_id,
+                    'shapeType': 'TEXT_BOX',
+                    'elementProperties': {
+                        'pageObjectId': slide_object_id,
+                        'size': {'width': {'magnitude': chart_width, 'unit': 'EMU'}, 'height': {'magnitude': context_text_height_emu, 'unit': 'EMU'}},
+                        'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': chart2_x, 'translateY': context2_y, 'unit': 'EMU'}
+                    }
+                }
+            },
+            {
+                'insertText': {'objectId': context2_object_id, 'text': context2_text, 'insertionIndex': 0}
+            },
+            {
+                'updateTextStyle': {
+                    'objectId': context2_object_id,
+                    'style': {'fontSize': {'magnitude': 12, 'unit': 'PT'}, 'italic': True},
+                    'fields': 'fontSize,italic',
+                    'textRange': {'type': 'ALL'}
+                }
+            },
+            {
+                'updateParagraphStyle': {
+                    'objectId': context2_object_id,
+                    'style': {'alignment': 'CENTER', 'lineSpacing': 120},
+                    'fields': 'alignment,lineSpacing',
+                    'textRange': {'type': 'ALL'}
+                }
+            }
+        ])
     
     return requests
 

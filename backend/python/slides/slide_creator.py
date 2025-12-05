@@ -591,7 +591,9 @@ def create_slides_presentation(
                         title_text,
                         SLIDE_WIDTH_EMU,
                         SLIDE_HEIGHT_EMU,
-                        global_chart_index
+                        global_chart_index,
+                        insight1=insight1,
+                        insight2=insight2
                     )
                     print(f"[Slides] Using dual chart template for subject graphs with title: {title_text}")
                     print(f"[Slides]   Chart 1: {Path(current_charts[0]).name} -> {current_urls[0][:50]}...")
