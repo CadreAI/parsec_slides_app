@@ -228,17 +228,12 @@ def ingest_nwea(
     
     # Deduplication logic
     print("[Data Ingestion] Applying deduplication...")
-    
-    # Remove exact duplicates
     initial_count = len(df)
-    df = df.drop_duplicates(keep='first')
-    exact_dupes_removed = initial_count - len(df)
-    if exact_dupes_removed > 0:
-        print(f"[Data Ingestion] Removed {exact_dupes_removed} exact duplicates")
     
-    # For same student/time period, keep latest teststartdate
+    # First, use more targeted deduplication based on key identifiers
+    # This is more appropriate than checking ALL columns for exact matches
     if 'studentid' in df.columns and 'teststartdate' in df.columns:
-        # Identify key columns for grouping
+        # Identify key columns for grouping (these define a unique test record)
         group_cols = ['studentid']
         if 'subject' in df.columns:
             group_cols.append('subject')
@@ -246,14 +241,33 @@ def ingest_nwea(
             group_cols.append('termname')
         if 'year' in df.columns:
             group_cols.append('year')
+        if 'teststartdate' in df.columns:
+            group_cols.append('teststartdate')
         
-        # Keep latest teststartdate for each group
+        # Check for duplicates based on these key columns
+        before_key_dedup = len(df)
         df = df.sort_values('teststartdate', ascending=False).drop_duplicates(
             subset=group_cols,
             keep='first'
         )
+        key_dupes_removed = before_key_dedup - len(df)
+        if key_dupes_removed > 0:
+            print(f"[Data Ingestion] Removed {key_dupes_removed} duplicates based on key columns: {group_cols}")
+        
+        # If there's a uniqueidentifier column, use that for final deduplication
+        if 'uniqueidentifier' in df.columns:
+            before_unique_dedup = len(df)
+            df = df.drop_duplicates(subset=['uniqueidentifier'], keep='first')
+            unique_dupes_removed = before_unique_dedup - len(df)
+            if unique_dupes_removed > 0:
+                print(f"[Data Ingestion] Removed {unique_dupes_removed} duplicates based on uniqueidentifier")
+    else:
+        # Fallback: remove exact duplicates only if we don't have the key columns
+        print("[Data Ingestion] Warning: Missing key columns for deduplication, using exact match")
+        df = df.drop_duplicates(keep='first')
     
-    print(f"[Data Ingestion] Final data: {len(df)} rows after deduplication")
+    total_removed = initial_count - len(df)
+    print(f"[Data Ingestion] Final data: {len(df)} rows after deduplication (removed {total_removed:,} duplicates, {total_removed/initial_count*100:.1f}%)")
     
     # Apply grade filter if specified (after deduplication)
     # Note: If grade filter was applied in SQL, this is a safety check/re-filter
