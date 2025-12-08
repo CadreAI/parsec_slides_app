@@ -49,6 +49,156 @@ def health():
     """Health check endpoint"""
     return jsonify({'status': 'ok'}), 200
 
+@app.route('/config/student-groups', methods=['GET'])
+def get_student_groups():
+    """
+    Get student groups configuration
+    
+    Returns:
+    - success: bool
+    - student_groups: dict with student group definitions
+    - student_group_order: dict with ordering for student groups
+    """
+    try:
+        student_groups = {
+            "All Students": { "type": "all" },
+            "English Learners": { "column": "englishlearner", "in": ["Y", "Yes", "True", 1] },
+            "Students with Disabilities": { "column": "studentswithdisabilities", "in": ["Y", "Yes", "True", 1] },
+            "Socioeconomically Disadvantaged": { "column": "socioeconomicallydisadvantaged", "in": ["Y", "Yes", "True", 1] },
+            "Hispanic or Latino": { "column": "ethnicityrace", "in": ["Hispanic", "Hispanic or Latino"] },
+            "White": { "column": "ethnicityrace", "in": ["White"] },
+            "Black or African American": { "column": "ethnicityrace", "in": ["Black", "African American", "Black or African American"] },
+            "Asian": { "column": "ethnicityrace", "in": ["Asian"] },
+            "Filipino": { "column": "ethnicityrace", "in": ["Filipino"] },
+            "American Indian or Alaska Native": { "column": "ethnicityrace", "in": ["American Indian", "Alaska Native", "American Indian or Alaska Native"] },
+            "Native Hawaiian or Pacific Islander": { "column": "ethnicityrace", "in": ["Pacific Islander", "Native Hawaiian", "Native Hawaiian or Other Pacific Islander"] },
+            "Two or More Races": { "column": "ethnicityrace", "in": ["Two or More Races", "Multiracial", "Multiple Races"] },
+            "Not Stated": { "column": "ethnicityrace", "in": ["Not Stated", "Unknown", ""] },
+            "Foster": { "column": "foster", "in": ["Y", "Yes", "True", 1] },
+            "Homeless": { "column": "homeless", "in": ["Y", "Yes", "True", 1] }
+        }
+        
+        student_group_order = {
+            "All Students": 1,
+            "English Learners": 2,
+            "Students with Disabilities": 3,
+            "Socioeconomically Disadvantaged": 4,
+            "Hispanic or Latino": 5,
+            "White": 6,
+            "Black or African American": 7,
+            "Asian": 8,
+            "Filipino": 9,
+            "American Indian or Alaska Native": 10,
+            "Native Hawaiian or Pacific Islander": 11,
+            "Two or More Races": 12,
+            "Not Stated": 13,
+            "Foster": 14,
+            "Homeless": 15
+        }
+        
+        return jsonify({
+            'success': True,
+            'student_groups': student_groups,
+            'student_group_order': student_group_order
+        }), 200
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] Error getting student groups: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+@app.route('/config/assessment-filters', methods=['GET'])
+def get_assessment_filters():
+    """
+    Get available filters for each assessment type
+    
+    Query params:
+    - assessments: comma-separated list of assessment IDs (e.g., "nwea,iready")
+    
+    Returns:
+    - success: bool
+    - filters: dict mapping assessment ID to available filter options
+    """
+    try:
+        assessments_param = request.args.get('assessments', '')
+        requested_assessments = [a.strip() for a in assessments_param.split(',') if a.strip()] if assessments_param else []
+        
+        # Define available filters for each assessment
+        assessment_filters = {
+            'nwea': {
+                'subjects': ['Reading', 'Mathematics'],
+                'quarters': ['Fall', 'Winter', 'Spring'],
+                'supports_grades': True,
+                'supports_student_groups': True,
+                'supports_race': True
+            },
+            'iready': {
+                'subjects': ['ELA', 'Math'],
+                'quarters': ['Fall', 'Winter', 'Spring'],
+                'supports_grades': True,
+                'supports_student_groups': True,
+                'supports_race': True
+            },
+            'star': {
+                'subjects': ['Reading', 'Mathematics'],
+                'quarters': ['Fall', 'Winter', 'Spring'],
+                'supports_grades': True,
+                'supports_student_groups': True,
+                'supports_race': True
+            },
+            'cers': {
+                'subjects': ['ELA', 'Math'],
+                'quarters': [],  # CERS typically doesn't use quarters
+                'supports_grades': True,
+                'supports_student_groups': True,
+                'supports_race': True
+            }
+        }
+        
+        # If specific assessments requested, filter to those
+        # If no assessments specified, return all available assessments
+        if requested_assessments:
+            filtered_filters = {k: v for k, v in assessment_filters.items() if k in requested_assessments}
+        else:
+            filtered_filters = assessment_filters  # Return all assessments
+        
+        # Merge subjects and quarters from all selected assessments
+        all_subjects = set()
+        all_quarters = set()
+        supports_grades = any(f.get('supports_grades', False) for f in filtered_filters.values())
+        supports_student_groups = any(f.get('supports_student_groups', False) for f in filtered_filters.values())
+        supports_race = any(f.get('supports_race', False) for f in filtered_filters.values())
+        
+        for assessment_config in filtered_filters.values():
+            all_subjects.update(assessment_config.get('subjects', []))
+            all_quarters.update(assessment_config.get('quarters', []))
+        
+        return jsonify({
+            'success': True,
+            'filters': {
+                'subjects': sorted(list(all_subjects)),
+                'quarters': sorted(list(all_quarters)),
+                'supports_grades': supports_grades,
+                'supports_student_groups': supports_student_groups,
+                'supports_race': supports_race
+            },
+            'assessment_details': filtered_filters
+        }), 200
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] Error getting assessment filters: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+
 @app.route('/analyze-charts', methods=['POST'])
 def analyze_charts():
     """

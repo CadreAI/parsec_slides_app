@@ -9,18 +9,28 @@ import { MultiSelect } from '@/components/ui/multi-select'
 import { Progress } from '@/components/ui/progress'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useAssessmentFilters } from '@/hooks/useAssessmentFilters'
+import { useAssessmentTables } from '@/hooks/useAssessmentTables'
+import { useAvailableAssessments } from '@/hooks/useAvailableAssessments'
+import { useDatasets } from '@/hooks/useDatasets'
+import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
+import { useFormOptions } from '@/hooks/useFormOptions'
+import { useStudentGroups } from '@/hooks/useStudentGroups'
+import { getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
-// Available assessment sources for data ingestion
-const ASSESSMENT_SOURCES = [
-    { id: 'nwea', label: 'NWEA Map Growth', defaultTable: 'parsecgo.demodashboard.Nwea_production_calpads_v4_2' },
-    { id: 'iready', label: 'iReady', defaultTable: 'parsecgo.demodashboard.iready_production_calpads_v4_2' },
-    { id: 'star', label: 'STAR', defaultTable: 'parsecgo.demodashboard.renaissance_production_calpads_v4_2' },
-    { id: 'cers', label: 'CERS', defaultTable: 'parsecgo.demodashboard.cers_production' }
-]
+// Partner configuration - maps partner_name to their districts and schools
+const PARTNER_CONFIG: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
+    demodashboard: {
+        districts: ['Parsec Academy'],
+        schools: {
+            'Parsec Academy': ['Parsec Academy']
+        }
+    }
+}
 
 export default function CreateSlide() {
     const router = useRouter()
@@ -48,173 +58,33 @@ export default function CreateSlide() {
         slidePrompt: ''
     })
 
-    // Student group mappings for filtering (used in config)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const studentGroupMappings: Record<string, { type?: string; column?: string; in?: (string | number)[] }> = {
-        'All Students': { type: 'all' },
-        'English Learners': { column: 'englishlearner', in: ['Y', 'Yes', 'True', 1] },
-        'Students with Disabilities': { column: 'studentswithdisabilities', in: ['Y', 'Yes', 'True', 1] },
-        'Socioeconomically Disadvantaged': { column: 'socioeconomicallydisadvantaged', in: ['Y', 'Yes', 'True', 1] },
-        'Hispanic or Latino': { column: 'ethnicityrace', in: ['Hispanic', 'Hispanic or Latino'] },
-        White: { column: 'ethnicityrace', in: ['White'] },
-        'Black or African American': { column: 'ethnicityrace', in: ['Black', 'African American', 'Black or African American'] },
-        Asian: { column: 'ethnicityrace', in: ['Asian'] },
-        Filipino: { column: 'ethnicityrace', in: ['Filipino'] },
-        'American Indian or Alaska Native': { column: 'ethnicityrace', in: ['American Indian', 'Alaska Native', 'American Indian or Alaska Native'] },
-        'Native Hawaiian or Pacific Islander': {
-            column: 'ethnicityrace',
-            in: ['Pacific Islander', 'Native Hawaiian', 'Native Hawaiian or Other Pacific Islander']
-        },
-        'Two or More Races': { column: 'ethnicityrace', in: ['Two or More Races', 'Multiracial', 'Multiple Races'] },
-        'Not Stated': { column: 'ethnicityrace', in: ['Not Stated', 'Unknown', ''] },
-        Foster: { column: 'foster', in: ['Y', 'Yes', 'True', 1] },
-        Homeless: { column: 'homeless', in: ['Y', 'Yes', 'True', 1] }
-    }
+    // Custom hooks for data fetching
+    const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
+    const { grades: GRADES, years: YEARS } = useFormOptions(formData.projectId, formData.partnerName, formData.location)
+    const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
+    const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
+    const { availableDistricts, availableSchools, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
+        formData.partnerName,
+        formData.projectId,
+        formData.location
+    )
+    const { availableAssessments, assessmentTables, isLoadingAssessmentTables } = useAssessmentTables(
+        formData.partnerName,
+        formData.projectId,
+        formData.location,
+        setFormData
+    )
+    const { availableSubjects, availableQuarters, supportsGrades, supportsStudentGroups, supportsRace, isLoadingFilters } = useAssessmentFilters(
+        formData.assessments,
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        setFormData
+    )
 
-    // Student group order for consistent sorting (used in config)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const studentGroupOrder: Record<string, number> = {
-        'All Students': 1,
-        'English Learners': 2,
-        'Students with Disabilities': 3,
-        'Socioeconomically Disadvantaged': 4,
-        'Hispanic or Latino': 5,
-        White: 6,
-        'Black or African American': 7,
-        Asian: 8,
-        Filipino: 9,
-        'American Indian or Alaska Native': 10,
-        'Native Hawaiian or Pacific Islander': 11,
-        'Two or More Races': 12,
-        'Not Stated': 13,
-        Foster: 14,
-        Homeless: 15
-    }
-
-    // Partner configuration - maps partner_name to their districts and schools
-    const partnerConfig: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
-        demodashboard: {
-            districts: ['Parsec Academy'],
-            schools: {
-                'Parsec Academy': ['Parsec Academy']
-            }
-        }
-    }
-
-    const [partnerOptions, setPartnerOptions] = useState<Array<{ value: string; label: string }>>([
-        { value: 'demodashboard', label: 'demodashboard (default)' }
-    ])
-    const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
-    const [availableDistricts, setAvailableDistricts] = useState<string[]>([])
-    const [availableSchools, setAvailableSchools] = useState<string[]>([])
-    const [districtSchoolMap, setDistrictSchoolMap] = useState<Record<string, string[]>>({})
-    const [isLoadingDistrictsSchools, setIsLoadingDistrictsSchools] = useState(false)
-
-    // Fetch datasets from BigQuery when projectId changes
-    useEffect(() => {
-        const fetchDatasets = async () => {
-            if (!formData.projectId || formData.projectId.trim() === '') {
-                return
-            }
-
-            setIsLoadingDatasets(true)
-            try {
-                const res = await fetch(
-                    `/api/bigquery/datasets?projectId=${encodeURIComponent(formData.projectId)}&location=${encodeURIComponent(formData.location)}`
-                )
-                const data = await res.json()
-
-                if (res.ok && data.success && data.datasets) {
-                    const datasetOptions = data.datasets.map((datasetId: string) => ({
-                        value: datasetId,
-                        label: datasetId
-                    }))
-                    setPartnerOptions(datasetOptions)
-                    console.log(`Loaded ${datasetOptions.length} datasets from BigQuery`)
-                } else {
-                    console.warn('Failed to load datasets:', data.error || 'Unknown error')
-                    // Keep default option on error
-                }
-            } catch (error) {
-                console.error('Error fetching datasets:', error)
-                // Keep default option on error
-            } finally {
-                setIsLoadingDatasets(false)
-            }
-        }
-
-        fetchDatasets()
-    }, [formData.projectId, formData.location])
-
-    // Fetch districts and schools from NWEA table when partner is selected
-    useEffect(() => {
-        const fetchDistrictsAndSchools = async () => {
-            if (!formData.partnerName || !formData.projectId || formData.partnerName.trim() === '') {
-                setAvailableDistricts([])
-                setAvailableSchools([])
-                setDistrictSchoolMap({})
-                return
-            }
-
-            setIsLoadingDistrictsSchools(true)
-            try {
-                const res = await fetch(
-                    `/api/bigquery/districts-schools?projectId=${encodeURIComponent(formData.projectId)}&datasetId=${encodeURIComponent(formData.partnerName)}&location=${encodeURIComponent(formData.location)}`
-                )
-                const data = await res.json()
-
-                if (res.ok && data.success) {
-                    setAvailableDistricts(data.districts || [])
-                    setAvailableSchools(data.schools || [])
-                    setDistrictSchoolMap(data.districtSchoolMap || {})
-                    console.log(`Loaded ${data.districts?.length || 0} districts and ${data.schools?.length || 0} schools`)
-                } else {
-                    console.warn('Failed to load districts/schools:', data.error || 'Unknown error')
-                    setAvailableDistricts([])
-                    setAvailableSchools([])
-                    setDistrictSchoolMap({})
-                }
-            } catch (error) {
-                console.error('Error fetching districts and schools:', error)
-                setAvailableDistricts([])
-                setAvailableSchools([])
-                setDistrictSchoolMap({})
-            } finally {
-                setIsLoadingDistrictsSchools(false)
-            }
-        }
-
-        fetchDistrictsAndSchools()
-    }, [formData.partnerName, formData.projectId, formData.location])
-
-    const getDistrictOptions = () => {
-        // Use dynamically fetched districts if available, otherwise fall back to partnerConfig
-        if (availableDistricts.length > 0) {
-            return availableDistricts
-        }
-        if (!formData.partnerName || !partnerConfig[formData.partnerName]) {
-            return []
-        }
-        return partnerConfig[formData.partnerName].districts
-    }
-
-    const getSchoolOptions = () => {
-        // Use dynamically fetched schools if available
-        if (formData.districtName && Object.keys(districtSchoolMap).length > 0) {
-            // Filter schools by selected district
-            const schools = districtSchoolMap[formData.districtName] || []
-            return schools
-        }
-        if (availableSchools.length > 0) {
-            return availableSchools
-        }
-        // Fall back to partnerConfig
-        if (!formData.partnerName || !partnerConfig[formData.partnerName]) {
-            return []
-        }
-        const schools = partnerConfig[formData.partnerName].schools[formData.districtName] || []
-        return schools
-    }
+    // Helper functions
+    const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
+    const schoolOptions = getSchoolOptions(formData.districtName, districtSchoolMap, availableSchools, formData.partnerName, PARTNER_CONFIG)
 
     const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
         setFormData((prev) => {
@@ -284,6 +154,11 @@ export default function CreateSlide() {
             return
         }
 
+        if (formData.assessments.length === 0) {
+            toast.error('Please select at least one assessment first')
+            return
+        }
+
         if (formData.selectedDataSources.length === 0) {
             toast.error('Please select at least one data source/assessment')
             return
@@ -332,46 +207,8 @@ export default function CreateSlide() {
                 },
                 sources: sources,
                 exclude_cols: {},
-                student_groups: {
-                    'All Students': { type: 'all' },
-                    'English Learners': { column: 'englishlearner', in: ['Y', 'Yes', 'True', 1] },
-                    'Students with Disabilities': { column: 'studentswithdisabilities', in: ['Y', 'Yes', 'True', 1] },
-                    'Socioeconomically Disadvantaged': { column: 'socioeconomicallydisadvantaged', in: ['Y', 'Yes', 'True', 1] },
-                    'Hispanic or Latino': { column: 'ethnicityrace', in: ['Hispanic', 'Hispanic or Latino'] },
-                    White: { column: 'ethnicityrace', in: ['White'] },
-                    'Black or African American': { column: 'ethnicityrace', in: ['Black', 'African American', 'Black or African American'] },
-                    Asian: { column: 'ethnicityrace', in: ['Asian'] },
-                    Filipino: { column: 'ethnicityrace', in: ['Filipino'] },
-                    'American Indian or Alaska Native': {
-                        column: 'ethnicityrace',
-                        in: ['American Indian', 'Alaska Native', 'American Indian or Alaska Native']
-                    },
-                    'Native Hawaiian or Pacific Islander': {
-                        column: 'ethnicityrace',
-                        in: ['Pacific Islander', 'Native Hawaiian', 'Native Hawaiian or Other Pacific Islander']
-                    },
-                    'Two or More Races': { column: 'ethnicityrace', in: ['Two or More Races', 'Multiracial', 'Multiple Races'] },
-                    'Not Stated': { column: 'ethnicityrace', in: ['Not Stated', 'Unknown', ''] },
-                    Foster: { column: 'foster', in: ['Y', 'Yes', 'True', 1] },
-                    Homeless: { column: 'homeless', in: ['Y', 'Yes', 'True', 1] }
-                },
-                student_group_order: {
-                    'All Students': 1,
-                    'English Learners': 2,
-                    'Students with Disabilities': 3,
-                    'Socioeconomically Disadvantaged': 4,
-                    'Hispanic or Latino': 5,
-                    White: 6,
-                    'Black or African American': 7,
-                    Asian: 8,
-                    Filipino: 9,
-                    'American Indian or Alaska Native': 10,
-                    'Native Hawaiian or Pacific Islander': 11,
-                    'Two or More Races': 12,
-                    'Not Stated': 13,
-                    Foster: 14,
-                    Homeless: 15
-                },
+                student_groups: studentGroupMappings,
+                student_group_order: studentGroupOrder,
                 options: {
                     cache_csv: true,
                     preview: true
@@ -604,7 +441,7 @@ export default function CreateSlide() {
                                             disabled={isLoadingDistrictsSchools || !formData.partnerName}
                                         >
                                             <option value="">{isLoadingDistrictsSchools ? 'Loading districts...' : 'Select a district...'}</option>
-                                            {getDistrictOptions().map((district) => (
+                                            {districtOptions.map((district: string) => (
                                                 <option key={district} value={district}>
                                                     {district}
                                                 </option>
@@ -617,7 +454,7 @@ export default function CreateSlide() {
                                             School(s) <span className="text-destructive">*</span>
                                         </Label>
                                         <MultiSelect
-                                            options={getSchoolOptions()}
+                                            options={schoolOptions}
                                             selected={formData.schools}
                                             onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
                                             placeholder={
@@ -635,135 +472,204 @@ export default function CreateSlide() {
                                 </div>
                             </div>
 
-                            {/* Filters */}
-                            <div className="space-y-4 border-b pb-4">
-                                <h3 className="text-lg font-semibold">Filters</h3>
-                                <div className="grid grid-cols-2 gap-4">
+                            {/* Data Sources & Assessments - Only show when dataset is selected */}
+                            {formData.partnerName && (
+                                <div className="space-y-4 border-b pb-4">
+                                    <h3 className="text-lg font-semibold">Assessments</h3>
                                     <div className="space-y-2">
                                         <Label>
-                                            Grade(s) <span className="text-destructive">*</span>
+                                            Select Assessments <span className="text-destructive">*</span>
                                         </Label>
-                                        <MultiSelect
-                                            options={['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']}
-                                            selected={formData.grades}
-                                            onChange={(selected) => setFormData((prev) => ({ ...prev, grades: selected }))}
-                                            placeholder="Select grade(s)..."
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>
-                                            Year(s) <span className="text-destructive">*</span>
-                                        </Label>
-                                        <MultiSelect
-                                            options={['2023', '2024', '2025', '2026']}
-                                            selected={formData.years}
-                                            onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
-                                            placeholder="Select at least 2 year(s)..."
-                                        />
-                                        {formData.years.length > 0 && formData.years.length < 2 && (
-                                            <p className="text-destructive text-sm">Please select at least 2 years</p>
+                                        {isLoadingAssessments && <p className="text-muted-foreground mb-2 text-xs">Loading assessments...</p>}
+                                        {isLoadingAssessmentTables && (
+                                            <p className="text-muted-foreground mb-2 text-xs">Checking available assessment tables...</p>
+                                        )}
+                                        {!isLoadingAssessments && !isLoadingAssessmentTables && availableAssessments.length === 0 && (
+                                            <p className="text-destructive mb-2 text-xs">No assessment tables found in this dataset</p>
+                                        )}
+                                        {!isLoadingAssessments && !isLoadingAssessmentTables && availableAssessments.length > 0 && (
+                                            <p className="text-muted-foreground mb-2 text-xs">
+                                                Available assessments in this dataset: {availableAssessments.join(', ')}
+                                            </p>
+                                        )}
+                                        <div className="grid grid-cols-1 gap-2 rounded-lg border p-4">
+                                            {ASSESSMENT_SOURCES.length === 0 && !isLoadingAssessments && (
+                                                <p className="text-muted-foreground text-sm">No assessments available</p>
+                                            )}
+                                            {ASSESSMENT_SOURCES.map((source) => {
+                                                // Only show assessment if it's available in the selected dataset
+                                                const isAvailable = availableAssessments.length === 0 || availableAssessments.includes(source.id)
+                                                const isSelected = formData.selectedDataSources.includes(source.id)
+                                                const customTable = formData.customDataSources[source.id] || assessmentTables[source.id]
+                                                const defaultTable = source.defaultTable
+
+                                                if (!isAvailable) {
+                                                    return null // Don't render unavailable assessments
+                                                }
+
+                                                return (
+                                                    <div key={source.id} className="space-y-1 rounded border p-2">
+                                                        <div className="flex items-center space-x-2">
+                                                            <Checkbox
+                                                                id={`data-${source.id}`}
+                                                                checked={isSelected}
+                                                                onChange={(e) => {
+                                                                    handleDataSourceToggle(source.id)
+                                                                    // Also update assessments to match
+                                                                    handleCheckboxChange('assessments', source.id, e.target.checked)
+                                                                }}
+                                                                disabled={isLoadingAssessmentTables || isLoadingAssessments}
+                                                            />
+                                                            <Label htmlFor={`data-${source.id}`} className="cursor-pointer text-sm font-semibold">
+                                                                {source.label}
+                                                            </Label>
+                                                        </div>
+                                                        {isSelected && (
+                                                            <Input
+                                                                value={customTable || defaultTable}
+                                                                onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
+                                                                placeholder={defaultTable}
+                                                                className="ml-6 mt-1 h-8 font-mono text-xs"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                        {availableAssessments.length > 0 && formData.assessments.length === 0 && (
+                                            <p className="text-muted-foreground text-sm">Please select at least one assessment to continue</p>
+                                        )}
+                                        {isLoadingFilters && formData.assessments.length > 0 && (
+                                            <p className="text-muted-foreground text-xs">Loading available filters...</p>
                                         )}
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>
-                                            Quarter(s) <span className="text-destructive">*</span>
-                                        </Label>
-                                        <MultiSelect
-                                            options={['Fall', 'Winter', 'Spring']}
-                                            selected={formData.quarters}
-                                            onChange={(selected) => setFormData((prev) => ({ ...prev, quarters: selected }))}
-                                            placeholder="Select quarter(s)..."
-                                        />
-                                    </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label>
-                                        Subject(s) <span className="text-destructive">*</span>
-                                    </Label>
-                                    <MultiSelect
-                                        options={['Math', 'Reading', 'Science', 'Social Studies']}
-                                        selected={formData.subjects}
-                                        onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
-                                        placeholder="Select subject(s)..."
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label>Student Groups</Label>
-                                        <MultiSelect
-                                            options={['All Students', 'English Learners', 'Students with Disabilities', 'Socioeconomically Disadvantaged']}
-                                            selected={formData.studentGroups}
-                                            onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
-                                            placeholder="Select student group(s)..."
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Race/Ethnicity</Label>
-                                        <MultiSelect
-                                            options={[
-                                                'Hispanic or Latino',
-                                                'White',
-                                                'Black or African American',
-                                                'Asian',
-                                                'Filipino',
-                                                'American Indian or Alaska Native',
-                                                'Native Hawaiian or Pacific Islander',
-                                                'Two or More Races'
-                                            ]}
-                                            selected={formData.race}
-                                            onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
-                                            placeholder="Select race/ethnicity..."
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                            )}
 
-                            {/* Data Sources & Assessments */}
-                            <div className="space-y-4 border-b pb-4">
-                                <h3 className="text-lg font-semibold">Assessments</h3>
-                                <div className="space-y-2">
-                                    <Label>
-                                        Select Assessments <span className="text-destructive">*</span>
-                                    </Label>
-                                    <p className="text-muted-foreground mb-2 text-xs">
-                                        Selected sources will be used for data ingestion, chart generation, and slide content
+                            {/* Filters - Dynamic based on selected assessments */}
+                            {formData.assessments.length > 0 && (
+                                <div className="space-y-4 border-b pb-4">
+                                    <h3 className="text-lg font-semibold">Filters</h3>
+                                    <p className="text-muted-foreground mb-4 text-xs">
+                                        Available filters based on selected assessments: {formData.assessments.join(', ')}
                                     </p>
-                                    <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
-                                        {ASSESSMENT_SOURCES.map((source) => {
-                                            const isSelected = formData.selectedDataSources.includes(source.id)
-                                            const customTable = formData.customDataSources[source.id]
-                                            const defaultTable = source.defaultTable
-
-                                            return (
-                                                <div key={source.id} className="space-y-1 rounded border p-2">
-                                                    <div className="flex items-center space-x-2">
-                                                        <Checkbox
-                                                            id={`data-${source.id}`}
-                                                            checked={isSelected}
-                                                            onChange={(e) => {
-                                                                handleDataSourceToggle(source.id)
-                                                                // Also update assessments to match
-                                                                handleCheckboxChange('assessments', source.id, e.target.checked)
-                                                            }}
-                                                        />
-                                                        <Label htmlFor={`data-${source.id}`} className="cursor-pointer text-sm font-semibold">
-                                                            {source.label}
-                                                        </Label>
-                                                    </div>
-                                                    {isSelected && (
-                                                        <Input
-                                                            value={customTable || defaultTable}
-                                                            onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
-                                                            placeholder={defaultTable}
-                                                            className="ml-6 mt-1 h-8 font-mono text-xs"
-                                                        />
-                                                    )}
-                                                </div>
-                                            )
-                                        })}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {supportsGrades && (
+                                            <div className="space-y-2">
+                                                <Label>
+                                                    Grade(s) <span className="text-destructive">*</span>
+                                                </Label>
+                                                <MultiSelect
+                                                    options={GRADES}
+                                                    selected={formData.grades}
+                                                    onChange={(selected) => setFormData((prev) => ({ ...prev, grades: selected }))}
+                                                    placeholder="Select grade(s)..."
+                                                    disabled={isLoadingFilters}
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="space-y-2">
+                                            <Label>
+                                                Year(s) <span className="text-destructive">*</span>
+                                            </Label>
+                                            <MultiSelect
+                                                options={YEARS}
+                                                selected={formData.years}
+                                                onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
+                                                placeholder="Select at least 2 year(s)..."
+                                                disabled={isLoadingFilters}
+                                            />
+                                            {formData.years.length > 0 && formData.years.length < 2 && (
+                                                <p className="text-destructive text-sm">Please select at least 2 years</p>
+                                            )}
+                                        </div>
                                     </div>
+                                    {(availableQuarters.length > 0 || availableSubjects.length > 0) && (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {availableQuarters.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <Label>
+                                                        Quarter(s) <span className="text-destructive">*</span>
+                                                    </Label>
+                                                    <MultiSelect
+                                                        options={availableQuarters}
+                                                        selected={formData.quarters}
+                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, quarters: selected }))}
+                                                        placeholder="Select quarter(s)..."
+                                                        disabled={isLoadingFilters}
+                                                    />
+                                                </div>
+                                            )}
+                                            {availableSubjects.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <Label>
+                                                        Subject(s) <span className="text-destructive">*</span>
+                                                    </Label>
+                                                    <MultiSelect
+                                                        options={availableSubjects}
+                                                        selected={formData.subjects}
+                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
+                                                        placeholder="Select subject(s)..."
+                                                        disabled={isLoadingFilters}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {(supportsStudentGroups || supportsRace) && (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {supportsStudentGroups && (
+                                                <div className="space-y-2">
+                                                    <Label>Student Groups</Label>
+                                                    <MultiSelect
+                                                        options={
+                                                            studentGroupOptions.length > 0
+                                                                ? studentGroupOptions.filter((group) => !raceOptions.includes(group))
+                                                                : [
+                                                                      'All Students',
+                                                                      'English Learners',
+                                                                      'Students with Disabilities',
+                                                                      'Socioeconomically Disadvantaged',
+                                                                      'Foster',
+                                                                      'Homeless'
+                                                                  ]
+                                                        }
+                                                        selected={formData.studentGroups}
+                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
+                                                        placeholder="Select student group(s)..."
+                                                        disabled={isLoadingFilters}
+                                                    />
+                                                </div>
+                                            )}
+                                            {supportsRace && (
+                                                <div className="space-y-2">
+                                                    <Label>Race/Ethnicity</Label>
+                                                    <MultiSelect
+                                                        options={
+                                                            raceOptions.length > 0
+                                                                ? raceOptions
+                                                                : [
+                                                                      'Hispanic or Latino',
+                                                                      'White',
+                                                                      'Black or African American',
+                                                                      'Asian',
+                                                                      'Filipino',
+                                                                      'American Indian or Alaska Native',
+                                                                      'Native Hawaiian or Pacific Islander',
+                                                                      'Two or More Races'
+                                                                  ]
+                                                        }
+                                                        selected={formData.race}
+                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
+                                                        placeholder="Select race/ethnicity..."
+                                                        disabled={isLoadingFilters}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
+                            )}
 
                             {/* Slide Content */}
                             <div className="space-y-4">

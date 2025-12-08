@@ -849,17 +849,16 @@ def main(iready_data=None):
             raise ValueError("Either iready_data must be provided or --data-dir must be specified")
         iready_base = load_iready_data(data_dir=args.data_dir)
     
-    # Apply filters
-    if chart_filters:
-        iready_base = apply_chart_filters(iready_base, chart_filters)
-        print(f"Data after filtering: {iready_base.shape[0]:,} rows")
+    # Match old flow: Each section receives unfiltered scope data and filters internally
+    # Only scope filtering (district vs school) happens before sections
+    # This matches iready2.py behavior where filtering is progressive within each section
     
-    # Get selected quarters
+    # Get selected quarters (for determining which charts to generate)
     selected_quarters = ["Fall"]
     if chart_filters and chart_filters.get("quarters") and len(chart_filters["quarters"]) > 0:
         selected_quarters = chart_filters["quarters"]
     
-    # Get scopes
+    # Get scopes from unfiltered data (all sections filter internally)
     scopes = get_scopes(iready_base, cfg)
     
     chart_paths = []
@@ -971,6 +970,7 @@ def main(iready_data=None):
     print("\n[Section 3] Generating Overall + Cohort Trends...")
     
     def _run_scope_section3(scope_df, scope_label, folder):
+        # Match old flow: Receive unfiltered scope data, filter internally
         scope_df = scope_df.copy()
         scope_df["academicyear"] = pd.to_numeric(scope_df["academicyear"], errors="coerce")
         scope_df["student_grade"] = pd.to_numeric(scope_df["student_grade"], errors="coerce")
@@ -994,18 +994,23 @@ def main(iready_data=None):
         else:
             anchor_year = None
         
-        # Get ALL unique normalized grades from the filtered data
+        # Get unique grades from scope data (for determining which charts to generate)
+        # Apply grade filter here if specified (for chart generation decision only)
         unique_grades = sorted([g for g in scope_df["grade_normalized"].dropna().unique() if g is not None])
+        
+        # Filter grades if chart_filters specifies grades (for determining which charts to generate)
+        if chart_filters and chart_filters.get("grades") and len(chart_filters["grades"]) > 0:
+            unique_grades = [g for g in unique_grades if g in chart_filters["grades"]]
         
         print(f"  [Section 3] Found {len(unique_grades)} grade(s) in filtered data: {unique_grades}")
         
         for g in unique_grades:
-            # Filter scope_df to this specific grade for chart generation
-            grade_df = scope_df[scope_df["grade_normalized"] == g].copy()
-            if grade_df.empty:
+            # Check if grade exists in data (for chart generation decision)
+            grade_check = scope_df[scope_df["grade_normalized"] == g].copy()
+            if grade_check.empty:
                 continue
             
-            subjects_in_data = set(grade_df["subject"].dropna().astype(str).str.lower())
+            subjects_in_data = set(grade_check["subject"].dropna().astype(str).str.lower())
             for subject_str in ["ELA", "Math"]:
                 # Map subject string to filter check
                 subject_filter_name = "ELA" if subject_str == "ELA" else "Math"
@@ -1023,8 +1028,9 @@ def main(iready_data=None):
                     for quarter in selected_quarters:
                         try:
                             print(f"  [Section 3] Generating chart for {scope_label} - Grade {g} - {subject_str} - {quarter}")
+                            # Pass unfiltered scope_df - function filters internally (matches old flow)
                             chart_path = plot_iready_blended_dashboard(
-                                grade_df.copy(), scope_label, folder, args.output_dir,
+                                scope_df.copy(), scope_label, folder, args.output_dir,
                                 subject_str=subject_str, current_grade=int(g),
                                 window_filter=quarter, cohort_year=anchor_year,
                                 cfg=cfg, preview=hf.DEV_MODE
@@ -1038,7 +1044,7 @@ def main(iready_data=None):
                                 traceback.print_exc()
                             continue
     
-    # Use filtered scopes (data is already filtered by chart_filters)
+    # Use unfiltered scopes for Section 3 (matches old flow - each section filters internally)
     for scope_df, scope_label, folder in scopes:
         _run_scope_section3(scope_df.copy(), scope_label, folder)
     

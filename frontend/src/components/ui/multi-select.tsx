@@ -39,6 +39,18 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
         }
     }
 
+    const handleSelectAll = () => {
+        if (selected.length === options.length) {
+            // Deselect all
+            onChange([])
+        } else {
+            // Select all
+            onChange([...options])
+        }
+    }
+
+    const allSelected = options.length > 0 && selected.length === options.length
+
     return (
         <div ref={containerRef} className={cn('relative', className)}>
             <button
@@ -58,6 +70,18 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
 
             {isOpen && (
                 <div className="bg-background absolute z-50 mt-1 w-full rounded-md border shadow-md">
+                    {options.length > 0 && (
+                        <div className="border-b p-2">
+                            <button
+                                type="button"
+                                onClick={handleSelectAll}
+                                className="hover:bg-accent flex w-full items-center space-x-2 rounded-sm px-2 py-1.5 text-sm font-medium"
+                            >
+                                <Checkbox checked={allSelected} onChange={handleSelectAll} />
+                                <Label className="cursor-pointer font-medium">{allSelected ? 'Deselect All' : 'Select All'}</Label>
+                            </button>
+                        </div>
+                    )}
                     <div className="max-h-60 overflow-auto p-2">
                         {options.map((option) => (
                             <div key={option} className="hover:bg-accent flex items-center space-x-2 rounded-sm px-2 py-1.5">
