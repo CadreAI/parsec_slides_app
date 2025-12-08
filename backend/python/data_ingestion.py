@@ -9,6 +9,7 @@ import concurrent.futures
 
 from bigquery_client import get_bigquery_client, run_query
 from nwea.sql_builders import sql_nwea
+from iready.sql_builders import sql_iready
 
 
 def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -277,6 +278,197 @@ def ingest_nwea(
         before_filter = len(df)
         df = df[df['grade'].isin(grades)]
         print(f"[Data Ingestion] Applied grade filter in Python: {before_filter} -> {len(df)} rows")
+    
+    # Convert back to list of dicts
+    result = df.to_dict('records')
+    
+    return result
+
+
+def ingest_iready(
+    partner_name: str,
+    config: Dict[str, Any],
+    chart_filters: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Ingest iReady data from BigQuery
+    
+    Args:
+        partner_name: Partner name
+        config: Partner configuration dict
+        chart_filters: Optional filters for chart generation (NOT applied in SQL - all filtering done in Python)
+    
+    Returns:
+        List of dictionaries representing iReady data rows
+    """
+    chart_filters = chart_filters or {}
+    
+    # Map config-level filters to chart_filters if not already set
+    if not chart_filters.get('districts') and config.get('district_name'):
+        districts = config.get('district_name')
+        if isinstance(districts, list) and len(districts) > 0:
+            chart_filters['districts'] = districts
+            print(f"[Data Ingestion] Mapped district_name to chart_filters.districts: {districts}")
+    
+    if not chart_filters.get('schools') and config.get('selected_schools'):
+        schools = config.get('selected_schools')
+        if isinstance(schools, list) and len(schools) > 0:
+            chart_filters['schools'] = schools
+            print(f"[Data Ingestion] Mapped selected_schools to chart_filters.schools: {schools}")
+    
+    # Get BigQuery configuration
+    gcp_config = config.get('gcp', {})
+    project_id = gcp_config.get('project_id')
+    location = gcp_config.get('location', 'US')
+    
+    if not project_id:
+        raise ValueError("GCP project_id is required in config")
+    
+    # Get table ID
+    sources = config.get('sources', {})
+    iready_source = sources.get('iready')
+    
+    if isinstance(iready_source, str):
+        table_id = iready_source
+    elif isinstance(iready_source, dict):
+        table_id = iready_source.get('table_id')
+    else:
+        table_id = None
+    
+    if not table_id:
+        raise ValueError("iReady table_id is required in config.sources.iready")
+    
+    # Note: iReady SQL builder includes year filtering in SQL, but other filters done in Python
+    # Determine years to query
+    years = chart_filters.get('years')
+    if not years or len(years) == 0:
+        # Default: last 3 years
+        current_date = datetime.now()
+        current_year = current_date.year
+        if current_date.month >= 7:
+            current_year += 1
+        years = [current_year - 2, current_year - 1, current_year]
+        print(f"[Data Ingestion] No years specified, using default: {years}")
+    else:
+        print(f"[Data Ingestion] Querying years: {years}")
+    
+    # Get exclude columns from config if specified
+    exclude_cols = None
+    if isinstance(iready_source, dict) and 'exclude_cols' in iready_source:
+        exclude_cols = iready_source.get('exclude_cols')
+    
+    # Function to query a single year
+    def query_year(year: int) -> List[Dict[str, Any]]:
+        """Query a single year with its own BigQuery client (thread-safe)"""
+        import traceback
+        try:
+            print(f"[Data Ingestion] [Year {year}] Starting query setup...")
+            # Create a new client for this thread (thread-safe)
+            credentials_path = config.get('gcp', {}).get('credentials_path')
+            client = get_bigquery_client(project_id, credentials_path)
+            
+            # Build SQL query for this specific year
+            sql_filters = {'years': [year]}
+            sql = sql_iready(table_id, exclude_cols, filters=sql_filters)
+            
+            print(f"[Data Ingestion] [Year {year}] Executing query...")
+            rows = run_query(sql, client, None)
+            print(f"[Data Ingestion] [Year {year}] Retrieved {len(rows):,} rows")
+            return rows
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[Data Ingestion] [Year {year}] Error: {error_msg}")
+            print(f"[Data Ingestion] [Year {year}] Traceback:")
+            traceback.print_exc()
+            return []
+    
+    # Execute queries in parallel
+    print(f"[Data Ingestion] Executing {len(years)} year queries in parallel...")
+    print(f"[Data Ingestion] Table: {table_id}")
+    
+    all_rows = []
+    
+    # Use ThreadPoolExecutor to run queries in parallel
+    # Limit to max 5 concurrent queries to avoid overwhelming BigQuery
+    max_workers = min(len(years), 5)
+    
+    print(f"[Data Ingestion] Using ThreadPoolExecutor with {max_workers} workers for {len(years)} years")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all year queries
+        future_to_year = {executor.submit(query_year, year): year for year in years}
+        print(f"[Data Ingestion] Submitted {len(future_to_year)} queries")
+        
+        # Collect results as they complete with timeout
+        import time
+        start_time = time.time()
+        query_timeout = 300  # 5 minute timeout per query
+        
+        completed_years = set()
+        
+        try:
+            # Wait for all futures with a reasonable timeout
+            total_timeout = query_timeout * len(years) + 60  # Extra buffer
+            for future in concurrent.futures.as_completed(future_to_year, timeout=total_timeout):
+                year = future_to_year[future]
+                elapsed = time.time() - start_time
+                try:
+                    rows = future.result(timeout=30)  # 30 second timeout for result retrieval
+                    all_rows.extend(rows)
+                    completed_years.add(year)
+                    print(f"[Data Ingestion] [Year {year}] Completed: {len(rows):,} rows (Total: {len(all_rows):,}) in {elapsed:.1f}s")
+                except concurrent.futures.TimeoutError:
+                    print(f"[Data Ingestion] [Year {year}] TIMEOUT: Result retrieval took longer than 30s")
+                except Exception as e:
+                    print(f"[Data Ingestion] [Year {year}] Failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+        except concurrent.futures.TimeoutError:
+            print(f"[Data Ingestion] TIMEOUT: Some queries exceeded {total_timeout}s total timeout")
+            # Check which queries are still pending
+            for future, year in future_to_year.items():
+                if year not in completed_years:
+                    if future.running():
+                        print(f"[Data Ingestion] [Year {year}] Still running...")
+                    elif future.done():
+                        try:
+                            rows = future.result(timeout=5)
+                            all_rows.extend(rows)
+                            print(f"[Data Ingestion] [Year {year}] Late completion: {len(rows):,} rows")
+                        except:
+                            print(f"[Data Ingestion] [Year {year}] Failed to retrieve result")
+                    else:
+                        print(f"[Data Ingestion] [Year {year}] Not started")
+    
+    print(f"[Data Ingestion] All queries completed. Total rows: {len(all_rows):,}")
+    
+    rows = all_rows
+    
+    if not rows:
+        print("[Data Ingestion] Warning: No rows returned from queries")
+        return []
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(rows)
+    print(f"[Data Ingestion] Raw data: {len(df)} rows, {len(df.columns)} columns")
+    
+    # Clean column names
+    df = clean_column_names(df)
+    
+    # Apply filters in Python (not in SQL)
+    print("[Data Ingestion] Applying filters in Python...")
+    
+    # School filter
+    if chart_filters.get('schools') and 'school' in df.columns:
+        schools = chart_filters['schools']
+        before_filter = len(df)
+        df = df[df['school'].isin(schools)]
+        print(f"[Data Ingestion] Applied school filter: {before_filter} -> {len(df)} rows")
+    
+    # Note: Year filtering is done in SQL, not in Python
+    # This ensures we only fetch the years we need from BigQuery
+    # Note: Grade filtering and deduplication are NOT applied for iReady
+    # All data is returned as-is from BigQuery (after year and school filtering)
     
     # Convert back to list of dicts
     result = df.to_dict('records')

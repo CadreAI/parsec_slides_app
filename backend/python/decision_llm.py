@@ -150,6 +150,17 @@ def parse_chart_instructions(
             'instructions': None
         }
     
+    # Check if user explicitly wants ALL charts
+    user_prompt_lower = user_prompt.lower().strip()
+    all_keywords = ['all graphs', 'all charts', 'all of them', 'everything', 'include all', 'show all', 'output all']
+    if any(keyword in user_prompt_lower for keyword in all_keywords):
+        print(f"[Chart Selection] User requested all charts - skipping filtering")
+        return {
+            'chart_selection': chart_paths,
+            'instructions': None,
+            'reasoning': 'User requested all charts/graphs'
+        }
+    
     if OpenAI is None:
         return {
             'chart_selection': chart_paths,
@@ -177,13 +188,17 @@ User request: "{user_prompt}"
 Available charts (by filename):
 {chr(10).join(f"- {name}" for name in chart_names)}
 
+CRITICAL: If the user says "all graphs", "all charts", "all of them", "everything", "include all", "show all", or "output all" → return ALL charts in chart_selection list.
+
 Instructions:
-1. Identify which charts the user wants (by keywords like: grade, subject, section, trend, etc.)
-2. Determine the order they want them in
-3. If user says "that's it" or "only", exclude charts not explicitly mentioned
-4. IMPORTANT: If user mentions "grades 1-4" or "grade 1-4", include ALL grades in that range (1, 2, 3, 4)
-5. IMPORTANT: If user mentions demographic groups (Hispanic, Latino, Black, African American, White, etc.) or student groups → include section2 charts
-6. Common patterns:
+1. If user wants ALL charts → list ALL chart filenames in chart_selection and set exclude_others=false
+2. Otherwise, identify which charts the user wants (by keywords like: grade, subject, section, trend, etc.)
+3. Determine the order they want them in
+4. If user says "that's it" or "only", exclude charts not explicitly mentioned
+5. IMPORTANT: If user mentions "grades 1-4" or "grade 1-4", include ALL grades in that range (1, 2, 3, 4)
+6. IMPORTANT: If user mentions demographic groups (Hispanic, Latino, Black, African American, White, etc.) or student groups → include section2 charts
+7. Common patterns:
+   - "all graphs" or "all charts" → return ALL charts
    - "grade 1 math and reading" → section3 charts for grade 1, math and reading
    - "grades 1-4" → ALL section3 charts for grades 1, 2, 3, and 4 (both math and reading)
    - "fall year to year trend" → section1 fall trends charts
@@ -193,13 +208,13 @@ Instructions:
 
 Respond with JSON:
 {{
-    "chart_selection": ["list of chart filenames in desired order - include ALL charts matching criteria"],
+    "chart_selection": ["list of chart filenames in desired order - if user wants ALL charts, list ALL filenames here"],
     "instructions": {{
-        "grades": ["list of ALL grade numbers mentioned (e.g., ['1', '2', '3', '4'] for 'grades 1-4')"],
-        "subjects": ["math", "reading", or both],
-        "sections": ["section1", "section2", "section3", etc. - include section2 if demographics/student groups mentioned],
+        "grades": ["list of ALL grade numbers mentioned (e.g., ['1', '2', '3', '4'] for 'grades 1-4'), empty array if all grades"],
+        "subjects": ["math", "reading", or both, empty array if all subjects],
+        "sections": ["section1", "section2", "section3", etc., empty array if all sections],
         "order_matters": true/false,
-        "exclude_others": true/false
+        "exclude_others": false if user wants all charts, true only if user says "only" or "that's it"
     }},
     "reasoning": "brief explanation of selection"
 }}"""
@@ -251,12 +266,19 @@ Respond with JSON:
         
         # Fallback: If instructions specify grades/subjects/sections, match charts by criteria
         # This handles cases where LLM didn't list all filenames but gave criteria
-        if instructions and len(selected_paths) < len(chart_paths):
+        # BUT: If user wanted all charts, skip criteria filtering
+        exclude_others = instructions.get('exclude_others', False) if instructions else False
+        if instructions and len(selected_paths) < len(chart_paths) and not exclude_others:
             grades = instructions.get('grades', [])
             subjects = instructions.get('subjects', [])
             sections = instructions.get('sections', [])
             
-            if grades or subjects or sections:
+            # If user wants all charts (empty arrays or all sections mentioned), return all
+            all_sections_mentioned = sections and len(sections) >= 3  # If 3+ sections mentioned, probably wants all
+            if all_sections_mentioned and not grades and not subjects:
+                print(f"[Chart Selection] Detected 'all charts' request from instructions - returning all charts")
+                selected_paths = chart_paths
+            elif grades or subjects or sections:
                 print(f"[Chart Selection] Using criteria-based matching: grades={grades}, subjects={subjects}, sections={sections}")
                 for path in chart_paths:
                     if path in seen_paths:
@@ -347,7 +369,16 @@ Respond with JSON:
         
         # If user said "that's it" or "only", use strict selection
         # Otherwise, if no charts selected, return all (user might have been vague)
-        exclude_others = instructions.get('exclude_others', False) if instructions else False
+        # Also, if selected_paths is much smaller than total and exclude_others is false, user probably wants all
+        if instructions:
+            exclude_others = instructions.get('exclude_others', False)
+            # If we selected very few charts but user didn't say "only", they probably want all
+            if len(selected_paths) < len(chart_paths) * 0.1 and not exclude_others:
+                print(f"[Chart Selection] Selected only {len(selected_paths)}/{len(chart_paths)} charts but exclude_others=false - returning all charts")
+                selected_paths = chart_paths
+        else:
+            exclude_others = False
+        
         if not selected_paths and not exclude_others:
             selected_paths = chart_paths
         elif not selected_paths and exclude_others:

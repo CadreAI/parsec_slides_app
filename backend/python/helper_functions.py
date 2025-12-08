@@ -60,6 +60,32 @@ NWEA_HIGH_GROUP = ["Avg", "HiAvg", "High"]
 NWEA_LOW_GROUP = ["Low"]
 
 # ---------------------------------------------------------------------
+# iReady Definitions
+# ---------------------------------------------------------------------
+IREADY_ORDER = [
+    "3+ Below",
+    "2 Below",
+    "1 Below",
+    "Early On",
+    "Mid/Above",
+]
+
+IREADY_COLORS = {
+    band: default_quintile_colors[i] for i, band in enumerate(IREADY_ORDER)
+}
+
+IREADY_HIGH_GROUP = ["Early On", "Mid/Above"]
+IREADY_LOW_GROUP = ["3+ Below", "2 Below"]
+
+IREADY_LABEL_MAP = {
+    "3 or More Grade Levels Below": "3+ Below",
+    "2 Grade Levels Below": "2 Below",
+    "1 Grade Level Below": "1 Below",
+    "Early On Grade Level": "Early On",
+    "Mid or Above Grade Level": "Mid/Above",
+}
+
+# ---------------------------------------------------------------------
 # Global DEV_MODE flag
 # ---------------------------------------------------------------------
 DEV_MODE = False

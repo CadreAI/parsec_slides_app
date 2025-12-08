@@ -35,8 +35,9 @@ from flask_cors import CORS
 # Add python directory to path
 sys.path.insert(0, str(Path(__file__).parent / 'python'))
 
-from python.data_ingestion import ingest_nwea
+from python.data_ingestion import ingest_nwea, ingest_iready
 from python.nwea.nwea_charts import generate_nwea_charts
+from python.iready.iready_charts import generate_iready_charts
 from python.chart_analyzer import analyze_charts_from_index, analyze_charts_batch_paths
 from python.slides import create_slides_presentation
 
@@ -187,15 +188,53 @@ def ingest_and_generate():
         if not partner_name:
             return jsonify({'success': False, 'error': 'partnerName is required'}), 400
 
-        # Ingest NWEA data
-        print(f"[Backend] Starting data ingestion for {partner_name}...")
-        nwea_data = ingest_nwea(
-            partner_name=partner_name,
-            config=config,
-            chart_filters=chart_filters
-        )
+        # Check which data sources are configured
+        sources = config.get('sources', {})
+        has_nwea = bool(sources.get('nwea'))
+        has_iready = bool(sources.get('iready'))
         
-        print(f"[Backend] Data ingested: {len(nwea_data)} rows")
+        if not has_nwea and not has_iready:
+            return jsonify({
+                'success': False,
+                'error': 'At least one data source (nwea or iready) must be configured in config.sources'
+            }), 400
+        
+        print(f"[Backend] Starting data ingestion for {partner_name}...")
+        print(f"[Backend] Data sources configured: NWEA={has_nwea}, iReady={has_iready}")
+        
+        # Ingest data for configured sources
+        nwea_data = []
+        iready_data = []
+        
+        if has_nwea:
+            try:
+                nwea_data = ingest_nwea(
+                    partner_name=partner_name,
+                    config=config,
+                    chart_filters=chart_filters
+                )
+                print(f"[Backend] NWEA data ingested: {len(nwea_data)} rows")
+            except Exception as e:
+                print(f"[Backend] Error ingesting NWEA data: {e}")
+                if not has_iready:
+                    # Only fail if NWEA is the only source
+                    raise
+                print(f"[Backend] Continuing with iReady only...")
+        
+        if has_iready:
+            try:
+                iready_data = ingest_iready(
+                    partner_name=partner_name,
+                    config=config,
+                    chart_filters=chart_filters
+                )
+                print(f"[Backend] iReady data ingested: {len(iready_data)} rows")
+            except Exception as e:
+                print(f"[Backend] Error ingesting iReady data: {e}")
+                if not has_nwea:
+                    # Only fail if iReady is the only source
+                    raise
+                print(f"[Backend] Continuing with NWEA only...")
         
         # Generate charts in temporary directory
         print(f"[Backend] Starting chart generation...")
@@ -206,27 +245,56 @@ def ingest_and_generate():
         print(f"[Backend] Created temporary charts directory: {temp_charts_dir}")
         
         try:
-            chart_paths = generate_nwea_charts(
-                partner_name=partner_name,
-                output_dir=temp_charts_dir,
-                config=config,
-                chart_filters=chart_filters,
-                data_dir=data_dir,
-                nwea_data=nwea_data  # Pass ingested data directly
-            )
+            all_chart_paths = []
+            
+            # Generate NWEA charts if data is available
+            if nwea_data:
+                print(f"[Backend] Generating NWEA charts...")
+                nwea_charts = generate_nwea_charts(
+                    partner_name=partner_name,
+                    output_dir=temp_charts_dir,
+                    config=config,
+                    chart_filters=chart_filters,
+                    data_dir=data_dir,
+                    nwea_data=nwea_data
+                )
+                all_chart_paths.extend(nwea_charts)
+                print(f"[Backend] Generated {len(nwea_charts)} NWEA charts")
+            
+            # Generate iReady charts if data is available
+            if iready_data:
+                print(f"[Backend] Generating iReady charts...")
+                iready_charts = generate_iready_charts(
+                    partner_name=partner_name,
+                    output_dir=temp_charts_dir,
+                    config=config,
+                    chart_filters=chart_filters,
+                    data_dir=data_dir,
+                    iready_data=iready_data
+                )
+                all_chart_paths.extend(iready_charts)
+                print(f"[Backend] Generated {len(iready_charts)} iReady charts")
 
-            print(f"[Backend] Generated {len(chart_paths)} charts")
+            print(f"[Backend] Generated {len(all_chart_paths)} total charts")
+            
+            # Build summary
+            summary = {}
+            if nwea_data:
+                summary['nwea'] = {
+                    'rows': len(nwea_data),
+                    'columns': len(nwea_data[0]) if nwea_data else 0
+                }
+            if iready_data:
+                summary['iready'] = {
+                    'rows': len(iready_data),
+                    'columns': len(iready_data[0]) if iready_data else 0
+                }
             
             return jsonify({
                 'success': True,
-                'charts': chart_paths,
-                'summary': {
-                    'nwea': {
-                        'rows': len(nwea_data),
-                        'columns': len(nwea_data[0]) if nwea_data else 0
-                    }
-                },
-                'charts_generated': len(chart_paths)
+                'charts': all_chart_paths,
+                'summary': summary,
+                'charts_generated': len(all_chart_paths)
             }), 200
         except Exception as chart_error:
             # Clean up temp directory on error
