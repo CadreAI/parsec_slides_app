@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 
-export function useAssessmentTables(partnerName: string, projectId: string, location: string, setFormData: React.Dispatch<React.SetStateAction<any>>) {
+interface FormData {
+    customDataSources: Record<string, string>
+    [key: string]: unknown
+}
+
+export function useAssessmentTables(partnerName: string, projectId: string, location: string, setFormData: React.Dispatch<React.SetStateAction<FormData>>) {
     const [availableAssessments, setAvailableAssessments] = useState<string[]>([])
     const [assessmentTables, setAssessmentTables] = useState<Record<string, string>>({})
     const [isLoadingAssessmentTables, setIsLoadingAssessmentTables] = useState(false)
@@ -27,8 +32,8 @@ export function useAssessmentTables(partnerName: string, projectId: string, loca
                     setAssessmentTables(tables)
 
                     // Auto-update customDataSources with found tables
-                    setFormData((prev: any) => {
-                        const updatedCustomDataSources = { ...prev.customDataSources }
+                    setFormData((prev: FormData) => {
+                        const updatedCustomDataSources = { ...(prev.customDataSources || {}) }
                         for (const [assessmentId, tableId] of Object.entries(tables)) {
                             if (typeof tableId === 'string') {
                                 updatedCustomDataSources[assessmentId] = tableId

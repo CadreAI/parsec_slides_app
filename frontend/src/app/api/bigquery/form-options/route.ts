@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
                     LIMIT 100
                 `
                 const [rows] = await client.query({ query, location })
-                rows.forEach((row: any) => {
+                rows.forEach((row: { grade?: string | number }) => {
                     if (row.grade !== null && row.grade !== undefined) {
                         const gradeStr = String(row.grade).trim()
                         if (gradeStr) {
@@ -139,8 +139,8 @@ export async function GET(req: NextRequest) {
                         }
                     }
                 })
-            } catch (error) {
-                console.warn(`[Form Options] Could not fetch grades from ${gradeColumn}:`, error)
+            } catch {
+                console.warn(`[Form Options] Could not fetch grades from ${gradeColumn}`)
             }
         }
 
@@ -167,7 +167,7 @@ export async function GET(req: NextRequest) {
                     LIMIT 100
                 `
                 const [rows] = await client.query({ query, location })
-                rows.forEach((row: any) => {
+                rows.forEach((row: { year?: string | number }) => {
                     if (row.year !== null && row.year !== undefined) {
                         const yearStr = String(row.year).trim()
                         // Extract 4-digit year
@@ -186,8 +186,8 @@ export async function GET(req: NextRequest) {
                         }
                     }
                 })
-            } catch (error) {
-                console.warn(`[Form Options] Could not fetch years from ${yearColumn}:`, error)
+            } catch {
+                console.warn(`[Form Options] Could not fetch years from ${yearColumn}`)
             }
         }
 
@@ -216,9 +216,8 @@ export async function GET(req: NextRequest) {
             grades,
             years
         })
-    } catch (error: unknown) {
-        console.error('Error fetching form options from BigQuery:', error)
-        const errorMessage = error instanceof Error ? error.message : 'Failed to fetch form options'
+    } catch {
+        console.error('Error fetching form options from BigQuery')
 
         // Fallback to defaults
         const currentYear = new Date().getFullYear()

@@ -8,12 +8,18 @@ const DEFAULT_FILTERS = {
     supportsRace: true
 }
 
+interface FormData {
+    subjects: string[]
+    quarters: string[]
+    [key: string]: unknown
+}
+
 export function useAssessmentFilters(
     assessments: string[],
     projectId?: string,
     datasetId?: string,
     location?: string,
-    setFormData?: React.Dispatch<React.SetStateAction<any>>
+    setFormData?: React.Dispatch<React.SetStateAction<FormData>>
 ) {
     const [availableSubjects, setAvailableSubjects] = useState<string[]>([])
     const [availableQuarters, setAvailableQuarters] = useState<string[]>([])
@@ -56,11 +62,11 @@ export function useAssessmentFilters(
 
                             // Clear invalid filter selections if setFormData is provided
                             if (setFormData) {
-                                setFormData((prev: any) => {
-                                    const filteredSubjects = prev.subjects.filter((s: string) => newSubjects.includes(s))
-                                    const filteredQuarters = prev.quarters.filter((q: string) => newQuarters.includes(q))
+                                setFormData((prev: FormData) => {
+                                    const filteredSubjects = (prev.subjects || []).filter((s: string) => newSubjects.includes(s))
+                                    const filteredQuarters = (prev.quarters || []).filter((q: string) => newQuarters.includes(q))
 
-                                    if (filteredSubjects.length !== prev.subjects.length || filteredQuarters.length !== prev.quarters.length) {
+                                    if (filteredSubjects.length !== (prev.subjects || []).length || filteredQuarters.length !== (prev.quarters || []).length) {
                                         return {
                                             ...prev,
                                             subjects: filteredSubjects,
@@ -94,6 +100,7 @@ export function useAssessmentFilters(
             }
         }
         fetchAssessmentFilters()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [assessments.join(','), projectId, datasetId, location])
 
     return {

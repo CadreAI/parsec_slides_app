@@ -67,7 +67,14 @@ export async function GET(req: NextRequest) {
         const requestedAssessments = assessments ? assessments.split(',').map((a) => a.trim()) : []
         const allSubjects = new Set<string>()
         const allQuarters = new Set<string>()
-        const assessmentDetails: Record<string, any> = {}
+        interface AssessmentDetail {
+            subjects: string[]
+            quarters: string[]
+            supports_grades: boolean
+            supports_student_groups: boolean
+            supports_race: boolean
+        }
+        const assessmentDetails: Record<string, AssessmentDetail> = {}
 
         // Query each requested assessment
         for (const assessmentId of requestedAssessments) {
@@ -112,7 +119,7 @@ export async function GET(req: NextRequest) {
                         const [rows] = await client.query({ query, location })
 
                         // Filter subjects based on subject column content (like iReady does)
-                        rows.forEach((row: any) => {
+                        rows.forEach((row: { subject?: string }) => {
                             if (row.subject) {
                                 const subjectStr = String(row.subject).trim().toLowerCase()
 
@@ -161,7 +168,7 @@ export async function GET(req: NextRequest) {
                         const [rows] = await client.query({ query, location })
 
                         // Filter subjects based on Course column content (like NWEA does)
-                        rows.forEach((row: any) => {
+                        rows.forEach((row: { course?: string }) => {
                             if (row.course) {
                                 const courseStr = String(row.course).trim().toLowerCase()
 
@@ -193,7 +200,7 @@ export async function GET(req: NextRequest) {
                                 LIMIT 50
                             `
                             const [rows] = await client.query({ query, location })
-                            rows.forEach((row: any) => {
+                            rows.forEach((row: { subject?: string }) => {
                                 if (row.subject) {
                                     const subjectStr = String(row.subject).trim().toLowerCase()
                                     if (subjectStr.includes('math')) {
@@ -222,7 +229,7 @@ export async function GET(req: NextRequest) {
                         LIMIT 50
                     `
                     const [rows] = await client.query({ query, location })
-                    rows.forEach((row: any) => {
+                    rows.forEach((row: { quarter?: string }) => {
                         if (row.quarter) {
                             const quarterStr = String(row.quarter).trim()
                             // Normalize quarter names
@@ -271,11 +278,29 @@ export async function GET(req: NextRequest) {
 
         // If no assessment details found, use fallback
         if (Object.keys(assessmentDetails).length === 0 && requestedAssessments.length > 0) {
-            const fallbackFilters: Record<string, any> = {
-                nwea: { subjects: ['Reading', 'Mathematics'], quarters: ['Fall', 'Winter', 'Spring'] },
-                iready: { subjects: ['ELA', 'Math'], quarters: ['Fall', 'Winter', 'Spring'] },
-                star: { subjects: ['Reading', 'Mathematics'], quarters: ['Fall', 'Winter', 'Spring'] },
-                cers: { subjects: ['ELA', 'Math'], quarters: [] }
+            const fallbackFilters: Record<string, AssessmentDetail> = {
+                nwea: {
+                    subjects: ['Reading', 'Mathematics'],
+                    quarters: ['Fall', 'Winter', 'Spring'],
+                    supports_grades: true,
+                    supports_student_groups: true,
+                    supports_race: true
+                },
+                iready: {
+                    subjects: ['ELA', 'Math'],
+                    quarters: ['Fall', 'Winter', 'Spring'],
+                    supports_grades: true,
+                    supports_student_groups: true,
+                    supports_race: true
+                },
+                star: {
+                    subjects: ['Reading', 'Mathematics'],
+                    quarters: ['Fall', 'Winter', 'Spring'],
+                    supports_grades: true,
+                    supports_student_groups: true,
+                    supports_race: true
+                },
+                cers: { subjects: ['ELA', 'Math'], quarters: [], supports_grades: true, supports_student_groups: true, supports_race: true }
             }
             requestedAssessments.forEach((assessmentId) => {
                 if (fallbackFilters[assessmentId]) {
@@ -302,21 +327,45 @@ export async function GET(req: NextRequest) {
         })
     } catch (error: unknown) {
         console.error('Error fetching assessment filters from BigQuery:', error)
-        const errorMessage = error instanceof Error ? error.message : 'Failed to fetch assessment filters'
 
         // Fallback to defaults
         const assessments = req.nextUrl.searchParams.get('assessments') || ''
         const requestedAssessments = assessments ? assessments.split(',').map((a) => a.trim()) : []
-        const fallbackFilters: Record<string, any> = {
-            nwea: { subjects: ['Reading', 'Mathematics'], quarters: ['Fall', 'Winter', 'Spring'] },
-            iready: { subjects: ['ELA', 'Math'], quarters: ['Fall', 'Winter', 'Spring'] },
-            star: { subjects: ['Reading', 'Mathematics'], quarters: ['Fall', 'Winter', 'Spring'] },
-            cers: { subjects: ['ELA', 'Math'], quarters: [] }
+        interface AssessmentDetail {
+            subjects: string[]
+            quarters: string[]
+            supports_grades: boolean
+            supports_student_groups: boolean
+            supports_race: boolean
+        }
+        const fallbackFilters: Record<string, AssessmentDetail> = {
+            nwea: {
+                subjects: ['Reading', 'Mathematics'],
+                quarters: ['Fall', 'Winter', 'Spring'],
+                supports_grades: true,
+                supports_student_groups: true,
+                supports_race: true
+            },
+            iready: {
+                subjects: ['ELA', 'Math'],
+                quarters: ['Fall', 'Winter', 'Spring'],
+                supports_grades: true,
+                supports_student_groups: true,
+                supports_race: true
+            },
+            star: {
+                subjects: ['Reading', 'Mathematics'],
+                quarters: ['Fall', 'Winter', 'Spring'],
+                supports_grades: true,
+                supports_student_groups: true,
+                supports_race: true
+            },
+            cers: { subjects: ['ELA', 'Math'], quarters: [], supports_grades: true, supports_student_groups: true, supports_race: true }
         }
 
         const allSubjects = new Set<string>()
         const allQuarters = new Set<string>()
-        const assessmentDetails: Record<string, any> = {}
+        const assessmentDetails: Record<string, AssessmentDetail> = {}
 
         requestedAssessments.forEach((assessmentId) => {
             const config = fallbackFilters[assessmentId]

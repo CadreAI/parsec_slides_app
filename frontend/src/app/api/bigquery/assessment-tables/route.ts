@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
                 process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
                 console.log(`[Assessment Tables] Using service account credentials: ${serviceAccountPath}`)
             }
-        } catch (credError) {
+        } catch {
             console.warn('[Assessment Tables] Could not resolve credentials, will try Application Default Credentials')
         }
 
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
                         console.log(`[Assessment Tables] Found ${assessmentId} table: ${fullTableId}`)
                         break // Found a table for this assessment, move to next
                     }
-                } catch (error) {
+                } catch {
                     // Continue to next table name
                     continue
                 }
