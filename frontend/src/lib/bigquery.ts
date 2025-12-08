@@ -67,7 +67,20 @@ export async function listDatasets(projectId: string, location?: string): Promis
             location: location || 'US'
         })
 
+        // getDatasets() only returns datasets the service account has permission to access
+        // If you see fewer datasets than expected, check service account permissions
         const [datasets] = await client.getDatasets()
+
+        console.log(
+            `[BigQuery] Raw datasets response (${datasets.length} datasets):`,
+            datasets.map((d: any) => ({
+                id: d.id || d.datasetId,
+                datasetId: d.datasetId || d.id,
+                location: d.location,
+                labels: d.labels
+            }))
+        )
+
         const datasetIds = datasets
             .map((dataset) => {
                 // Handle both id and datasetId properties
@@ -76,7 +89,19 @@ export async function listDatasets(projectId: string, location?: string): Promis
             })
             .filter(Boolean)
 
-        console.log(`Found ${datasetIds.length} datasets in project ${projectId}`)
+        console.log(`[BigQuery] Found ${datasetIds.length} datasets in project ${projectId}:`, datasetIds)
+
+        if (datasetIds.length === 0) {
+            console.warn(`[BigQuery] WARNING: No datasets found. This could indicate:`)
+            console.warn(`[BigQuery] 1. Service account lacks BigQuery Dataset Viewer permission`)
+            console.warn(`[BigQuery] 2. No datasets exist in project ${projectId}`)
+            console.warn(`[BigQuery] 3. All datasets are in a different location than ${location || 'US'}`)
+        } else if (datasetIds.length < 3) {
+            console.warn(`[BigQuery] WARNING: Only ${datasetIds.length} dataset(s) found, but you mentioned seeing 3 in BigQuery console.`)
+            console.warn(`[BigQuery] This likely means the service account only has access to: ${datasetIds.join(', ')}`)
+            console.warn(`[BigQuery] To fix: Grant 'BigQuery Dataset Viewer' role to the service account for all datasets`)
+        }
+
         return datasetIds.sort()
     } catch (error: unknown) {
         const err = error as { code?: number | string; message?: string }

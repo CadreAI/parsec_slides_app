@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
         console.log(`[Frontend] Partner: ${cfg.partner_name}`)
         console.log(`[Frontend] Output dir: ${resolvedOutputDir}`)
 
+        // Start async job - returns immediately with job ID
         const backendResponse = await fetch(`${backendUrl}/ingest-and-generate`, {
             method: 'POST',
             headers: {
@@ -63,6 +64,17 @@ export async function POST(req: NextRequest) {
 
         const backendData = await backendResponse.json()
 
+        // If job ID is returned, return it for polling
+        if (backendData.jobId) {
+            return NextResponse.json({
+                success: true,
+                jobId: backendData.jobId,
+                status: backendData.status || 'PENDING',
+                message: backendData.message || 'Job started successfully'
+            })
+        }
+
+        // Fallback: if no job ID, assume synchronous response (for backwards compatibility)
         return NextResponse.json({
             success: true,
             partner: cfg.partner_name,

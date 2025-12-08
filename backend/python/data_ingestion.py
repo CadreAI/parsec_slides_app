@@ -7,8 +7,25 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import concurrent.futures
 
-from bigquery_client import get_bigquery_client, run_query
-from nwea.sql_builders import sql_nwea
+# Import with fallback for different import contexts
+try:
+    # Try relative import first (when imported as module from python package)
+    from .bigquery_client import get_bigquery_client, run_query
+    from .nwea.sql_builders import sql_nwea
+except (ImportError, ValueError):
+    # Fallback to absolute import (when python/ is in sys.path)
+    try:
+        from bigquery_client import get_bigquery_client, run_query
+        from nwea.sql_builders import sql_nwea
+    except ImportError:
+        # Last resort: add current directory to path
+        import sys
+        from pathlib import Path
+        python_dir = Path(__file__).parent
+        if str(python_dir) not in sys.path:
+            sys.path.insert(0, str(python_dir))
+        from bigquery_client import get_bigquery_client, run_query
+        from nwea.sql_builders import sql_nwea
 
 
 def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -93,16 +110,9 @@ def ingest_nwea(
     if chart_filters.get('schools'):
         base_filters['schools'] = chart_filters['schools']
     
-    # Determine if we should apply grade filter in SQL
-    # Always apply grade filter in SQL when grades are specified (more efficient)
-    # This reduces data fetched significantly
-    apply_grade_filter_sql = bool(chart_filters.get('grades') and len(chart_filters.get('grades', [])) > 0)
-    
-    if apply_grade_filter_sql:
-        base_filters['grades'] = chart_filters['grades']
-        print(f"[Data Ingestion] Will apply grade filter in SQL: {chart_filters['grades']}")
-    else:
-        print(f"[Data Ingestion] No grade filter specified - will fetch all grades")
+    # Grade filter disabled - fetch all grades regardless of chart_filters
+    apply_grade_filter_sql = False
+    print(f"[Data Ingestion] Grade filter disabled - will fetch all grades")
     
     # Note: districts filter is applied in Python after query (no DistrictName column in NWEA)
     
@@ -269,14 +279,8 @@ def ingest_nwea(
     total_removed = initial_count - len(df)
     print(f"[Data Ingestion] Final data: {len(df)} rows after deduplication (removed {total_removed:,} duplicates, {total_removed/initial_count*100:.1f}%)")
     
-    # Apply grade filter if specified (after deduplication)
-    # Note: If grade filter was applied in SQL, this is a safety check/re-filter
-    # If grade filter was NOT applied in SQL, this is the primary filter
-    if chart_filters.get('grades') and 'grade' in df.columns:
-        grades = chart_filters['grades']
-        before_filter = len(df)
-        df = df[df['grade'].isin(grades)]
-        print(f"[Data Ingestion] Applied grade filter in Python: {before_filter} -> {len(df)} rows")
+    # Grade filter disabled - keep all grades
+    print(f"[Data Ingestion] Grade filter disabled - keeping all grades")
     
     # Convert back to list of dicts
     result = df.to_dict('records')

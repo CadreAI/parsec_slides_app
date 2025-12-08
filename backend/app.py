@@ -40,6 +40,15 @@ from python.nwea.nwea_charts import generate_nwea_charts
 from python.chart_analyzer import analyze_charts_from_index, analyze_charts_batch_paths
 from python.slides import create_slides_presentation
 
+# Import Celery app (must be after sys.path setup)
+try:
+    from celery_app import celery_app
+    CELERY_AVAILABLE = True
+except ImportError:
+    print("[Backend] Warning: Celery not available, falling back to synchronous processing")
+    CELERY_AVAILABLE = False
+    celery_app = None
+
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend requests
 
@@ -47,6 +56,90 @@ CORS(app)  # Enable CORS for frontend requests
 def health():
     """Health check endpoint"""
     return jsonify({'status': 'ok'}), 200
+
+@app.route('/job-status/<job_id>', methods=['GET'])
+def job_status(job_id):
+    """
+    Get status of an async job
+    
+    Returns:
+    - jobId: str
+    - status: str (PENDING, PROGRESS, SUCCESS, FAILURE)
+    - result: dict (when status is SUCCESS)
+    - error: str (when status is FAILURE)
+    - meta: dict (progress info when status is PROGRESS)
+    """
+    try:
+        if not CELERY_AVAILABLE or not celery_app:
+            return jsonify({
+                'success': False,
+                'error': 'Celery is not available'
+            }), 503
+        
+        task = celery_app.AsyncResult(job_id)
+        
+        if task.state == 'PENDING':
+            response = {
+                'jobId': job_id,
+                'status': 'PENDING',
+                'step': 'Waiting to start...',
+                'progress': 0
+            }
+        elif task.state == 'PROGRESS':
+            meta = task.info or {}
+            response = {
+                'jobId': job_id,
+                'status': 'PROGRESS',
+                'step': meta.get('step', 'Processing...'),
+                'progress': meta.get('progress', 0),
+                'meta': meta
+            }
+        elif task.state == 'SUCCESS':
+            result = task.result
+            if isinstance(result, dict):
+                response = {
+                    'jobId': job_id,
+                    'status': 'SUCCESS',
+                    'success': result.get('success', True),
+                    'charts': result.get('charts', []),
+                    'summary': result.get('summary', {}),
+                    'step': result.get('step', 'Complete!'),
+                    'progress': result.get('progress', 100)
+                }
+            else:
+                response = {
+                    'jobId': job_id,
+                    'status': 'SUCCESS',
+                    'success': True,
+                    'progress': 100,
+                    'step': 'Complete!'
+                }
+        elif task.state == 'FAILURE':
+            response = {
+                'jobId': job_id,
+                'status': 'FAILURE',
+                'success': False,
+                'error': str(task.info) if task.info else 'Task failed',
+                'progress': 0
+            }
+        else:
+            response = {
+                'jobId': job_id,
+                'status': task.state,
+                'progress': 0
+            }
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] Error getting job status: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
 
 @app.route('/analyze-charts', methods=['POST'])
 def analyze_charts():
@@ -120,7 +213,7 @@ def analyze_charts():
 @app.route('/ingest-and-generate', methods=['POST'])
 def ingest_and_generate():
     """
-    Combined endpoint for data ingestion and chart generation
+    Start async job for data ingestion and chart generation
     
     Request body:
     - partnerName: str
@@ -130,8 +223,7 @@ def ingest_and_generate():
     
     Returns:
     - success: bool
-    - charts: list of chart file paths
-    - summary: dict with data ingestion summary
+    - jobId: str (Celery task ID for polling status)
     """
     try:
         data = request.get_json()
@@ -145,12 +237,6 @@ def ingest_and_generate():
         output_dir = data.get('outputDir', './data')
         config = data.get('config', {})
         chart_filters = data.get('chartFilters', {})
-        
-        print(f"[Backend] Config type: {type(config).__name__}")
-        print(f"[Backend] Chart filters type: {type(chart_filters).__name__}")
-        print(f"[Backend] Chart filters received: {chart_filters}")
-        print(f"[Backend] Config district_name: {config.get('district_name')}")
-        print(f"[Backend] Config selected_schools: {config.get('selected_schools')}")
 
         # Handle case where config might be a JSON string
         if isinstance(config, str):
@@ -187,53 +273,30 @@ def ingest_and_generate():
         if not partner_name:
             return jsonify({'success': False, 'error': 'partnerName is required'}), 400
 
-        # Ingest NWEA data
-        print(f"[Backend] Starting data ingestion for {partner_name}...")
-        nwea_data = ingest_nwea(
-            partner_name=partner_name,
-            config=config,
-            chart_filters=chart_filters
-        )
-        
-        print(f"[Backend] Data ingested: {len(nwea_data)} rows")
-        
-        # Generate charts in temporary directory
-        print(f"[Backend] Starting chart generation...")
-        data_dir = config.get('paths', {}).get('data_dir', './data')
-        
-        # Create temporary directory for charts
-        temp_charts_dir = tempfile.mkdtemp(prefix='parsec_charts_')
-        print(f"[Backend] Created temporary charts directory: {temp_charts_dir}")
-        
-        try:
-            chart_paths = generate_nwea_charts(
-                partner_name=partner_name,
-                output_dir=temp_charts_dir,
-                config=config,
-                chart_filters=chart_filters,
-                data_dir=data_dir,
-                nwea_data=nwea_data  # Pass ingested data directly
+        # Use Celery if available, otherwise fall back to synchronous processing
+        if CELERY_AVAILABLE and celery_app:
+            # Start async task
+            print(f"[Backend] Starting async Celery task for {partner_name}...")
+            task = celery_app.send_task(
+                'python.tasks.ingest_and_generate_charts',
+                args=[partner_name, output_dir, config, chart_filters]
             )
-
-            print(f"[Backend] Generated {len(chart_paths)} charts")
+            
+            print(f"[Backend] Task started with ID: {task.id}")
             
             return jsonify({
                 'success': True,
-                'charts': chart_paths,
-                'summary': {
-                    'nwea': {
-                        'rows': len(nwea_data),
-                        'columns': len(nwea_data[0]) if nwea_data else 0
-                    }
-                },
-                'charts_generated': len(chart_paths)
-            }), 200
-        except Exception as chart_error:
-            # Clean up temp directory on error
-            if os.path.exists(temp_charts_dir):
-                print(f"[Backend] Cleaning up temp directory on error: {temp_charts_dir}")
-                shutil.rmtree(temp_charts_dir, ignore_errors=True)
-            raise chart_error
+                'jobId': task.id,
+                'status': 'PENDING',
+                'message': 'Job started successfully. Poll /job-status/<jobId> for updates.'
+            }), 202  # 202 Accepted - request accepted for processing
+        else:
+            # Fallback to synchronous processing
+            print(f"[Backend] Celery not available, using synchronous processing for {partner_name}...")
+            return jsonify({
+                'success': False,
+                'error': 'Celery is not configured. Please install Redis and start Celery worker.'
+            }), 503
     except Exception as e:
         error_msg = str(e)
         print(f"[Backend] Error: {error_msg}")
@@ -310,5 +373,7 @@ def create_slides():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    # Use threaded mode and increase timeout for long-running requests
+    # For production, use gunicorn with --timeout flag instead
+    app.run(host='0.0.0.0', port=port, debug=True, threaded=True)
 

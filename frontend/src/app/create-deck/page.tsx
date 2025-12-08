@@ -98,12 +98,18 @@ export default function CreateSlide() {
             schools: {
                 'Parsec Academy': ['Parsec Academy']
             }
+        },
+        client_classicalacademies: {
+            districts: [],
+            schools: {}
+        },
+        client_plumascharter: {
+            districts: [],
+            schools: {}
         }
     }
 
-    const [partnerOptions, setPartnerOptions] = useState<Array<{ value: string; label: string }>>([
-        { value: 'demodashboard', label: 'demodashboard (default)' }
-    ])
+    const [partnerOptions, setPartnerOptions] = useState<Array<{ value: string; label: string }>>([])
     const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
     const [availableDistricts, setAvailableDistricts] = useState<string[]>([])
     const [availableSchools, setAvailableSchools] = useState<string[]>([])
@@ -130,10 +136,14 @@ export default function CreateSlide() {
                         label: datasetId
                     }))
                     setPartnerOptions(datasetOptions)
-                    console.log(`Loaded ${datasetOptions.length} datasets from BigQuery`)
+                    console.log(
+                        `Loaded ${datasetOptions.length} datasets from BigQuery:`,
+                        datasetOptions.map((opt: { value: string }) => opt.value)
+                    )
                 } else {
                     console.warn('Failed to load datasets:', data.error || 'Unknown error')
-                    // Keep default option on error
+                    // Show error message but don't set default options
+                    toast.error(`Failed to load datasets: ${data.error || 'Unknown error'}`)
                 }
             } catch (error) {
                 console.error('Error fetching datasets:', error)
@@ -404,99 +414,260 @@ export default function CreateSlide() {
                 include_district_scope: !!formData.districtName // Include district scope if district is selected
             }
 
-            // Call the data ingestion API
-            const ingestRes = await fetch('/api/data/ingest', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ config })
-            })
-
-            const ingestData = await ingestRes.json()
-
-            if (!ingestRes.ok) {
-                throw new Error(ingestData.error || ingestData.details || 'Failed to ingest data')
-            }
-
-            const chartCount = ingestData.charts?.length || 0
-            const charts = ingestData.charts || []
-
-            toast.success(`Step 1 complete! Generated ${chartCount} charts.`)
-
-            // Step 2: Create slide deck
-            toast.info('Step 2/2: Creating slide deck...')
-            setSlideProgress({ value: 0, step: 'Initializing...' })
-
+            // Prepare presentation title and other data before redirect
             const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`
-
-            // Use selectedDataSources for assessments (they're now combined)
             const assessmentsToUse = formData.assessments.length > 0 ? formData.assessments : formData.selectedDataSources
-
-            // Hardcoded Google Drive folder
             const driveFolderUrl = 'https://drive.google.com/drive/folders/1CUOM-Sz6ulyzD2mTREdcYoBXUJLrgngw'
 
-            // Estimate total steps for progress tracking
-            const totalCharts = charts.length
-            const estimatedSteps = Math.max(10, 5 + Math.ceil(totalCharts * 0.5)) // Base steps + chart processing
-            let currentStep = 0
-
-            const updateProgress = (step: string, increment: number = 1) => {
-                currentStep += increment
-                const progress = Math.min(Math.round((currentStep / estimatedSteps) * 100), 95) // Cap at 95% until complete
-                setSlideProgress({ value: progress, step })
+            // Store job info in localStorage BEFORE redirecting
+            const jobId = `deck_${Date.now()}`
+            const jobInfo = {
+                id: jobId,
+                title: presentationTitle,
+                status: 'processing',
+                startTime: Date.now(),
+                estimatedDuration: 300000, // Start with 5 minutes estimate, will update when we know chart count
+                step: 'Ingesting data and generating charts...',
+                progress: 0,
+                config: config, // Store config for later use
+                presentationTitle: presentationTitle,
+                assessments: assessmentsToUse,
+                driveFolderUrl: driveFolderUrl,
+                quarters: formData.quarters,
+                partnerName: formData.partnerName,
+                userPrompt: formData.slidePrompt || undefined
             }
+            localStorage.setItem('activeDeckJob', JSON.stringify(jobInfo))
 
-            // Simulate progress updates during API call
-            const progressInterval = setInterval(() => {
-                if (currentStep < estimatedSteps - 1) {
-                    // Gradually increase progress to show activity
-                    const simulatedProgress = Math.min(currentStep + 0.3, estimatedSteps - 1)
-                    const progress = Math.round((simulatedProgress / estimatedSteps) * 100)
-                    setSlideProgress((prev) => ({
-                        value: Math.max(prev.value, Math.min(progress, 95)),
-                        step: prev.step || 'Processing...'
-                    }))
+            // Redirect to dashboard immediately - BEFORE making any API calls
+            router.push('/dashboard?job=' + jobId)
+
+            // Continue processing in background after redirect
+            // Use setTimeout to ensure redirect happens first
+            setTimeout(async () => {
+                try {
+                    // Step 1: Ingest data and generate charts
+                    const ingestRes = await fetch('/api/data/ingest', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ config })
+                    })
+
+                    const ingestData = await ingestRes.json()
+
+                    if (!ingestRes.ok) {
+                        throw new Error(ingestData.error || ingestData.details || 'Failed to ingest data')
+                    }
+
+                    // Check if async job was started (has jobId)
+                    if (ingestData.jobId) {
+                        console.log(`[Frontend] Async job started with ID: ${ingestData.jobId}`)
+
+                        // Poll for job status
+                        const pollJobStatus = async (jobId: string): Promise<any> => {
+                            return new Promise((resolve, reject) => {
+                                const pollInterval = setInterval(async () => {
+                                    try {
+                                        const statusRes = await fetch(`/api/job-status?jobId=${jobId}`)
+                                        const statusData = await statusRes.json()
+
+                                        if (!statusRes.ok) {
+                                            clearInterval(pollInterval)
+                                            reject(new Error(statusData.error || 'Failed to check job status'))
+                                            return
+                                        }
+
+                                        // Update job progress in localStorage
+                                        try {
+                                            const jobData = localStorage.getItem('activeDeckJob')
+                                            if (jobData) {
+                                                const job = JSON.parse(jobData)
+                                                job.step = statusData.step || job.step
+                                                job.progress = statusData.progress || job.progress
+                                                job.status =
+                                                    statusData.status === 'SUCCESS' ? 'completed' : statusData.status === 'FAILURE' ? 'failed' : 'processing'
+                                                if (statusData.error) job.error = statusData.error
+                                                localStorage.setItem('activeDeckJob', JSON.stringify(job))
+                                            }
+                                        } catch (error) {
+                                            console.error('Error updating job progress:', error)
+                                        }
+
+                                        if (statusData.status === 'SUCCESS') {
+                                            clearInterval(pollInterval)
+                                            resolve(statusData)
+                                        } else if (statusData.status === 'FAILURE') {
+                                            clearInterval(pollInterval)
+                                            reject(new Error(statusData.error || 'Job failed'))
+                                        }
+                                    } catch (error) {
+                                        clearInterval(pollInterval)
+                                        reject(error)
+                                    }
+                                }, 2000) // Poll every 2 seconds
+
+                                // Timeout after 60 minutes
+                                setTimeout(
+                                    () => {
+                                        clearInterval(pollInterval)
+                                        reject(new Error('Job polling timeout after 60 minutes'))
+                                    },
+                                    60 * 60 * 1000
+                                )
+                            })
+                        }
+
+                        // Wait for job to complete
+                        const jobResult = await pollJobStatus(ingestData.jobId)
+                        var charts = jobResult.charts || []
+                        const chartCount = charts.length
+
+                        // Update job with final results
+                        try {
+                            const jobData = localStorage.getItem('activeDeckJob')
+                            if (jobData) {
+                                const job = JSON.parse(jobData)
+                                job.charts = charts
+                                job.progress = 30
+                                job.estimatedDuration = Math.max(60000, chartCount * 2000 + 30000)
+                                localStorage.setItem('activeDeckJob', JSON.stringify(job))
+                            }
+                        } catch (error) {
+                            console.error('Error updating job progress:', error)
+                        }
+                    } else {
+                        // Synchronous response (fallback)
+                        const chartCount = ingestData.charts?.length || 0
+                        var charts = ingestData.charts || []
+
+                        // Update job progress
+                        try {
+                            const jobData = localStorage.getItem('activeDeckJob')
+                            if (jobData) {
+                                const job = JSON.parse(jobData)
+                                job.step = 'Creating slide deck...'
+                                job.progress = 30
+                                job.estimatedDuration = Math.max(60000, chartCount * 2000 + 30000)
+                                job.charts = charts
+                                localStorage.setItem('activeDeckJob', JSON.stringify(job))
+                            }
+                        } catch (error) {
+                            console.error('Error updating job progress:', error)
+                        }
+                    }
+
+                    // Step 2: Create slide deck
+                    // Charts are already defined above in the if/else block
+                    const totalCharts = charts.length
+                    const estimatedSteps = Math.max(10, 5 + Math.ceil(totalCharts * 0.5))
+                    let currentStep = 0
+
+                    const updateProgress = (step: string, increment: number = 1) => {
+                        currentStep += increment
+                        const progress = Math.min(30 + Math.round((currentStep / estimatedSteps) * 70), 95) // 30-95% range
+
+                        // Update job progress in localStorage
+                        try {
+                            const jobData = localStorage.getItem('activeDeckJob')
+                            if (jobData) {
+                                const job = JSON.parse(jobData)
+                                job.step = step
+                                job.progress = progress
+                                localStorage.setItem('activeDeckJob', JSON.stringify(job))
+                            }
+                        } catch (error) {
+                            console.error('Error updating job progress:', error)
+                        }
+                    }
+
+                    // Simulate progress updates during API call
+                    const progressInterval = setInterval(() => {
+                        if (currentStep < estimatedSteps - 1) {
+                            const simulatedProgress = Math.min(currentStep + 0.3, estimatedSteps - 1)
+                            const progress = Math.min(30 + Math.round((simulatedProgress / estimatedSteps) * 70), 95)
+
+                            try {
+                                const jobData = localStorage.getItem('activeDeckJob')
+                                if (jobData) {
+                                    const job = JSON.parse(jobData)
+                                    job.progress = progress
+                                    localStorage.setItem('activeDeckJob', JSON.stringify(job))
+                                }
+                            } catch (error) {
+                                console.error('Error updating job progress:', error)
+                            }
+                        }
+                    }, 300)
+
+                    updateProgress('Creating presentation...', 1)
+                    setTimeout(() => updateProgress('Uploading charts to Drive...', 2), 500)
+                    setTimeout(() => updateProgress('Creating slides...', 2), 1000)
+                    setTimeout(() => updateProgress('Adding charts to slides...', 2), 1500)
+
+                    // Step 2: Call the API route to create the presentation
+                    const res = await fetch('/api/slides/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            title: presentationTitle,
+                            assessments: assessmentsToUse,
+                            charts: charts.length > 0 ? charts : undefined,
+                            driveFolderUrl: driveFolderUrl,
+                            schoolName: 'Parsec Academy',
+                            quarters: formData.quarters,
+                            partnerName: formData.partnerName,
+                            userPrompt: formData.slidePrompt || undefined // User prompt for decision LLM
+                        })
+                    })
+
+                    clearInterval(progressInterval)
+
+                    const data = await res.json()
+
+                    if (!res.ok) {
+                        const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error || 'Failed to create presentation'
+                        console.error('API Error:', data)
+
+                        // Update job status to failed
+                        const failedJob = {
+                            ...jobInfo,
+                            status: 'failed',
+                            error: errorMsg,
+                            progress: 0
+                        }
+                        localStorage.setItem('activeDeckJob', JSON.stringify(failedJob))
+                        throw new Error(errorMsg)
+                    }
+
+                    console.log('Presentation created:', data.presentationId)
+
+                    // Update job status to completed
+                    const completedJob = {
+                        ...jobInfo,
+                        status: 'completed',
+                        presentationId: data.presentationId,
+                        presentationUrl: data.presentationUrl,
+                        progress: 100,
+                        step: 'Complete!',
+                        completedTime: Date.now()
+                    }
+                    localStorage.setItem('activeDeckJob', JSON.stringify(completedJob))
+                    localStorage.setItem('lastCompletedDeck', JSON.stringify(completedJob))
+
+                    // Show success notification
+                    toast.success(`✅ Complete! Presentation created. View it here: ${data.presentationUrl}`)
+                } catch (fetchError: unknown) {
+                    const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error'
+                    const failedJob = {
+                        ...jobInfo,
+                        status: 'failed',
+                        error: errorMessage,
+                        progress: 0
+                    }
+                    localStorage.setItem('activeDeckJob', JSON.stringify(failedJob))
+                    console.error('Background processing error:', fetchError)
                 }
-            }, 300)
-
-            updateProgress('Creating presentation...', 1)
-            setTimeout(() => updateProgress('Uploading charts to Drive...', 2), 500)
-            setTimeout(() => updateProgress('Creating slides...', 2), 1000)
-            setTimeout(() => updateProgress('Adding charts to slides...', 2), 1500)
-
-            // Call the API route to create the presentation
-            const res = await fetch('/api/slides/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: presentationTitle,
-                    assessments: assessmentsToUse,
-                    charts: charts.length > 0 ? charts : undefined,
-                    driveFolderUrl: driveFolderUrl,
-                    schoolName: 'Parsec Academy',
-                    quarters: formData.quarters,
-                    partnerName: formData.partnerName,
-                    userPrompt: formData.slidePrompt || undefined // User prompt for decision LLM
-                })
-            })
-
-            clearInterval(progressInterval)
-            updateProgress('Finalizing...', estimatedSteps - currentStep)
-
-            const data = await res.json()
-
-            if (!res.ok) {
-                const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error || 'Failed to create presentation'
-                console.error('API Error:', data)
-                throw new Error(errorMsg)
-            }
-
-            console.log('Presentation created:', data.presentationId)
-            setSlideProgress({ value: 100, step: 'Complete!' })
-            toast.success(`✅ Complete! Presentation created. View it here: ${data.presentationUrl}`)
-
-            setTimeout(() => {
-                router.push('/dashboard')
-            }, 2000)
+            }, 100) // Small delay to ensure redirect happens first
         } catch (error: unknown) {
             console.error('Error:', error)
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
