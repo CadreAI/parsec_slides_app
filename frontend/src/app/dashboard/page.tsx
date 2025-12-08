@@ -1,8 +1,12 @@
+'use client'
+
+import { SignOutButton } from '@clerk/nextjs'
+import { Calendar, FileText, Plus } from 'lucide-react'
+import Link from 'next/link'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Calendar, FileText, Plus } from 'lucide-react'
-import Link from 'next/link'
 
 export default function Dashboard() {
     return (
@@ -14,12 +18,17 @@ export default function Dashboard() {
                         <h1 className="mb-2 text-3xl font-bold">Parsec Academy Dashboard</h1>
                         <p className="text-muted-foreground">View and manage your slide presentations</p>
                     </div>
-                    <Link href="/create-deck">
-                        <Button>
-                            <Plus className="mr-2 h-4 w-4" />
-                            Create Deck
-                        </Button>
-                    </Link>
+                    <div className="flex items-center gap-3">
+                        <SignOutButton signOutOptions={{ redirectUrl: '/sign-in' }}>
+                            <Button variant="outline">Sign Out</Button>
+                        </SignOutButton>
+                        <Link href="/create-deck">
+                            <Button>
+                                <Plus className="mr-2 h-4 w-4" />
+                                Create Deck
+                            </Button>
+                        </Link>
+                    </div>
                 </div>
                 {/* Decks Preview */}
                 <div>
