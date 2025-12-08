@@ -58,11 +58,13 @@ def find_math_reading_pair(chart_paths: List[str], start_index: int, paired_indi
         chart_without_prefix = current_chart.replace('school_', '', 1)
         is_district_chart = False
     
-    # Determine what we're looking for (math or reading)
+    # Determine what we're looking for (math or reading/ela)
+    # Support both NWEA (math/reading) and iReady (math/ela)
     is_math = 'math' in chart_without_prefix
     is_reading = 'reading' in chart_without_prefix or 'read' in chart_without_prefix
+    is_ela = 'ela' in chart_without_prefix and not is_reading  # ELA for iReady
     
-    if not (is_math or is_reading):
+    if not (is_math or is_reading or is_ela):
         return None
     
     # Extract grade from current chart - be more precise
@@ -122,12 +124,15 @@ def find_math_reading_pair(chart_paths: List[str], start_index: int, paired_indi
             continue  # Scope mismatch - skip
         
         # Check if it's the opposite subject
+        # Support both NWEA (math/reading) and iReady (math/ela)
         other_is_math = 'math' in other_chart_without_prefix
         other_is_reading = 'reading' in other_chart_without_prefix or 'read' in other_chart_without_prefix
+        other_is_ela = 'ela' in other_chart_without_prefix and not other_is_reading
         
-        if is_math and not other_is_reading:
+        # Pair math with reading (NWEA) or ela (iReady)
+        if is_math and not (other_is_reading or other_is_ela):
             continue
-        if is_reading and not other_is_math:
+        if (is_reading or is_ela) and not other_is_math:
             continue
         
         # Check if same grade - CRITICAL: must match exactly
@@ -189,12 +194,15 @@ def find_math_reading_pair(chart_paths: List[str], start_index: int, paired_indi
                 continue  # Scope mismatch - skip
             
             # Check if it's the opposite subject
+            # Support both NWEA (math/reading) and iReady (math/ela)
             other_is_math = 'math' in other_chart_without_prefix
             other_is_reading = 'reading' in other_chart_without_prefix or 'read' in other_chart_without_prefix
+            other_is_ela = 'ela' in other_chart_without_prefix and not other_is_reading
             
-            if is_math and not other_is_reading:
+            # Pair math with reading (NWEA) or ela (iReady)
+            if is_math and not (other_is_reading or other_is_ela):
                 continue
-            if is_reading and not other_is_math:
+            if (is_reading or is_ela) and not other_is_math:
                 continue
             
             # Check if same grade - CRITICAL: must match exactly
@@ -398,13 +406,16 @@ def create_slides_presentation(
             current_chart_name = Path(normalized_charts[i]).stem.lower()
             is_math = 'math' in current_chart_name
             is_reading = 'reading' in current_chart_name or 'read' in current_chart_name
+            is_ela = 'ela' in current_chart_name and not is_reading  # ELA for iReady
             
-            # Try to find a math+reading pair starting from current index
-            # Only look for pairs if current chart is math or reading
+            # Try to find a math+reading/ela pair starting from current index
+            # Only look for pairs if current chart is math, reading, or ela
             pair_index = None
-            if is_math or is_reading:
+            if is_math or is_reading or is_ela:
                 print(f"[Pairing] Looking for pair for chart at index {i}: {Path(normalized_charts[i]).name}")
-                print(f"[Pairing] Current chart is {'math' if is_math else 'reading'}, looking for {'reading' if is_math else 'math'}")
+                current_subj = 'math' if is_math else ('reading' if is_reading else 'ela')
+                looking_for = 'reading/ela' if is_math else 'math'
+                print(f"[Pairing] Current chart is {current_subj}, looking for {looking_for}")
                 pair_index = find_math_reading_pair(normalized_charts, i, paired_indices)
                 if pair_index is not None:
                     print(f"[Pairing] ✓ Found pair at index {pair_index}: {Path(normalized_charts[pair_index]).name}")
@@ -412,7 +423,7 @@ def create_slides_presentation(
                     print(f"[Pairing] ✗ No pair found for chart at index {i}")
             
             if pair_index is not None and pair_index not in paired_indices:
-                # Found a math+reading pair - use those two charts
+                # Found a math+reading/ela pair - use those two charts
                 current_charts = [normalized_charts[i], normalized_charts[pair_index]]
                 current_urls = [chart_urls[i], chart_urls[pair_index]]
                 if current_urls[0] is None or current_urls[1] is None:
@@ -424,13 +435,16 @@ def create_slides_presentation(
                 paired_indices.add(pair_index)
             else:
                 # No pair found - process as single chart slide
-                # Only pair sequentially if the next chart is already a valid math+reading pair
+                # Only pair sequentially if the next chart is already a valid math+reading/ela pair
                 if i + 1 < len(normalized_charts) and (i + 1) not in paired_indices:
                     next_chart_name = Path(normalized_charts[i + 1]).stem.lower()
                     next_is_math = 'math' in next_chart_name
                     next_is_reading = 'reading' in next_chart_name or 'read' in next_chart_name
-                    # Only pair if current and next form a valid math+reading pair
-                    if ((is_math and next_is_reading) or (is_reading and next_is_math)):
+                    next_is_ela = 'ela' in next_chart_name and not next_is_reading
+                    # Only pair if current and next form a valid math+reading/ela pair
+                    # Support both NWEA (math/reading) and iReady (math/ela)
+                    if ((is_math and (next_is_reading or next_is_ela)) or 
+                        ((is_reading or is_ela) and next_is_math)):
                         # Check if they're the same grade and scope
                         current_grade_match = re.search(r'grade(\d+)', current_chart_name)
                         next_grade_match = re.search(r'grade(\d+)', next_chart_name)

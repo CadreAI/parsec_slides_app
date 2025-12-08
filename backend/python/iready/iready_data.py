@@ -94,6 +94,11 @@ def get_scopes(iready_base, cfg):
     selected_schools = cfg.get("selected_schools", [])
     include_district = cfg.get("include_district_scope", True)  # Default to True for backward compatibility
     
+    # For iReady: If only one school is selected, skip district charts
+    if selected_schools and len(selected_schools) == 1:
+        include_district = False
+        print(f"[Scope Filter] Only one school selected - skipping district charts for iReady")
+    
     if include_district:
         scopes.append((iready_base.copy(), district_label, "_district"))
     
