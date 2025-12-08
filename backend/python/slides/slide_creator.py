@@ -716,10 +716,14 @@ def create_slides_presentation(
                 print(f"[Slides] Warning: Could not delete {chart_path}: {e}")
         print(f"[Slides] Cleaned up {cleaned_count}/{len(normalized_charts)} chart files")
     
+    # Count total slides (cover + chart slides)
+    slide_count = len(all_slides)
+    
     return {
         'success': True,
         'presentationId': presentation_id,
         'presentationUrl': presentation_url,
-        'title': title
+        'title': title,
+        'slideCount': slide_count
     }
 

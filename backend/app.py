@@ -466,23 +466,31 @@ def ingest_and_generate():
 @app.route('/create-slides', methods=['POST'])
 def create_slides():
     """
-    Create a Google Slides presentation with charts
+    Create a Google Slides presentation with charts and save to Supabase decks table
     
     Request body:
     - title: str (required)
     - charts: list of chart file paths (required)
+    - clerkUserId: str (required) - Clerk user ID
     - driveFolderUrl: str (optional)
     - enableAIInsights: bool (optional, default True)
-    - slides: list of additional slide data (optional)
-    - schoolName: str (optional)
-    - quarters: list (optional)
+    - deckName: str (optional)
+    - districtName: str (optional)
+    - schools: list (optional)
     - partnerName: str (optional)
+    - projectId: str (optional)
+    - location: str (optional)
+    - selectedDataSources: list (optional)
+    - customDataSources: dict (optional)
+    - chartFilters: dict (optional)
+    - userPrompt: str (optional)
     
     Returns:
     - success: bool
     - presentationId: str
     - presentationUrl: str
     - title: str
+    - deckId: str (UUID from Supabase)
     """
     try:
         data = request.get_json()
@@ -494,17 +502,22 @@ def create_slides():
         if not title:
             return jsonify({'success': False, 'error': 'title is required'}), 400
         
+        clerk_user_id = data.get('clerkUserId')  # Optional - for decks table
+        
         chart_paths = data.get('charts', [])
         drive_folder_url = data.get('driveFolderUrl')
         enable_ai_insights = data.get('enableAIInsights', True)
-        user_prompt = data.get('userPrompt')  # User preferences for decision LLM
+        user_prompt = data.get('userPrompt')
         
         print(f"[Backend] Creating slides presentation: {title}")
         print(f"[Backend] Charts: {len(chart_paths)}")
+        if clerk_user_id:
+            print(f"[Backend] Clerk User ID: {clerk_user_id}")
         print(f"[Backend] AI Insights: {enable_ai_insights}")
         if user_prompt:
             print(f"[Backend] User Prompt: {user_prompt[:100]}...")
         
+        # Create the presentation
         result = create_slides_presentation(
             title=title,
             chart_paths=chart_paths,
@@ -512,6 +525,35 @@ def create_slides():
             enable_ai_insights=enable_ai_insights,
             user_prompt=user_prompt
         )
+        
+        # Save deck to Supabase (if clerk_user_id provided)
+        if clerk_user_id:
+            try:
+                from python.supabase_client import get_supabase_client
+                supabase = get_supabase_client()
+                
+                deck_data = {
+                    'clerk_user_id': clerk_user_id,
+                    'title': title,
+                    'description': data.get('description'),
+                    'slide_count': result.get('slideCount'),
+                    'presentation_id': result.get('presentationId'),
+                    'presentation_url': result.get('presentationUrl')
+                }
+                
+                deck_response = supabase.table('decks').insert(deck_data).execute()
+                
+                if deck_response.data:
+                    result['deckId'] = deck_response.data[0]['id']
+                    print(f"[Backend] Deck saved to Supabase: {result['deckId']}")
+                else:
+                    print(f"[Backend] Warning: Failed to save deck to Supabase")
+                    
+            except Exception as e:
+                print(f"[Backend] Error saving deck to Supabase: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fail the request if Supabase save fails
         
         return jsonify(result), 200
         

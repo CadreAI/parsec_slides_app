@@ -312,7 +312,22 @@ export default function CreateSlide() {
                     schoolName: 'Parsec Academy',
                     quarters: formData.quarters,
                     partnerName: formData.partnerName,
-                    userPrompt: formData.slidePrompt || undefined // User prompt for decision LLM
+                    userPrompt: formData.slidePrompt || undefined, // User prompt for decision LLM
+                    deckName: formData.deckName,
+                    districtName: formData.districtName,
+                    schools: formData.schools,
+                    projectId: formData.projectId,
+                    location: formData.location,
+                    selectedDataSources: formData.selectedDataSources,
+                    customDataSources: formData.customDataSources,
+                    chartFilters: {
+                        grades: formData.grades,
+                        years: formData.years,
+                        quarters: formData.quarters,
+                        subjects: formData.subjects,
+                        studentGroups: formData.studentGroups,
+                        race: formData.race
+                    }
                 })
             })
 

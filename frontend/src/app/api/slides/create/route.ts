@@ -1,9 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 
 export async function POST(req: NextRequest) {
     try {
+        const { userId } = await auth()
+
         const body = await req.json()
-        const { title, slides: slidesData, charts: chartPaths, driveFolderUrl, schoolName, quarters, partnerName, enableAIInsights, userPrompt } = body
+        const {
+            title,
+            slides: slidesData,
+            charts: chartPaths,
+            driveFolderUrl,
+            schoolName,
+            quarters,
+            partnerName,
+            enableAIInsights,
+            userPrompt,
+            deckName,
+            districtName,
+            schools,
+            projectId,
+            location,
+            selectedDataSources,
+            customDataSources,
+            chartFilters
+        } = body
 
         if (!title) {
             return NextResponse.json({ error: 'title is required' }, { status: 400 })
@@ -26,7 +47,16 @@ export async function POST(req: NextRequest) {
                     slides: slidesData,
                     schoolName,
                     quarters,
-                    partnerName
+                    partnerName,
+                    clerkUserId: userId, // Add Clerk user ID
+                    deckName,
+                    districtName,
+                    schools,
+                    projectId,
+                    location,
+                    selectedDataSources,
+                    customDataSources,
+                    chartFilters
                 })
             })
 

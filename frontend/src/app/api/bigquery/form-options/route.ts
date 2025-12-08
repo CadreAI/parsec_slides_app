@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
                 process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
                 console.log(`[Form Options] Using service account credentials: ${serviceAccountPath}`)
             }
-        } catch (credError) {
+        } catch (_credError) {
             console.warn('[Form Options] Could not resolve credentials, will try Application Default Credentials')
         }
 
