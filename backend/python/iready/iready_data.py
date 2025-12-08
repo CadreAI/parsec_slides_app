@@ -252,10 +252,10 @@ def prep_iready_for_charts(df, subject_str, window_filter="Fall"):
         t_prev, t_curr = last_two
         
         def pct_for(buckets, tlabel):
-            return pct_df[
-                (pct_df["time_label"] == tlabel)
-                & (pct_df["relative_placement"].isin(buckets))
-            ]["pct"].sum()
+            # Convert Categorical to string for reliable comparison
+            tlabel_str = str(tlabel)
+            mask = (pct_df["time_label"].astype(str) == tlabel_str) & (pct_df["relative_placement"].isin(buckets))
+            return pct_df[mask]["pct"].sum()
         
         hi_curr = pct_for(hf.IREADY_HIGH_GROUP, t_curr)
         hi_prev = pct_for(hf.IREADY_HIGH_GROUP, t_prev)

@@ -683,15 +683,20 @@ def _prep_iready_matched_cohort_by_grade(df, subject_str, current_grade, window_
         t_prev, t_curr = last_two
         
         def pct_for(buckets, tlabel):
-            return pct_df[
-                (pct_df["time_label"] == tlabel)
-                & (pct_df["relative_placement"].isin(buckets))
-            ]["pct"].sum()
+            # Convert Categorical to string for reliable comparison
+            tlabel_str = str(tlabel)
+            mask = (pct_df["time_label"].astype(str) == tlabel_str) & (pct_df["relative_placement"].isin(buckets))
+            return pct_df[mask]["pct"].sum()
         
         hi_now = pct_for(hf.IREADY_HIGH_GROUP, t_curr)
         lo_now = pct_for(hf.IREADY_LOW_GROUP, t_curr)
         hi_delta = hi_now - pct_for(hf.IREADY_HIGH_GROUP, t_prev)
         lo_delta = lo_now - pct_for(hf.IREADY_LOW_GROUP, t_prev)
+        
+        # Calculate Mid/Above delta separately (for insight card display)
+        high_now = pct_for(["Mid/Above"], t_curr)
+        high_prev = pct_for(["Mid/Above"], t_prev)
+        high_delta = high_now - high_prev
         
         score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0])
         score_prev = float(score_df.loc[score_df["time_label"] == t_prev, "avg_score"].iloc[0])
@@ -700,14 +705,16 @@ def _prep_iready_matched_cohort_by_grade(df, subject_str, current_grade, window_
             t_prev=t_prev,
             t_curr=t_curr,
             hi_now=hi_now,
-            hi_delta=hi_delta,
+            hi_delta=hi_delta,  # Delta for IREADY_HIGH_GROUP (Early On + Mid/Above)
+            high_now=high_now,
+            high_delta=high_delta,  # Delta for Mid/Above only
             lo_now=lo_now,
             lo_delta=lo_delta,
             score_now=score_now,
             score_delta=score_now - score_prev,
         )
     else:
-        metrics = {k: None for k in ["t_prev", "t_curr", "hi_now", "hi_delta", "lo_now", "lo_delta", "score_now", "score_delta"]}
+        metrics = {k: None for k in ["t_prev", "t_curr", "hi_now", "hi_delta", "high_now", "high_delta", "lo_now", "lo_delta", "score_now", "score_delta"]}
     
     return pct_df, score_df, metrics, ordered_labels
 
