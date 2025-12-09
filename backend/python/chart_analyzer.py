@@ -1,5 +1,5 @@
 """
-Chart analysis service using OpenAI Vision API to generate insights from charts
+Enhanced chart analysis service using OpenAI Vision API with Emergent Learning framework
 """
 import os
 import base64
@@ -22,16 +22,59 @@ def encode_image(image_path: str) -> str:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
 
-def load_chart_data(chart_path: str) -> Optional[Dict]:
+def load_reference_deck(deck_path: str) -> Optional[str]:
     """
-    Load chart data JSON file if it exists
+    Load a reference insight deck (PDF or text) to provide context
     
     Args:
-        chart_path: Path to the chart image file
+        deck_path: Path to reference deck file
     
     Returns:
-        Dictionary with chart data or None if not found
+        String with deck content or None if not found
     """
+    deck_path_obj = Path(deck_path)
+    
+    if not deck_path_obj.exists():
+        print(f"Warning: Reference deck not found: {deck_path}")
+        return None
+    
+    try:
+        # For text files, read directly
+        if deck_path_obj.suffix.lower() in ['.txt', '.md']:
+            with open(deck_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        # For JSON files (e.g., extracted deck data)
+        elif deck_path_obj.suffix.lower() == '.json':
+            with open(deck_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # Convert to readable format
+                return json.dumps(data, indent=2)
+        
+        # For PDF files, you would need PyPDF2 or similar
+        elif deck_path_obj.suffix.lower() == '.pdf':
+            try:
+                import PyPDF2
+                with open(deck_path, 'rb') as f:
+                    reader = PyPDF2.PdfReader(f)
+                    text = ""
+                    for page in reader.pages:
+                        text += page.extract_text() + "\n"
+                    return text
+            except ImportError:
+                print("PyPDF2 not installed. Install with: pip install PyPDF2")
+                return None
+        
+        print(f"Warning: Unsupported file type for reference deck: {deck_path_obj.suffix}")
+        return None
+        
+    except Exception as e:
+        print(f"Warning: Failed to load reference deck from {deck_path}: {e}")
+        return None
+
+
+def load_chart_data(chart_path: str) -> Optional[Dict]:
+    """Load chart data JSON file if it exists"""
     chart_path_obj = Path(chart_path)
     data_path = chart_path_obj.parent / f"{chart_path_obj.stem}_data.json"
     
@@ -45,37 +88,225 @@ def load_chart_data(chart_path: str) -> Optional[Dict]:
     return None
 
 
+def build_emergent_learning_prompt(
+    context: str,
+    data_context: str,
+    reference_deck_content: Optional[str] = None,
+    analysis_focus: Optional[str] = None,
+    framework_level: str = "full"  # "full", "insights", "hypotheses", "opportunities"
+) -> str:
+    """
+    Build analysis prompt using Emergent Learning framework
+    
+    Args:
+        context: Basic chart context
+        data_context: Actual chart data context
+        reference_deck_content: Content from reference insight deck
+        analysis_focus: Optional focus area
+        framework_level: Which EL framework level to emphasize
+    
+    Returns:
+        Formatted prompt string
+    """
+    
+    # Build reference deck section
+    reference_section = ""
+    if reference_deck_content:
+        # Truncate if too long (keep first 2000 chars)
+        truncated_content = reference_deck_content[:2000]
+        if len(reference_deck_content) > 2000:
+            truncated_content += "\n... [content truncated]"
+        
+        reference_section = f"""
+
+**REFERENCE INSIGHT DECK CONTEXT:**
+The following is an example of how similar educational data has been analyzed using the Emergent Learning framework. Use this as a reference for the style, depth, and structure of insights:
+
+{truncated_content}
+
+When generating your analysis, mirror the analytical approach shown in this reference deck while focusing on the specific data in the current chart.
+"""
+    
+    # Build framework guidance based on level
+    framework_guidance = {
+        "full": """
+**EMERGENT LEARNING FRAMEWORK - 4 STEP ANALYSIS:**
+
+Your analysis should support the Emergent Learning framework which has 4 quadrants:
+
+1. **Ground Truths** (Facts & Data):
+   - What the data objectively shows
+   - Specific numbers, percentages, trends
+   - No interpretation yet, just observable facts
+
+2. **Insights** (Meaning from Data):
+   - What patterns emerge and WHY they matter
+   - The significance for student learning
+   - What educators should consider doing based on each insight
+   - Format: Finding → Implication → Recommendation
+
+3. **Hypotheses** (Predictions & Implications):
+   - What the data suggests for future student performance
+   - Implications for teachers, principals, and administrators
+   - Forward-looking predictions based on current trends
+
+4. **Opportunities** (Actionable Ideas):
+   - Specific actions at classroom-level
+   - Grade-level interventions
+   - School-level initiatives
+   - System-level changes
+
+Your insights should bridge between Ground Truths and Hypotheses, helping educators move from "what happened" to "what does this mean" to "what should we do."
+""",
+        "insights": """
+**FOCUS: DEVELOPING INSIGHTS FROM GROUND TRUTHS**
+
+Transform the observable data (ground truths) into meaningful insights with actionable guidance:
+
+For each insight, provide:
+1. **Finding**: What pattern or meaning emerges from the data?
+2. **Implication**: Why does this matter for student learning and outcomes?
+3. **Recommendation**: What should educators consider doing in response?
+
+Consider these guiding questions:
+- What patterns emerge across different time periods or groups?
+- What's surprising or unexpected in the data?
+- Why is this significant for teaching and learning?
+- What should educators pay attention to based on this finding?
+- What initial steps or considerations does this suggest?
+- How confident can we be in acting on this insight?
+""",
+        "hypotheses": """
+**FOCUS: DEVELOPING HYPOTHESES FROM INSIGHTS**
+
+Based on the insights from the data, develop forward-looking hypotheses:
+- What does this data suggest about student performance in coming weeks/months?
+- What are the implications for instructional practice?
+- How might this impact different student groups differently?
+- What might happen if current trends continue?
+- What intervention points does the data suggest?
+""",
+        "opportunities": """
+**FOCUS: IDENTIFYING ACTIONABLE OPPORTUNITIES**
+
+Translate insights and hypotheses into concrete opportunities:
+- **Classroom-Level**: Specific teaching strategies, differentiation approaches
+- **Grade-Level**: Collaborative planning, shared interventions
+- **School-Level**: Programs, policies, resource allocation
+- **System-Level**: District initiatives, professional development, systemic changes
+"""
+    }
+    
+    selected_guidance = framework_guidance.get(framework_level, framework_guidance["full"])
+    
+    # Build focus instruction
+    focus_instruction = ""
+    if analysis_focus:
+        focus_instruction = f"\n\n**ANALYSIS FOCUS:** {analysis_focus}\n"
+    
+    # Construct full prompt
+    prompt = f"""Analyze this NWEA assessment data visualization chart using the Emergent Learning framework principles to generate deep, actionable insights.
+
+{context}
+{data_context}
+{reference_section}
+{selected_guidance}
+{focus_instruction}
+
+**OUTPUT REQUIREMENTS:**
+
+Provide your response as a JSON object with this structure:
+{{
+    "title": "Clear, concise chart title (max 80 characters)",
+    "description": "2-3 sentence summary connecting to larger context",
+    "groundTruths": [
+        "Observable fact 1 with specific numbers",
+        "Observable fact 2 with specific numbers"
+    ],
+    "insights": [
+        {{
+            "finding": "Pattern or meaning derived from ground truths - what does this MEAN?",
+            "implication": "What this means for educators or students",
+            "recommendation": "Specific action or consideration based on this insight"
+        }},
+        {{
+            "finding": "Second insight connecting multiple data points or revealing trends",
+            "implication": "What this means for educators or students",
+            "recommendation": "Specific action or consideration based on this insight"
+        }}
+    ],
+    "hypotheses": [
+        "Forward-looking prediction based on insights - what might happen next?",
+        "Implication for instruction or student outcomes"
+    ],
+    "opportunities": {{
+        "classroom": "Specific classroom-level action teachers could take",
+        "grade": "Grade-level collaborative opportunity",
+        "school": "School-level initiative or program",
+        "system": "District/system-level recommendation"
+    }},
+    "subject": "math" or "reading" or null,
+    "grade": "grade level if visible" or null,
+    "keyMetrics": ["metric1", "metric2"],
+    "confidenceLevel": "high/medium/low - based on data completeness and clarity",
+    "questionsRaised": [
+        "Question 1 that this data prompts us to investigate",
+        "Question 2 for deeper understanding"
+    ]
+}}
+
+**CRITICAL GUIDELINES:**
+- Ground truths should be objective facts with specific numbers
+- Insights should explain MEANING and PATTERNS, not just restate facts
+- Hypotheses should be forward-looking and actionable
+- Opportunities should be specific and tied to the data
+- Use actual numbers from the chart data provided
+- Connect insights to the Emergent Learning approach shown in reference materials
+- Focus on what educators need to know to improve student outcomes
+"""
+    
+    return prompt
+
+
 def analyze_chart_with_gpt(
     chart_path: str,
     chart_metadata: Optional[Dict] = None,
     api_key: Optional[str] = None,
-    analysis_focus: Optional[str] = None
+    analysis_focus: Optional[str] = None,
+    reference_deck_path: Optional[str] = None,
+    framework_level: str = "full"
 ) -> Dict:
     """
-    Analyze a single chart using OpenAI Vision API
+    Analyze a single chart using OpenAI Vision API with Emergent Learning framework
     
     Args:
         chart_path: Path to the chart image file
-        chart_metadata: Optional metadata about the chart (name, scope, section, etc.)
-        api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
+        chart_metadata: Optional metadata about the chart
+        api_key: OpenAI API key
+        analysis_focus: Optional focus area for analysis
+        reference_deck_path: Path to reference insight deck for context
+        framework_level: Which EL framework level to emphasize
     
     Returns:
-        Dictionary with analysis results including title, description, and insights
+        Dictionary with comprehensive analysis results
     """
     if OpenAI is None:
         raise ImportError("openai package is required. Install with: pip install openai")
     
     api_key = api_key or os.environ.get('OPENAI_API_KEY')
     if not api_key:
-        raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
+        raise ValueError("OpenAI API key is required.")
     
     client = OpenAI(api_key=api_key)
     
     # Encode image
     base64_image = encode_image(chart_path)
     
-    # Try to load chart data JSON if available
+    # Load chart data and reference deck
     chart_data = load_chart_data(chart_path)
+    reference_deck_content = None
+    if reference_deck_path:
+        reference_deck_content = load_reference_deck(reference_deck_path)
     
     # Build context from metadata and chart data
     context_parts = []
@@ -87,12 +318,13 @@ def analyze_chart_with_gpt(
         if chart_metadata.get('section'):
             context_parts.append(f"Section: {chart_metadata['section']}")
     
-    # Add chart data to context if available
+    context = "\n".join(context_parts) if context_parts else "This is an NWEA assessment data visualization chart."
+    
+    # Build data context
     data_context = ""
     if chart_data:
-        data_context = "\n\n**Actual Chart Data:**\n"
+        data_context = "\n\n**ACTUAL CHART DATA:**\n"
         
-        # Extract key metrics
         if 'metrics' in chart_data:
             metrics = chart_data['metrics']
             if isinstance(metrics, list) and len(metrics) > 0:
@@ -103,13 +335,11 @@ def analyze_chart_with_gpt(
                             if value is not None:
                                 data_context += f"  - {key}: {value}\n"
         
-        # Add percentage data summary
         if 'pct_data' in chart_data:
             for pct_info in chart_data['pct_data']:
                 if pct_info.get('data'):
                     subject = pct_info.get('subject', 'Unknown')
                     data_context += f"\n{subject} Percentage Distribution:\n"
-                    # Summarize latest time period
                     latest_periods = {}
                     for record in pct_info['data']:
                         time_label = record.get('time_label', '')
@@ -119,14 +349,12 @@ def analyze_chart_with_gpt(
                             latest_periods[time_label] = {}
                         latest_periods[time_label][quintile] = pct
                     
-                    # Show most recent period
                     if latest_periods:
                         latest_time = max(latest_periods.keys())
                         data_context += f"  Latest period ({latest_time}):\n"
                         for quintile, pct in latest_periods[latest_time].items():
                             data_context += f"    - {quintile}: {pct:.1f}%\n"
         
-        # Add score data summary
         if 'score_data' in chart_data:
             for score_info in chart_data['score_data']:
                 if score_info.get('data'):
@@ -137,181 +365,75 @@ def analyze_chart_with_gpt(
                         avg_score = record.get('avg_score', 0)
                         data_context += f"  - {time_label}: {avg_score:.1f}\n"
     
-    context = "\n".join(context_parts) if context_parts else "This is an NWEA assessment data visualization chart."
-    if data_context:
-        context += data_context
+    # Build the enhanced prompt
+    prompt = build_emergent_learning_prompt(
+        context,
+        data_context,
+        reference_deck_content,
+        analysis_focus,
+        framework_level
+    )
     
-    # Build focus instruction if provided
-    focus_instruction = ""
-    if analysis_focus:
-        focus_instruction = f"\n\nFOCUS AREA: Pay special attention to {analysis_focus} in your analysis. "
-        if "trend" in analysis_focus.lower():
-            focus_instruction += "Emphasize trends over time, changes between periods, and directional patterns."
-        elif "comparison" in analysis_focus.lower():
-            focus_instruction += "Emphasize comparisons between groups, subjects, or time periods."
-        elif "actionable" in analysis_focus.lower() or "insight" in analysis_focus.lower():
-            focus_instruction += "Emphasize actionable insights and recommendations."
-    
-    # Create prompt for analysis
-    prompt = f"""Analyze this NWEA assessment data visualization chart and provide insights in JSON format.
-
-{context}
-
-Please analyze the chart and provide:
-1. A clear, concise title (max 80 characters)
-2. A brief description/summary (2-3 sentences)
-3. Key insights as an array of EXACTLY 2 bullet points - only the most important and impactful insights
-4. Subject (math or reading, if applicable)
-5. Grade level (if visible in chart)
-6. Key metrics or trends observed
-{focus_instruction}
-Return your response as a JSON object with this exact structure:
-{{
-    "title": "Chart title here",
-    "description": "Brief description of what the chart shows",
-    "insights": [
-        "Most important insight - be specific with numbers",
-        "Second most important insight - be specific with numbers"
-    ],
-    "subject": "math" or "reading" or null,
-    "grade": "grade level if visible" or null,
-    "keyMetrics": ["metric1", "metric2"]
-}}
-
-IMPORTANT: Provide EXACTLY 2 insights only. Prioritize:
-- The most significant trends or changes (largest percentage changes, biggest score improvements/declines)
-- Actionable findings that require attention (areas needing intervention, notable improvements)
-- Focus on the most impactful data points
-
-Be specific about numbers, percentages, and comparisons when visible in the chart.
-
-If actual chart data is provided above, use those exact numbers and metrics in your analysis rather than estimating from the visual."""
-
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",  # or "gpt-4-vision-preview" for older models
+            model="gpt-4o",
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        },
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}"
-                            }
+                            "image_url": {"url": f"data:image/png;base64,{base64_image}"}
                         }
                     ]
                 }
             ],
-            max_tokens=1000,
-            temperature=0.3  # Lower temperature for more consistent, factual output
+            max_tokens=2000,  # Increased for more comprehensive analysis
+            temperature=0.4  # Slightly higher for more creative insights
         )
         
-        # Extract JSON from response
+        # Extract and clean JSON
         content = response.choices[0].message.content.strip()
         
-        # Try to extract JSON if wrapped in markdown code blocks
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
             content = content.split("```")[1].split("```")[0].strip()
         
-        # Clean up common JSON issues
-        # Remove trailing commas before closing brackets/braces (fixes "Illegal trailing comma" errors)
-        # Fix trailing commas in arrays: ], -> ]
-        content = re.sub(r',(\s*])', r'\1', content)
-        # Fix trailing commas in objects: }, -> }
-        content = re.sub(r',(\s*})', r'\1', content)
-        # Also handle trailing commas before newlines followed by closing brackets
-        content = re.sub(r',\s*\n\s*]', '\n]', content)
-        content = re.sub(r',\s*\n\s*}', '\n}', content)
+        # Clean trailing commas
+        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        content = re.sub(r',\s*\n\s*[}\]]', lambda m: m.group(0).replace(',', ''), content)
         
-        # Try to parse JSON
         try:
             analysis = json.loads(content)
         except json.JSONDecodeError as e:
-            # If parsing fails, try to fix truncated JSON
-            print(f"Initial JSON parse failed: {e}")
-            print(f"Response content (first 500 chars): {content[:500]}")
-            
-            # Try to extract valid JSON from partial response
-            # Look for the last complete object/array structure
-            try:
-                # Try to find the last complete insights array
-                if '"insights"' in content:
-                    insights_match = re.search(r'"insights"\s*:\s*\[(.*?)\]', content, re.DOTALL)
-                    if insights_match:
-                        insights_content = insights_match.group(1)
-                        # Count complete strings (those ending with ")
-                        # This is a simple heuristic - if we have at least one complete insight, use it
-                        complete_insights = []
-                        for match in re.finditer(r'"([^"]*)"', insights_content):
-                            insight_text = match.group(1)
-                            if insight_text.strip():
-                                complete_insights.append(insight_text)
-                        
-                        # Rebuild JSON with only complete insights
-                        if complete_insights:
-                            # Extract other fields
-                            title_match = re.search(r'"title"\s*:\s*"([^"]*)"', content)
-                            desc_match = re.search(r'"description"\s*:\s*"([^"]*)"', content)
-                            
-                            analysis = {
-                                "title": title_match.group(1) if title_match else Path(chart_path).stem.replace('_', ' ').title(),
-                                "description": desc_match.group(1) if desc_match else "Chart analysis",
-                                "insights": complete_insights[:2],  # Limit to 2 insights
-                                "subject": None,
-                                "grade": None,
-                                "keyMetrics": []
-                            }
-                        else:
-                            raise json.JSONDecodeError("No complete insights found", content, e.pos)
-                    else:
-                        raise e
-                else:
-                    raise e
-            except (json.JSONDecodeError, AttributeError, IndexError) as recovery_error:
-                # Try one more time: find last complete closing brace and parse up to that point
-                try:
-                    last_brace = content.rfind('}')
-                    if last_brace > 100:  # Make sure we have substantial content
-                        truncated_content = content[:last_brace + 1]
-                        # Clean trailing commas again
-                        truncated_content = re.sub(r',(\s*])', r'\1', truncated_content)
-                        truncated_content = re.sub(r',(\s*})', r'\1', truncated_content)
-                        analysis = json.loads(truncated_content)
-                    else:
-                        raise recovery_error
-                except json.JSONDecodeError:
-                    # If all else fails, create a fallback structure
-                    print(f"Could not recover from JSON error, using fallback")
-                    raise e
+            print(f"JSON parse error: {e}")
+            print(f"Content preview: {content[:500]}")
+            # Create fallback structure
+            analysis = {
+                "title": Path(chart_path).stem.replace('_', ' ').title(),
+                "description": "Analysis error - see error field",
+                "groundTruths": [],
+                "insights": [],
+                "hypotheses": [],
+                "opportunities": {},
+                "subject": None,
+                "grade": None,
+                "keyMetrics": [],
+                "confidenceLevel": "low",
+                "questionsRaised": [],
+                "error": str(e)
+            }
         
         # Add metadata
         analysis['chart_path'] = chart_path
         analysis['chart_name'] = Path(chart_path).stem
+        analysis['framework_level'] = framework_level
+        analysis['used_reference_deck'] = reference_deck_path is not None
         
         return analysis
         
-    except json.JSONDecodeError as e:
-        print(f"Error parsing JSON response: {e}")
-        print(f"Response content: {content[:500]}")
-        # Return fallback structure
-        return {
-            "title": Path(chart_path).stem.replace('_', ' ').title(),
-            "description": "Chart analysis unavailable",
-            "insights": [],
-            "subject": None,
-            "grade": None,
-            "keyMetrics": [],
-            "chart_path": chart_path,
-            "chart_name": Path(chart_path).stem,
-            "error": str(e)
-        }
     except Exception as e:
         print(f"Error analyzing chart {chart_path}: {e}")
         raise
@@ -321,72 +443,54 @@ def analyze_charts_batch(
     chart_batch: List[Tuple[str, Dict]],
     api_key: Optional[str] = None,
     batch_num: int = 1,
-    analysis_focus: Optional[str] = None
+    analysis_focus: Optional[str] = None,
+    reference_deck_path: Optional[str] = None,
+    framework_level: str = "full"
 ) -> List[Dict]:
-    """
-    Analyze a batch of charts in parallel (up to 10 charts)
-    
-    Args:
-        chart_batch: List of tuples (chart_path, metadata_dict)
-        api_key: OpenAI API key
-        batch_num: Batch number for logging
-        analysis_focus: Optional focus area for analysis (e.g., "trends", "comparisons")
-    
-    Returns:
-        List of analysis dictionaries
-    """
+    """Analyze a batch of charts with EL framework"""
     analyses = []
     
     def analyze_single(chart_path: str, metadata: Dict) -> Dict:
-        """Helper function to analyze a single chart"""
         try:
-            return analyze_chart_with_gpt(chart_path, metadata, api_key, analysis_focus)
+            return analyze_chart_with_gpt(
+                chart_path, 
+                metadata, 
+                api_key, 
+                analysis_focus,
+                reference_deck_path,
+                framework_level
+            )
         except Exception as e:
             print(f"Error analyzing chart {chart_path}: {e}")
             return {
                 "title": Path(chart_path).stem.replace('_', ' ').title(),
-                "description": f"Error analyzing chart: {str(e)}",
+                "description": f"Error: {str(e)}",
+                "groundTruths": [],
                 "insights": [],
-                "subject": None,
-                "grade": None,
-                "keyMetrics": [],
+                "hypotheses": [],
+                "opportunities": {},
                 "chart_path": chart_path,
                 "chart_name": Path(chart_path).stem,
                 "error": str(e)
             }
     
-    # Process batch in parallel (max 10 concurrent requests)
-    print(f"[Batch {batch_num}] Analyzing {len(chart_batch)} charts in parallel...")
+    print(f"[Batch {batch_num}] Analyzing {len(chart_batch)} charts with EL framework...")
     with ThreadPoolExecutor(max_workers=min(10, len(chart_batch))) as executor:
-        # Submit all tasks
         future_to_chart = {
             executor.submit(analyze_single, chart_path, metadata): (chart_path, metadata)
             for chart_path, metadata in chart_batch
         }
         
-        # Collect results as they complete
         for future in as_completed(future_to_chart):
             chart_path, metadata = future_to_chart[future]
             try:
                 analysis = future.result()
                 analyses.append(analysis)
                 chart_name = metadata.get('chart_name', Path(chart_path).stem)
-                print(f"  ✓ Completed: {chart_name}")
+                print(f"  ✓ {chart_name}")
             except Exception as e:
-                print(f"  ✗ Failed: {chart_path} - {e}")
-                analyses.append({
-                    "title": Path(chart_path).stem.replace('_', ' ').title(),
-                    "description": f"Error analyzing chart: {str(e)}",
-                    "insights": [],
-                    "subject": None,
-                    "grade": None,
-                    "keyMetrics": [],
-                    "chart_path": chart_path,
-                    "chart_name": Path(chart_path).stem,
-                    "error": str(e)
-                })
+                print(f"  ✗ {chart_path}: {e}")
     
-    print(f"[Batch {batch_num}] Completed {len(analyses)}/{len(chart_batch)} analyses")
     return analyses
 
 
@@ -394,38 +498,41 @@ def analyze_charts_batch_paths(
     chart_paths: List[str],
     api_key: Optional[str] = None,
     batch_size: int = 10,
-    analysis_focus: Optional[str] = None
+    analysis_focus: Optional[str] = None,
+    reference_deck_path: Optional[str] = None,
+    framework_level: str = "full"
 ) -> List[Dict]:
     """
-    Analyze multiple charts from a list of file paths in batches of 10
+    Analyze charts from a list of file paths with Emergent Learning framework
     
     Args:
         chart_paths: List of chart file paths
         api_key: OpenAI API key
-        batch_size: Number of charts to process in each batch (default: 10)
+        batch_size: Number of charts to analyze per batch
+        analysis_focus: Optional focus area for analysis
+        reference_deck_path: Optional path to reference insight deck
+        framework_level: EL framework level to emphasize
     
     Returns:
-        List of analysis dictionaries, one per chart
+        List of analysis dictionaries
     """
-    # Prepare chart list with metadata
+    if not chart_paths:
+        return []
+    
+    # Convert paths to (path, metadata) tuples expected by analyze_charts_batch
     chart_list = []
     for chart_path in chart_paths:
         chart_path_obj = Path(chart_path)
-        if not chart_path_obj.exists():
-            print(f"Warning: Chart not found: {chart_path}")
-            continue
-        
         metadata = {
             'chart_name': chart_path_obj.stem,
-            'scope': '',
-            'section': ''
+            'chart_path': str(chart_path)
         }
-        
         chart_list.append((str(chart_path), metadata))
     
-    print(f"Total charts to analyze: {len(chart_list)}")
+    print(f"Analyzing {len(chart_list)} charts with EL framework (level: {framework_level})")
+    if reference_deck_path:
+        print(f"Using reference deck: {reference_deck_path}")
     
-    # Process in batches
     all_analyses = []
     total_batches = (len(chart_list) + batch_size - 1) // batch_size
     
@@ -433,11 +540,17 @@ def analyze_charts_batch_paths(
         batch = chart_list[batch_idx:batch_idx + batch_size]
         batch_num = (batch_idx // batch_size) + 1
         
-        print(f"\n[Batch {batch_num}/{total_batches}] Processing {len(batch)} charts...")
-        batch_analyses = analyze_charts_batch(batch, api_key, batch_num)
+        batch_analyses = analyze_charts_batch(
+            batch, 
+            api_key, 
+            batch_num,
+            analysis_focus=analysis_focus,
+            reference_deck_path=reference_deck_path,
+            framework_level=framework_level
+        )
         all_analyses.extend(batch_analyses)
     
-    print(f"\n✅ Completed analysis of {len(all_analyses)} charts")
+    print(f"\n✅ Completed {len(all_analyses)} analyses")
     return all_analyses
 
 
@@ -446,43 +559,33 @@ def analyze_charts_from_index(
     output_dir: Optional[str] = None,
     api_key: Optional[str] = None,
     max_charts: Optional[int] = None,
-    batch_size: int = 10
+    batch_size: int = 10,
+    reference_deck_path: Optional[str] = None,
+    framework_level: str = "full"
 ) -> List[Dict]:
     """
-    Analyze multiple charts from a chart_index.csv file in batches of 10
+    Analyze charts from index with Emergent Learning framework
     
     Args:
-        chart_index_path: Path to chart_index.csv file
-        output_dir: Base directory for chart paths (defaults to chart_index.csv parent)
+        chart_index_path: Path to chart_index.csv
+        output_dir: Base directory for chart paths
         api_key: OpenAI API key
-        max_charts: Maximum number of charts to analyze (for testing/rate limiting)
-        batch_size: Number of charts to process in each batch (default: 10)
-    
-    Returns:
-        List of analysis dictionaries, one per chart
+        max_charts: Max number of charts to analyze
+        batch_size: Charts per batch
+        reference_deck_path: Path to reference insight deck
+        framework_level: EL framework level to emphasize
     """
     chart_index_path = Path(chart_index_path)
-    if not chart_index_path.exists():
-        raise FileNotFoundError(f"Chart index not found: {chart_index_path}")
-    
-    # Read chart index
     df = pd.read_csv(chart_index_path)
     
-    # Determine base directory
-    if output_dir:
-        base_dir = Path(output_dir)
-    else:
-        base_dir = chart_index_path.parent
+    base_dir = Path(output_dir) if output_dir else chart_index_path.parent
     
-    # Limit charts if specified
     if max_charts:
         df = df.head(max_charts)
     
-    # Prepare chart list with metadata
     chart_list = []
     for idx, row in df.iterrows():
         chart_path = base_dir / row['file_path']
-        
         if not chart_path.exists():
             print(f"Warning: Chart not found: {chart_path}")
             continue
@@ -492,12 +595,12 @@ def analyze_charts_from_index(
             'scope': row.get('scope', ''),
             'section': row.get('section', '')
         }
-        
         chart_list.append((str(chart_path), metadata))
     
-    print(f"Total charts to analyze: {len(chart_list)}")
+    print(f"Analyzing {len(chart_list)} charts with EL framework (level: {framework_level})")
+    if reference_deck_path:
+        print(f"Using reference deck: {reference_deck_path}")
     
-    # Process in batches
     all_analyses = []
     total_batches = (len(chart_list) + batch_size - 1) // batch_size
     
@@ -505,16 +608,21 @@ def analyze_charts_from_index(
         batch = chart_list[batch_idx:batch_idx + batch_size]
         batch_num = (batch_idx // batch_size) + 1
         
-        print(f"\n[Batch {batch_num}/{total_batches}] Processing {len(batch)} charts...")
-        batch_analyses = analyze_charts_batch(batch, api_key, batch_num)
+        batch_analyses = analyze_charts_batch(
+            batch, 
+            api_key, 
+            batch_num,
+            reference_deck_path=reference_deck_path,
+            framework_level=framework_level
+        )
         all_analyses.extend(batch_analyses)
     
-    print(f"\n✅ Completed analysis of {len(all_analyses)} charts")
+    print(f"\n✅ Completed {len(all_analyses)} analyses")
     return all_analyses
 
 
 def save_analyses_to_json(analyses: List[Dict], output_path: str):
-    """Save chart analyses to a JSON file"""
+    """Save analyses to JSON"""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -527,12 +635,17 @@ def save_analyses_to_json(analyses: List[Dict], output_path: str):
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Analyze charts using OpenAI Vision API")
+    parser = argparse.ArgumentParser(description="Analyze charts with Emergent Learning framework")
     parser.add_argument("--chart-index", required=True, help="Path to chart_index.csv")
     parser.add_argument("--output-dir", help="Base directory for chart paths")
-    parser.add_argument("--output-json", help="Output JSON file path")
-    parser.add_argument("--api-key", help="OpenAI API key (or set OPENAI_API_KEY env var)")
-    parser.add_argument("--max-charts", type=int, help="Maximum number of charts to analyze")
+    parser.add_argument("--output-json", help="Output JSON file")
+    parser.add_argument("--api-key", help="OpenAI API key")
+    parser.add_argument("--max-charts", type=int, help="Max charts to analyze")
+    parser.add_argument("--reference-deck", help="Path to reference insight deck")
+    parser.add_argument("--framework-level", 
+                       choices=["full", "insights", "hypotheses", "opportunities"],
+                       default="full",
+                       help="EL framework level to emphasize")
     
     args = parser.parse_args()
     
@@ -540,11 +653,12 @@ if __name__ == "__main__":
         args.chart_index,
         args.output_dir,
         args.api_key,
-        args.max_charts
+        args.max_charts,
+        reference_deck_path=args.reference_deck,
+        framework_level=args.framework_level
     )
     
     if args.output_json:
         save_analyses_to_json(analyses, args.output_json)
     else:
         print(json.dumps(analyses, indent=2))
-

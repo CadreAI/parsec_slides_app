@@ -326,7 +326,13 @@ def create_dual_chart_slide_requests(
         insights_list = insight1.get('insights', [])
         if insights_list:
             # Use the first insight as the most important
-            context1_text = insights_list[0]
+            first_insight = insights_list[0]
+            if isinstance(first_insight, dict):
+                # New format: extract finding
+                context1_text = first_insight.get('finding', '')
+            else:
+                # Old format: string
+                context1_text = str(first_insight)
     
     if context1_text:
         context1_object_id = f'Context1_{start_index}'
@@ -370,7 +376,13 @@ def create_dual_chart_slide_requests(
         insights_list = insight2.get('insights', [])
         if insights_list:
             # Use the first insight as the most important
-            context2_text = insights_list[0]
+            first_insight = insights_list[0]
+            if isinstance(first_insight, dict):
+                # New format: extract finding
+                context2_text = first_insight.get('finding', '')
+            else:
+                # Old format: string
+                context2_text = str(first_insight)
     
     if context2_text:
         context2_object_id = f'Context2_{start_index}'

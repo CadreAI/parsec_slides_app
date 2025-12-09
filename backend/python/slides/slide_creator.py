@@ -672,7 +672,58 @@ def create_slides_presentation(
                         title_text = insight.get('title')
                         insights_list = insight.get('insights', [])
                         if insights_list:
-                            summary = '\n\n'.join(f'• {i}' for i in insights_list)
+                            # Handle both old format (strings) and new format (objects with finding/implication/recommendation)
+                            insight_texts = []
+                            for insight_item in insights_list:
+                                finding = ''
+                                implication = ''
+                                recommendation = ''
+                                
+                                # Try to parse as dict first
+                                if isinstance(insight_item, dict):
+                                    finding = insight_item.get('finding', '')
+                                    implication = insight_item.get('implication', '')
+                                    recommendation = insight_item.get('recommendation', '')
+                                elif isinstance(insight_item, str):
+                                    # Check if it's a string representation of a dict
+                                    if (insight_item.strip().startswith("{'") or insight_item.strip().startswith('{"')) and ('finding' in insight_item or 'implication' in insight_item):
+                                        try:
+                                            import ast
+                                            # Try to parse as Python dict literal
+                                            parsed = ast.literal_eval(insight_item)
+                                            if isinstance(parsed, dict):
+                                                finding = parsed.get('finding', '')
+                                                implication = parsed.get('implication', '')
+                                                recommendation = parsed.get('recommendation', '')
+                                        except:
+                                            # Fallback: try regex extraction
+                                            import re
+                                            finding_match = re.search(r"['\"]finding['\"]:\s*['\"]([^'\"]+)['\"]", insight_item)
+                                            if finding_match:
+                                                finding = finding_match.group(1)
+                                            implication_match = re.search(r"['\"]implication['\"]:\s*['\"]([^'\"]+)['\"]", insight_item)
+                                            if implication_match:
+                                                implication = implication_match.group(1)
+                                            recommendation_match = re.search(r"['\"]recommendation['\"]:\s*['\"]([^'\"]+)['\"]", insight_item)
+                                            if recommendation_match:
+                                                recommendation = recommendation_match.group(1)
+                                    else:
+                                        # Plain string format
+                                        finding = insight_item
+                                
+                                # Format the insight text
+                                if finding:
+                                    text = f"• {finding}"
+                                    if implication:
+                                        text += f"\n  → {implication}"
+                                    if recommendation:
+                                        text += f"\n  → {recommendation}"
+                                    insight_texts.append(text)
+                                elif isinstance(insight_item, str):
+                                    # Fallback for plain strings
+                                    insight_texts.append(f'• {insight_item}')
+                            
+                            summary = '\n\n'.join(insight_texts)
                         elif insight.get('description'):
                             summary = insight['description']
                         print(f"[AI] Using AI-generated title: {title_text}")
