@@ -3,6 +3,7 @@ Minimal helper_functions.py for nwea.py only
 """
 
 import matplotlib.pyplot as plt
+import pandas as pd
 from pathlib import Path
 
 # ---------------------------------------------------------------------
@@ -84,6 +85,31 @@ IREADY_LABEL_MAP = {
     "Early On Grade Level": "Early On",
     "Mid or Above Grade Level": "Mid/Above",
 }
+
+# ---------------------------------------------------------------------
+# STAR Definitions
+# ---------------------------------------------------------------------
+STAR_ORDER = [
+    "1 - Standard Not Met",
+    "2 - Standard Nearly Met",
+    "3 - Standard Met",
+    "4 - Standard Exceeded",
+]
+
+STAR_COLORS = {
+    "1 - Standard Not Met": default_quintile_colors[0],  # darkest gray
+    "2 - Standard Nearly Met": default_quintile_colors[1],  # light gray
+    "3 - Standard Met": default_quintile_colors[3],  # bright teal
+    "4 - Standard Exceeded": default_quintile_colors[4],  # deep teal
+}
+
+STAR_HIGH_GROUP = [
+    "3 - Standard Met",
+    "4 - Standard Exceeded",
+]
+STAR_LOW_GROUP = ["1 - Standard Not Met"]
+
+# Note: STAR-specific column definitions and helper functions are now in star/star_helper_functions.py
 
 # ---------------------------------------------------------------------
 # Global DEV_MODE flag

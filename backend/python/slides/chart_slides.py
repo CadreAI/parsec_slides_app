@@ -146,7 +146,7 @@ def create_single_chart_slide_requests(
         {
             'updateTextStyle': {
                 'objectId': summary_object_id,
-                'style': {'fontSize': {'magnitude': 12, 'unit': 'PT'}},
+                'style': {'fontSize': {'magnitude': 8, 'unit': 'PT'}},
                 'fields': 'fontSize',
                 'textRange': {'type': 'ALL'}
             }

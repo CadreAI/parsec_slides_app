@@ -10,6 +10,7 @@ import concurrent.futures
 from bigquery_client import get_bigquery_client, run_query
 from nwea.sql_builders import sql_nwea
 from iready.sql_builders import sql_iready
+from star.sql_builders import sql_star
 
 
 def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -125,6 +126,11 @@ def ingest_nwea(
     else:
         print(f"[Data Ingestion] Querying years: {years}")
     
+    # Get exclude columns from config if specified
+    exclude_cols = None
+    if isinstance(nwea_source, dict) and 'exclude_cols' in nwea_source:
+        exclude_cols = nwea_source.get('exclude_cols')
+    
     # Function to query a single year
     def query_year(year: int) -> List[Dict[str, Any]]:
         """Query a single year with its own BigQuery client (thread-safe)"""
@@ -135,11 +141,9 @@ def ingest_nwea(
             credentials_path = config.get('gcp', {}).get('credentials_path')
             client = get_bigquery_client(project_id, credentials_path)
             
-            # Build filters for this year
-            year_filters = {**base_filters, 'years': [year]}
-            # Remove 'grades' from year_filters if we're applying it in SQL (already in base_filters)
-            # The apply_grade_filter flag controls whether SQL builder uses it
-            sql = sql_nwea(table_id, year_filters, apply_grade_filter=apply_grade_filter_sql)
+            # Build SQL query for this specific year
+            sql_filters = {'years': [year]}
+            sql = sql_nwea(table_id, exclude_cols, filters=sql_filters, apply_grade_filter=apply_grade_filter_sql)
             
             print(f"[Data Ingestion] [Year {year}] Executing query...")
             rows = run_query(sql, client, None)
@@ -155,7 +159,6 @@ def ingest_nwea(
     # Execute queries in parallel
     print(f"[Data Ingestion] Executing {len(years)} year queries in parallel...")
     print(f"[Data Ingestion] Table: {table_id}")
-    print(f"[Data Ingestion] Base filters: {base_filters}")
     
     all_rows = []
     
@@ -216,37 +219,43 @@ def ingest_nwea(
     rows = all_rows
     
     if not rows:
-        print("[Data Ingestion] Warning: No rows returned from query")
+        print("[Data Ingestion] Warning: No rows returned from queries")
         return []
     
     # Convert to DataFrame
     df = pd.DataFrame(rows)
-    
     print(f"[Data Ingestion] Raw data: {len(df)} rows, {len(df.columns)} columns")
     
     # Clean column names
     df = clean_column_names(df)
     
-    # Deduplication logic
-    print("[Data Ingestion] Applying deduplication...")
-    initial_count = len(df)
+    # Apply filters in Python (not in SQL)
+    print("[Data Ingestion] Applying filters in Python...")
     
-    # First, use more targeted deduplication based on key identifiers
-    # This is more appropriate than checking ALL columns for exact matches
-    if 'studentid' in df.columns and 'teststartdate' in df.columns:
-        # Identify key columns for grouping (these define a unique test record)
-        group_cols = ['studentid']
-        if 'subject' in df.columns:
-            group_cols.append('subject')
-        if 'termname' in df.columns:
-            group_cols.append('termname')
-        if 'year' in df.columns:
-            group_cols.append('year')
-        if 'teststartdate' in df.columns:
-            group_cols.append('teststartdate')
-        
-        # Check for duplicates based on these key columns
+    # School filter
+    if chart_filters.get('schools') and 'school' in df.columns:
+        schools = chart_filters['schools']
+        before_filter = len(df)
+        df = df[df['school'].isin(schools)]
+        print(f"[Data Ingestion] Applied school filter: {before_filter} -> {len(df)} rows")
+    
+    # District filter (applied in Python since DistrictName column doesn't exist in NWEA)
+    if chart_filters.get('districts') and 'districtname' in df.columns:
+        districts = chart_filters['districts']
+        before_filter = len(df)
+        df = df[df['districtname'].isin(districts)]
+        print(f"[Data Ingestion] Applied district filter: {before_filter} -> {len(df)} rows")
+    
+    # Deduplication logic
+    initial_count = len(df)
+    print(f"[Data Ingestion] Starting deduplication (initial count: {initial_count:,})")
+    
+    # Key columns for deduplication (matching NWEA deduplication logic)
+    key_cols = ['studentid', 'teststartdate', 'discipline']
+    if all(col in df.columns for col in key_cols):
         before_key_dedup = len(df)
+        # Sort by teststartdate descending, then drop duplicates keeping first (most recent)
+        group_cols = ['studentid', 'discipline']
         df = df.sort_values('teststartdate', ascending=False).drop_duplicates(
             subset=group_cols,
             keep='first'
@@ -475,3 +484,143 @@ def ingest_iready(
     
     return result
 
+
+def ingest_star(
+    partner_name: str,
+    config: Dict[str, Any],
+    chart_filters: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Ingest STAR data from BigQuery
+    
+    Args:
+        partner_name: Partner name
+        config: Partner configuration dict
+        chart_filters: Optional filters for chart generation (year filtering in SQL, others in Python)
+    
+    Returns:
+        List of dictionaries representing STAR data rows
+    """
+    chart_filters = chart_filters or {}
+    
+    # Map config-level filters to chart_filters if not already set
+    if not chart_filters.get('districts') and config.get('district_name'):
+        districts = config.get('district_name')
+        if isinstance(districts, list) and len(districts) > 0:
+            chart_filters['districts'] = districts
+            print(f"[Data Ingestion] Mapped district_name to chart_filters.districts: {districts}")
+    
+    if not chart_filters.get('schools') and config.get('selected_schools'):
+        schools = config.get('selected_schools')
+        if isinstance(schools, list) and len(schools) > 0:
+            chart_filters['schools'] = schools
+            print(f"[Data Ingestion] Mapped selected_schools to chart_filters.schools: {schools}")
+    
+    # Get BigQuery configuration
+    gcp_config = config.get('gcp', {})
+    project_id = gcp_config.get('project_id')
+    location = gcp_config.get('location', 'US')
+    
+    if not project_id:
+        raise ValueError("GCP project_id is required in config")
+    
+    # Get table ID
+    sources = config.get('sources', {})
+    star_source = sources.get('star')
+    
+    if isinstance(star_source, str):
+        table_id = star_source
+    elif isinstance(star_source, dict):
+        table_id = star_source.get('table_id')
+    else:
+        table_id = None
+    
+    if not table_id:
+        raise ValueError("STAR table_id is required in config.sources.star")
+    
+    # STAR SQL builder includes year filtering in SQL
+    # Determine years to query
+    years = chart_filters.get('years')
+    if not years or len(years) == 0:
+        # Default: last 3 years (matching sql_star default)
+        current_date = datetime.now()
+        current_year = current_date.year
+        if current_date.month >= 7:
+            current_year += 1
+        years = [current_year - 2, current_year - 1, current_year]
+        print(f"[Data Ingestion] No years specified, using default: {years}")
+    else:
+        print(f"[Data Ingestion] Querying years: {years}")
+    
+    # Get exclude columns from config if specified
+    exclude_cols = None
+    if isinstance(star_source, dict) and 'exclude_cols' in star_source:
+        exclude_cols = star_source.get('exclude_cols')
+    
+    # Build SQL query with year filters
+    sql_filters = {'years': years}
+    sql = sql_star(table_id, exclude_cols, filters=sql_filters)
+    
+    print(f"[Data Ingestion] Executing STAR query...")
+    print(f"[Data Ingestion] Table: {table_id}")
+    
+    # Get BigQuery client
+    credentials_path = config.get('gcp', {}).get('credentials_path')
+    client = get_bigquery_client(project_id, credentials_path)
+    
+    # Execute query
+    rows = run_query(sql, client, None)
+    print(f"[Data Ingestion] Retrieved {len(rows):,} rows")
+    
+    if not rows:
+        print("[Data Ingestion] Warning: No rows returned from STAR query")
+        return []
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(rows)
+    print(f"[Data Ingestion] Raw data: {len(df)} rows, {len(df.columns)} columns")
+    
+    # Clean column names
+    df = clean_column_names(df)
+    
+    # Apply filters in Python (school filtering, etc.)
+    print("[Data Ingestion] Applying filters in Python...")
+    
+    # School filter (STAR uses School_Name column, normalized to school_name after clean_column_names)
+    if chart_filters.get('schools'):
+        schools = chart_filters['schools']
+        # Try multiple column name variations
+        school_col = None
+        for col_name in ['school_name', 'schoolname', 'school']:
+            if col_name in df.columns:
+                school_col = col_name
+                break
+        
+        if school_col:
+            before_filter = len(df)
+            df = df[df[school_col].isin(schools)]
+            print(f"[Data Ingestion] Applied school filter: {before_filter} -> {len(df)} rows")
+        else:
+            print("[Data Ingestion] Warning: Could not find school column for filtering")
+    
+    # District filter (STAR uses District_Name column, normalized to district_name after clean_column_names)
+    if chart_filters.get('districts'):
+        districts = chart_filters['districts']
+        # Try multiple column name variations
+        district_col = None
+        for col_name in ['district_name', 'districtname', 'district']:
+            if col_name in df.columns:
+                district_col = col_name
+                break
+        
+        if district_col:
+            before_filter = len(df)
+            df = df[df[district_col].isin(districts)]
+            print(f"[Data Ingestion] Applied district filter: {before_filter} -> {len(df)} rows")
+        else:
+            print("[Data Ingestion] Warning: Could not find district column for filtering")
+    
+    # Convert back to list of dicts
+    result = df.to_dict('records')
+    
+    return result

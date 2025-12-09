@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
             const subjects = new Set<string>()
             const quarters = new Set<string>()
 
-            // iReady uses subject column, NWEA uses Course column
+            // iReady/CERS uses subject column, NWEA uses Course column, STAR uses activity_type column
             if (assessmentId === 'iready' || assessmentId === 'cers') {
                 // For iReady/CERS: Use subject column, check for "math" and "ela" (case-insensitive)
                 const subjectColumns = ['subject', 'Subject']
@@ -139,8 +139,42 @@ export async function GET(req: NextRequest) {
                         continue
                     }
                 }
+            } else if (assessmentId === 'star') {
+                // For STAR: Use activity_type column, check for "math" and "read" (case-insensitive)
+                const activityTypeColumns = ['activity_type', 'Activity_Type', 'ActivityType']
+                for (const activityCol of activityTypeColumns) {
+                    try {
+                        const query = `
+                            SELECT DISTINCT \`${activityCol}\` as activity_type
+                            FROM \`${projectId}.${datasetId}.${foundTable}\`
+                            WHERE \`${activityCol}\` IS NOT NULL
+                            LIMIT 100
+                        `
+                        const [rows] = await client.query({ query, location })
+
+                        // Filter subjects based on activity_type column content
+                        rows.forEach((row: { activity_type?: string }) => {
+                            if (row.activity_type) {
+                                const activityStr = String(row.activity_type).trim().toLowerCase()
+
+                                // Check for Math: activity_type contains "math" (case-insensitive)
+                                if (activityStr.includes('math')) {
+                                    subjects.add('Math')
+                                }
+
+                                // Check for Reading: activity_type contains "read" (case-insensitive)
+                                if (activityStr.includes('read')) {
+                                    subjects.add('Reading')
+                                }
+                            }
+                        })
+                        if (subjects.size > 0) break
+                    } catch {
+                        continue
+                    }
+                }
             } else {
-                // For NWEA/STAR: Use Course column, check for "reading" and "math" (case-insensitive)
+                // For NWEA: Use Course column, check for "reading" and "math" (case-insensitive)
                 const courseColumns = ['Course', 'course']
                 let foundCourseColumn: string | null = null
 

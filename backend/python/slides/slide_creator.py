@@ -697,7 +697,7 @@ def create_slides_presentation(
                                                 recommendation = parsed.get('recommendation', '')
                                         except:
                                             # Fallback: try regex extraction
-                                            import re
+                                            # Note: re is already imported at module level
                                             finding_match = re.search(r"['\"]finding['\"]:\s*['\"]([^'\"]+)['\"]", insight_item)
                                             if finding_match:
                                                 finding = finding_match.group(1)

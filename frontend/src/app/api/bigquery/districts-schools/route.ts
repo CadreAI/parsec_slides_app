@@ -87,11 +87,42 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        if (!nweaTableId && !cersIabTableId) {
+        // Try to find STAR table if NWEA is not found
+        const starTableNames = [
+            'renaissance_production_calpads_v4_2',
+            'Renaissance_production_calpads_v4_2',
+            'star_production_calpads_v4_2',
+            'star_production_calpads',
+            'star_production',
+            'star',
+            'STAR',
+            'renaissance'
+        ]
+        let starTableId: string | null = null
+
+        // Only search for STAR if NWEA is not found
+        if (!nweaTableId) {
+            for (const testTableName of starTableNames) {
+                try {
+                    const dataset = client.dataset(datasetId)
+                    const table = dataset.table(testTableName)
+                    const [exists] = await table.exists()
+                    if (exists) {
+                        starTableId = `${projectId}.${datasetId}.${testTableName}`
+                        console.log(`Found STAR table: ${starTableId}`)
+                        break
+                    }
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        if (!nweaTableId && !cersIabTableId && !starTableId) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: `Neither NWEA nor cers_iab table found in dataset ${datasetId}`
+                    error: `Neither NWEA, STAR, nor cers_iab table found in dataset ${datasetId}`
                 },
                 { status: 404 }
             )
@@ -146,6 +177,52 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        // Query STAR table if it exists (and NWEA was not found)
+        if (starTableId) {
+            // STAR uses District_Name and School_Name (with underscores)
+            const starSql = `
+                SELECT DISTINCT
+                    District_Name AS DistrictName,
+                    School_Name AS SchoolName
+                FROM \`${starTableId}\`
+                WHERE District_Name IS NOT NULL
+            `
+
+            const starOptions = {
+                query: starSql,
+                useQueryCache: true,
+                useLegacySql: false,
+                priority: 'INTERACTIVE' as const
+            }
+
+            try {
+                const [starJob] = await client.createQueryJob(starOptions)
+                const [starRows] = await starJob.getQueryResults()
+
+                for (const row of starRows) {
+                    // STAR uses District_Name and School_Name, but we alias them as DistrictName/SchoolName in SQL
+                    const districtName = String(row.DistrictName || row.District_Name || '').trim()
+                    const schoolName = String(row.SchoolName || row.School_Name || '').trim()
+
+                    if (districtName) {
+                        districtSet.add(districtName)
+                        if (schoolName) {
+                            if (!districtSchoolMap[districtName]) {
+                                districtSchoolMap[districtName] = []
+                            }
+                            if (!districtSchoolMap[districtName].includes(schoolName)) {
+                                districtSchoolMap[districtName].push(schoolName)
+                            }
+                            schoolSet.add(schoolName)
+                        }
+                    }
+                }
+                console.log(`Found ${starRows.length} rows from STAR table`)
+            } catch (error) {
+                console.warn(`Error querying STAR table: ${error}`)
+            }
+        }
+
         // Query cers_iab table if it exists
         if (cersIabTableId) {
             // cers_iab may use lowercase column names (districtname, schoolname) or PascalCase
@@ -195,7 +272,11 @@ export async function GET(req: NextRequest) {
         const districts = Array.from(districtSet).sort()
         const schools = Array.from(schoolSet).sort()
 
-        console.log(`Found ${districts.length} districts and ${schools.length} schools total (from NWEA and cers_iab tables)`)
+        const sourceTables = []
+        if (nweaTableId) sourceTables.push('NWEA')
+        if (starTableId) sourceTables.push('STAR')
+        if (cersIabTableId) sourceTables.push('cers_iab')
+        console.log(`Found ${districts.length} districts and ${schools.length} schools total (from ${sourceTables.join(', ')} tables)`)
 
         return NextResponse.json({
             success: true,
