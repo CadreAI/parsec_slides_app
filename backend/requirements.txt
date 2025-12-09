@@ -4,9 +4,11 @@ flask-cors==4.0.0
 gunicorn>=21.2.0
 
 # Data processing (use pre-built wheels)
-numpy==1.26.2
-pandas==2.2.0
-matplotlib==3.8.2
+# Note: numpy 1.26.2 doesn't have wheels for Python 3.13+
+# Using 1.26.4+ which has better Python 3.13 support
+numpy>=1.26.4,<2.0.0
+pandas>=2.2.0,<3.0.0
+matplotlib>=3.8.2,<4.0.0
 
 # Google Cloud
 google-cloud-bigquery==3.13.0
