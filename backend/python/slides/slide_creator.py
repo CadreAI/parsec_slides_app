@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from ..google_slides_client import get_slides_client
-from ..google_drive_upload import upload_images_to_drive_batch, extract_folder_id_from_url
+from ..google_drive_upload import upload_images_to_drive_batch, extract_folder_id_from_url, create_drive_folder, move_file_to_folder
 from ..chart_analyzer import analyze_charts_batch_paths
 from ..decision_llm import should_use_ai_insights, parse_chart_instructions
 from .slide_constants import SLIDE_WIDTH_EMU, SLIDE_HEIGHT_EMU
@@ -285,8 +285,22 @@ def create_slides_presentation(
             if chart_selection_info.get('reasoning'):
                 print(f"[Chart Selection] {chart_selection_info['reasoning']}")
     
-    # Extract folder ID
-    folder_id = extract_folder_id_from_url(drive_folder_url) if drive_folder_url else None
+    # Extract parent folder ID
+    parent_folder_id = extract_folder_id_from_url(drive_folder_url) if drive_folder_url else None
+    
+    # Create a subfolder for this deck's charts inside the parent folder
+    folder_id = None
+    if parent_folder_id:
+        # Create a subfolder with a timestamp-based name
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        subfolder_name = f"{title}_{timestamp}".replace(" ", "_")[:100]  # Limit length and sanitize
+        folder_id = create_drive_folder(subfolder_name, parent_folder_id)
+        if not folder_id:
+            print(f"[Slides] Warning: Failed to create subfolder, uploading to parent folder instead")
+            folder_id = parent_folder_id
+    else:
+        folder_id = parent_folder_id
     
     # Create presentation
     print(f"[Slides] Creating new presentation...")
@@ -718,6 +732,28 @@ def create_slides_presentation(
     
     # Count total slides (cover + chart slides)
     slide_count = len(all_slides)
+    
+    # Move the presentation to the subfolder if one was created
+    if folder_id and folder_id != parent_folder_id:
+        print(f"[Slides] Moving presentation to subfolder: {folder_id}")
+        # Get Drive client to move the presentation
+        from ..google_slides_client import get_drive_client
+        try:
+            drive_service = get_drive_client()
+            # Get current parents of the presentation
+            file = drive_service.files().get(fileId=presentation_id, fields='parents').execute()
+            previous_parents = ",".join(file.get('parents', []))
+            
+            # Move the presentation to the subfolder
+            drive_service.files().update(
+                fileId=presentation_id,
+                addParents=folder_id,
+                removeParents=previous_parents,
+                fields='id, parents'
+            ).execute()
+            print(f"[Slides] ✓ Moved presentation to subfolder")
+        except Exception as e:
+            print(f"[Slides] Warning: Could not move presentation to subfolder: {e}")
     
     return {
         'success': True,

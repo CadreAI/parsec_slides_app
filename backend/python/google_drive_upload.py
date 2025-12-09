@@ -11,6 +11,88 @@ from googleapiclient.errors import HttpError
 from .google_slides_client import get_drive_client
 
 
+def create_drive_folder(folder_name: str, parent_folder_id: str = None) -> str:
+    """
+    Create a folder in Google Drive
+    
+    Args:
+        folder_name: Name of the folder to create
+        parent_folder_id: Optional parent folder ID (if None, creates in root)
+    
+    Returns:
+        Folder ID of the created folder, or None if creation failed
+    """
+    try:
+        drive_service = get_drive_client()
+        
+        # Prepare folder metadata
+        folder_metadata = {
+            'name': folder_name,
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+        
+        if parent_folder_id:
+            folder_metadata['parents'] = [parent_folder_id]
+        
+        print(f"[Drive] Creating folder: {folder_name}")
+        folder = drive_service.files().create(
+            body=folder_metadata,
+            fields='id, name, webViewLink'
+        ).execute()
+        
+        folder_id = folder.get('id')
+        if folder_id:
+            print(f"[Drive] ✓ Created folder '{folder_name}' -> {folder_id}")
+            return folder_id
+        else:
+            print(f"[Drive] Error: No folder ID returned for {folder_name}")
+            return None
+            
+    except HttpError as e:
+        print(f"[Drive] Error creating folder {folder_name}: {e}")
+        return None
+    except Exception as e:
+        print(f"[Drive] Unexpected error creating folder {folder_name}: {e}")
+        return None
+
+
+def move_file_to_folder(file_id: str, folder_id: str) -> bool:
+    """
+    Move a file to a specific folder in Google Drive
+    
+    Args:
+        file_id: ID of the file to move
+        folder_id: ID of the destination folder
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        drive_service = get_drive_client()
+        
+        # Get current parents of the file
+        file = drive_service.files().get(fileId=file_id, fields='parents').execute()
+        previous_parents = ",".join(file.get('parents', []))
+        
+        # Move the file to the new folder
+        drive_service.files().update(
+            fileId=file_id,
+            addParents=folder_id,
+            removeParents=previous_parents,
+            fields='id, parents'
+        ).execute()
+        
+        print(f"[Drive] ✓ Moved file {file_id} to folder {folder_id}")
+        return True
+        
+    except HttpError as e:
+        print(f"[Drive] Error moving file {file_id} to folder {folder_id}: {e}")
+        return False
+    except Exception as e:
+        print(f"[Drive] Unexpected error moving file {file_id}: {e}")
+        return False
+
+
 def extract_folder_id_from_url(url: str) -> str:
     """
     Extract folder ID from Google Drive folder URL
