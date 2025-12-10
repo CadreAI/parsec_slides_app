@@ -1,12 +1,13 @@
 """
 Google Slides API client for Python backend
-Handles OAuth authentication and provides Slides API client
+Handles both service account (for production/Render) and OAuth (for local dev) authentication
 """
 import json
 import os
 from pathlib import Path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -83,14 +84,43 @@ def _find_token_path():
     return str(default_path)
 
 
+def _get_service_account_credentials():
+    """
+    Try to get service account credentials for production use.
+    Uses the same logic as bigquery_client.py to find service account JSON.
+    
+    Returns:
+        Service account credentials or None if not found
+    """
+    # Import the helper from bigquery_client to reuse the same logic
+    from python.bigquery_client import _find_credentials_path
+    
+    creds_path = _find_credentials_path()
+    if creds_path:
+        print(f"[Google Slides] Loading service account credentials from: {creds_path}")
+        return service_account.Credentials.from_service_account_file(
+            creds_path,
+            scopes=SCOPES
+        )
+    return None
+
+
 def get_slides_client():
     """
     Get or create a Google Slides API client instance.
-    Handles OAuth token refresh automatically.
+    Tries service account first (for production/Render), falls back to OAuth (for local dev).
     
     Returns:
         Google Slides API service client
     """
+    # Priority 1: Try service account (for production/Render)
+    sa_creds = _get_service_account_credentials()
+    if sa_creds:
+        print("[Google Slides] Using service account credentials")
+        return build('slides', 'v1', credentials=sa_creds)
+    
+    # Priority 2: Try OAuth (for local development)
+    print("[Google Slides] Service account not found, trying OAuth...")
     creds = None
     token_path = _find_token_path()
     creds_path = _find_oauth_credentials_path()
@@ -156,11 +186,19 @@ def get_slides_client():
 def get_drive_client():
     """
     Get or create a Google Drive API client instance.
-    Uses the same OAuth credentials as Slides.
+    Tries service account first (for production/Render), falls back to OAuth (for local dev).
     
     Returns:
         Google Drive API service client
     """
+    # Priority 1: Try service account (for production/Render)
+    sa_creds = _get_service_account_credentials()
+    if sa_creds:
+        print("[Google Drive] Using service account credentials")
+        return build('drive', 'v3', credentials=sa_creds)
+    
+    # Priority 2: Try OAuth (for local development)
+    print("[Google Drive] Service account not found, trying OAuth...")
     creds = None
     token_path = _find_token_path()
     creds_path = _find_oauth_credentials_path()

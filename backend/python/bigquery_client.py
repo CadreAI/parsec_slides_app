@@ -12,8 +12,9 @@ def _find_credentials_path():
     Find service account credentials file using priority order:
     1. GOOGLE_APPLICATION_CREDENTIALS environment variable
     2. GOOGLE_SERVICE_ACCOUNT_CREDENTIALS_PATH environment variable
-    3. google/service_account.json (project root)
-    4. ../google/service_account.json (if running from backend/)
+    3. Render Secret Files: /etc/secrets/GOOGLE_SERVICE_ACCOUNT_JSON
+    4. google/service_account.json (project root)
+    5. ../google/service_account.json (if running from backend/)
     
     Returns:
         Path to credentials file or None if not found
@@ -30,7 +31,13 @@ def _find_credentials_path():
         print(f"[BigQuery] Using GOOGLE_SERVICE_ACCOUNT_CREDENTIALS_PATH: {sa_path}")
         return sa_path
     
-    # Priority 3: google/service_account.json (project root)
+    # Priority 3: Render Secret Files location
+    render_secret_path = Path('/etc/secrets/GOOGLE_SERVICE_ACCOUNT_JSON')
+    if render_secret_path.exists():
+        print(f"[BigQuery] Using Render Secret File: {render_secret_path}")
+        return str(render_secret_path)
+    
+    # Priority 4: google/service_account.json (project root)
     # Try current directory first
     current_dir = Path.cwd()
     default_path = current_dir / 'google' / 'service_account.json'
@@ -38,7 +45,7 @@ def _find_credentials_path():
         print(f"[BigQuery] Using default location: {default_path}")
         return str(default_path)
     
-    # Priority 4: ../google/service_account.json (if running from backend/)
+    # Priority 5: ../google/service_account.json (if running from backend/)
     parent_path = current_dir.parent / 'google' / 'service_account.json'
     if parent_path.exists():
         print(f"[BigQuery] Using parent directory location: {parent_path}")
