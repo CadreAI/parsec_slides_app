@@ -24,3 +24,7 @@ supabase>=2.0.0
 
 # Utilities
 python-dotenv>=1.0.0
+
+celery[redis]>=5.3.6
+redis>=5.0.0
+
