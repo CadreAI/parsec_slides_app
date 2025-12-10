@@ -288,7 +288,33 @@ def create_slides_presentation(
     # Extract parent folder ID
     parent_folder_id = extract_folder_id_from_url(drive_folder_url) if drive_folder_url else None
     
+    # Import default Shared Drive folder ID
+    from ..google_slides_client import DEFAULT_SLIDES_FOLDER_ID, get_drive_client
+    from googleapiclient.errors import HttpError
+    
+    # Verify parent folder is in a Shared Drive (if provided)
+    if parent_folder_id:
+        try:
+            drive_service = get_drive_client()
+            folder_info = drive_service.files().get(
+                fileId=parent_folder_id,
+                fields='id, name, driveId',
+                supportsAllDrives=True
+            ).execute()
+            
+            if not folder_info.get('driveId'):
+                print(f"[Slides] ⚠ Warning: Parent folder {parent_folder_id} is not in a Shared Drive")
+                print(f"[Slides]   This may cause storage quota issues. Using default Shared Drive instead.")
+                parent_folder_id = DEFAULT_SLIDES_FOLDER_ID
+            else:
+                print(f"[Slides] ✓ Parent folder is in Shared Drive (Drive ID: {folder_info.get('driveId')})")
+        except HttpError as e:
+            print(f"[Slides] ⚠ Warning: Could not verify parent folder: {e}")
+            print(f"[Slides]   Using default Shared Drive instead.")
+            parent_folder_id = DEFAULT_SLIDES_FOLDER_ID
+    
     # Create a subfolder for this deck's charts inside the parent folder
+    # If no parent provided, use the default Shared Drive folder
     folder_id = None
     if parent_folder_id:
         # Create a subfolder with a timestamp-based name
@@ -300,19 +326,20 @@ def create_slides_presentation(
             print(f"[Slides] Warning: Failed to create subfolder, uploading to parent folder instead")
             folder_id = parent_folder_id
     else:
-        folder_id = parent_folder_id
+        # No parent folder provided - use default Shared Drive and create a subfolder there
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        subfolder_name = f"{title}_{timestamp}".replace(" ", "_")[:100]  # Limit length and sanitize
+        print(f"[Slides] No parent folder provided, using default Shared Drive: {DEFAULT_SLIDES_FOLDER_ID}")
+        folder_id = create_drive_folder(subfolder_name, DEFAULT_SLIDES_FOLDER_ID)
+        if not folder_id:
+            print(f"[Slides] Warning: Failed to create subfolder in Shared Drive, using Shared Drive root instead")
+            folder_id = DEFAULT_SLIDES_FOLDER_ID
     
-    # Create presentation
-    print(f"[Slides] Creating new presentation...")
-    presentation = slides_service.presentations().create(
-        body={'title': title}
-    ).execute()
-    
-    presentation_id = presentation.get('presentationId')
-    if not presentation_id:
-        raise Exception('Failed to create presentation: No presentation ID returned')
-    
-    print(f"[Slides] Created presentation: {presentation_id}")
+    # Create presentation via Drive API (required for service account)
+    print(f"[Slides] Creating new presentation via Drive API...")
+    from ..google_slides_client import create_presentation_via_drive
+    presentation_id = create_presentation_via_drive(title, folder_id)
     
     # Create cover slide
     cover_slide_id = 'cover_slide_001'
@@ -340,10 +367,21 @@ def create_slides_presentation(
     
     # Execute slide creation
     print(f"[Slides] Executing slide creation requests...")
-    slides_service.presentations().batchUpdate(
-        presentationId=presentation_id,
-        body={'requests': create_slide_requests}
-    ).execute()
+    try:
+        slides_service.presentations().batchUpdate(
+            presentationId=presentation_id,
+            body={'requests': create_slide_requests}
+        ).execute()
+        print(f"[Slides] ✓ Created {len(create_slide_requests)} slide(s)")
+    except HttpError as e:
+        error_details = e.error_details if hasattr(e, 'error_details') else []
+        print(f"[Slides] ✗ Error creating slides:")
+        if error_details:
+            for idx, error in enumerate(error_details, 1):
+                print(f"[Slides]   Error {idx}: {error.get('message', 'Unknown error')} (reason: {error.get('reason', 'unknown')})")
+        else:
+            print(f"[Slides]   Error: {e}")
+        raise
     
     # Get updated presentation
     updated_presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
@@ -399,6 +437,11 @@ def create_slides_presentation(
         ]
         chart_urls = upload_images_to_drive_batch(images_to_upload, folder_id, batch_size=10, make_public=True)
         print(f"[Drive] Uploaded {sum(1 for url in chart_urls if url)}/{len(normalized_charts)} charts")
+        
+        # Small delay to ensure files are accessible (especially for Shared Drive files)
+        import time
+        print(f"[Slides] Waiting 2 seconds for files to be fully accessible...")
+        time.sleep(2)
     
     # Add charts to slides
     if chart_urls:
@@ -747,11 +790,38 @@ def create_slides_presentation(
                     i += 1
                 
                 if chart_requests:
-                    slides_service.presentations().batchUpdate(
-                        presentationId=presentation_id,
-                        body={'requests': chart_requests}
-                    ).execute()
-                    print(f"[Slides] ✓ Added chart elements to slide {slide_index}")
+                    try:
+                        # Log request details for debugging
+                        print(f"[Slides] Executing batchUpdate with {len(chart_requests)} requests for slide {slide_index}")
+                        if current_urls:
+                            print(f"[Slides]   Image URLs: {[url[:60] + '...' if len(url) > 60 else url for url in current_urls]}")
+                        
+                        slides_service.presentations().batchUpdate(
+                            presentationId=presentation_id,
+                            body={'requests': chart_requests}
+                        ).execute()
+                        print(f"[Slides] ✓ Added chart elements to slide {slide_index}")
+                    except HttpError as e:
+                        error_details = e.error_details if hasattr(e, 'error_details') else []
+                        print(f"[Slides] ✗ Error updating slide {slide_index}:")
+                        if error_details:
+                            for idx, error in enumerate(error_details, 1):
+                                print(f"[Slides]   Error {idx}: {error.get('message', 'Unknown error')} (reason: {error.get('reason', 'unknown')})")
+                        else:
+                            print(f"[Slides]   Error: {e}")
+                        
+                        # If it's a 500 error, it might be due to inaccessible images
+                        if e.resp.status == 500:
+                            print(f"[Slides]   ⚠️ 500 Internal Error - This often means:")
+                            print(f"[Slides]     1. Image URLs are not publicly accessible")
+                            print(f"[Slides]     2. Image URLs are invalid or files were deleted")
+                            print(f"[Slides]     3. Request is too large or malformed")
+                            if current_urls:
+                                print(f"[Slides]   Verify these URLs are accessible:")
+                                for url in current_urls:
+                                    print(f"[Slides]     - {url}")
+                        
+                        raise
                 
                 global_chart_index += len(current_urls)
                 slide_index += 1
@@ -784,27 +854,47 @@ def create_slides_presentation(
     # Count total slides (cover + chart slides)
     slide_count = len(all_slides)
     
-    # Move the presentation to the subfolder if one was created
+    # Determine target folder for moving the presentation
+    # Priority: subfolder > parent folder > default folder
+    target_folder_id = None
     if folder_id and folder_id != parent_folder_id:
-        print(f"[Slides] Moving presentation to subfolder: {folder_id}")
-        # Get Drive client to move the presentation
+        # Subfolder was created
+        target_folder_id = folder_id
+        print(f"[Slides] Moving presentation to subfolder: {target_folder_id}")
+    elif parent_folder_id:
+        # Parent folder was provided
+        target_folder_id = parent_folder_id
+        print(f"[Slides] Moving presentation to parent folder: {target_folder_id}")
+    else:
+        # No folder specified, use default folder
+        from ..google_slides_client import DEFAULT_SLIDES_FOLDER_ID
+        target_folder_id = DEFAULT_SLIDES_FOLDER_ID
+        print(f"[Slides] No folder specified, moving to default folder: {target_folder_id}")
+    
+    # Move the presentation to the target folder
+    if target_folder_id:
         from ..google_slides_client import get_drive_client
         try:
             drive_service = get_drive_client()
             # Get current parents of the presentation
-            file = drive_service.files().get(fileId=presentation_id, fields='parents').execute()
+            file = drive_service.files().get(
+                fileId=presentation_id,
+                fields='parents',
+                supportsAllDrives=True
+            ).execute()
             previous_parents = ",".join(file.get('parents', []))
             
-            # Move the presentation to the subfolder
+            # Move the presentation to the target folder
             drive_service.files().update(
                 fileId=presentation_id,
-                addParents=folder_id,
+                addParents=target_folder_id,
                 removeParents=previous_parents,
-                fields='id, parents'
+                fields='id, parents',
+                supportsAllDrives=True
             ).execute()
-            print(f"[Slides] ✓ Moved presentation to subfolder")
+            print(f"[Slides] ✓ Moved presentation to folder")
         except Exception as e:
-            print(f"[Slides] Warning: Could not move presentation to subfolder: {e}")
+            print(f"[Slides] Warning: Could not move presentation to folder: {e}")
     
     return {
         'success': True,
