@@ -24,3 +24,7 @@ supabase>=2.0.0
 
 # Utilities
 python-dotenv>=1.0.0
+
+# Celery for background tasks
+celery>=5.3.0
+redis>=5.0.0
