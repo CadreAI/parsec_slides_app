@@ -25,7 +25,7 @@ def make_celery() -> Celery:
         "parsec_slides_app",
         broker=broker_url,
         backend=result_backend,
-        # Tasks will be imported in tasks.py to avoid circular imports
+        include=["tasks"],  # Import tasks module to register tasks
     )
 
     celery_app.conf.update(
@@ -51,4 +51,14 @@ def make_celery() -> Celery:
 
 
 celery_app = make_celery()
+
+# Import tasks to register them with Celery
+# This must happen after celery_app is created to avoid circular imports
+try:
+    import tasks  # noqa: F401
+except ImportError:
+    # If tasks can't be imported, that's okay - they'll be imported when needed
+    # But we log a warning for debugging
+    import warnings
+    warnings.warn("Could not import tasks module. Tasks may not be registered.", ImportWarning)
 

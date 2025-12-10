@@ -32,7 +32,9 @@ export async function POST(req: NextRequest) {
         }
 
         // Call backend Flask API for data ingestion and chart generation
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000'
+        // Use Render backend URL in production, localhost in development
+        const backendUrl =
+            process.env.BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://parsec-slides-app-backend.onrender.com' : 'http://localhost:5000')
         const outputDir = cfg.paths?.charts_dir || cfg.paths?.output_dir || './charts'
         const resolvedOutputDir = path.resolve(process.cwd(), outputDir)
 

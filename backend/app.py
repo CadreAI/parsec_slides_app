@@ -40,6 +40,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 from celery_app import celery_app
 from tasks import ingest_and_generate_charts_task, create_slides_presentation_task
 from python.chart_analyzer import analyze_charts_from_index, analyze_charts_batch_paths
+from python.data_ingestion import ingest_nwea, ingest_iready, ingest_star
+from python.nwea.nwea_charts import generate_nwea_charts
+from python.iready.iready_charts import generate_iready_charts
+from python.star.star_charts import generate_star_charts
+from python.slides import create_slides_presentation
+from python.supabase_client import get_supabase_client
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend requests
@@ -398,19 +404,158 @@ def ingest_and_generate():
                 'error': 'At least one data source (nwea, iready, or star) must be configured in config.sources'
             }), 400
         
-        # Queue the task with Celery
-        task = ingest_and_generate_charts_task.delay(
-            partner_name=partner_name,
-            config=config,
-            chart_filters=chart_filters,
-            output_dir=output_dir
-        )
-        
-        return jsonify({
-            'success': True,
-            'task_id': task.id,
-            'status': 'PENDING'
-        }), 202  # 202 Accepted for async processing
+        # Try to queue the task with Celery, fall back to synchronous if Redis unavailable
+        try:
+            task = ingest_and_generate_charts_task.delay(
+                partner_name=partner_name,
+                config=config,
+                chart_filters=chart_filters,
+                output_dir=output_dir
+            )
+            
+            return jsonify({
+                'success': True,
+                'task_id': task.id,
+                'status': 'PENDING'
+            }), 202  # 202 Accepted for async processing
+        except Exception as celery_error:
+            # If Celery/Redis is unavailable, fall back to synchronous processing
+            error_msg = str(celery_error)
+            if 'Connection refused' in error_msg or 'ConnectionError' in error_msg or 'OperationalError' in error_msg:
+                print(f"[Backend] Celery unavailable ({error_msg}), falling back to synchronous processing")
+                
+                # Process synchronously (original logic)
+                print(f"[Backend] Starting synchronous data ingestion for {partner_name}...")
+                print(f"[Backend] Data sources configured: NWEA={has_nwea}, iReady={has_iready}, STAR={has_star}")
+                
+                # Ingest data for configured sources
+                nwea_data = []
+                iready_data = []
+                star_data = []
+                
+                if has_nwea:
+                    try:
+                        nwea_data = ingest_nwea(
+                            partner_name=partner_name,
+                            config=config,
+                            chart_filters=chart_filters
+                        )
+                        print(f"[Backend] NWEA data ingested: {len(nwea_data)} rows")
+                    except Exception as e:
+                        print(f"[Backend] Error ingesting NWEA data: {e}")
+                        if not has_iready and not has_star:
+                            raise
+                
+                if has_iready:
+                    try:
+                        iready_data = ingest_iready(
+                            partner_name=partner_name,
+                            config=config,
+                            chart_filters=chart_filters
+                        )
+                        print(f"[Backend] iReady data ingested: {len(iready_data)} rows")
+                    except Exception as e:
+                        print(f"[Backend] Error ingesting iReady data: {e}")
+                        if not has_nwea and not has_star:
+                            raise
+                
+                if has_star:
+                    try:
+                        star_data = ingest_star(
+                            partner_name=partner_name,
+                            config=config,
+                            chart_filters=chart_filters
+                        )
+                        print(f"[Backend] STAR data ingested: {len(star_data)} rows")
+                    except Exception as e:
+                        print(f"[Backend] Error ingesting STAR data: {e}")
+                        if not has_nwea and not has_iready:
+                            raise
+                
+                # Generate charts in temporary directory
+                print(f"[Backend] Starting chart generation...")
+                data_dir = config.get('paths', {}).get('data_dir', './data')
+                temp_charts_dir = tempfile.mkdtemp(prefix='parsec_charts_')
+                print(f"[Backend] Created temporary charts directory: {temp_charts_dir}")
+                
+                try:
+                    all_chart_paths = []
+                    
+                    if nwea_data:
+                        print(f"[Backend] Generating NWEA charts...")
+                        nwea_charts = generate_nwea_charts(
+                            partner_name=partner_name,
+                            output_dir=temp_charts_dir,
+                            config=config,
+                            chart_filters=chart_filters,
+                            data_dir=data_dir,
+                            nwea_data=nwea_data
+                        )
+                        all_chart_paths.extend(nwea_charts)
+                        print(f"[Backend] Generated {len(nwea_charts)} NWEA charts")
+                    
+                    if iready_data:
+                        print(f"[Backend] Generating iReady charts...")
+                        iready_charts = generate_iready_charts(
+                            partner_name=partner_name,
+                            output_dir=temp_charts_dir,
+                            config=config,
+                            chart_filters=chart_filters,
+                            data_dir=data_dir,
+                            iready_data=iready_data
+                        )
+                        all_chart_paths.extend(iready_charts)
+                        print(f"[Backend] Generated {len(iready_charts)} iReady charts")
+                    
+                    if star_data:
+                        print(f"[Backend] Generating STAR charts...")
+                        star_charts = generate_star_charts(
+                            partner_name=partner_name,
+                            output_dir=temp_charts_dir,
+                            config=config,
+                            chart_filters=chart_filters,
+                            data_dir=data_dir,
+                            star_data=star_data
+                        )
+                        all_chart_paths.extend(star_charts)
+                        print(f"[Backend] Generated {len(star_charts)} STAR charts")
+                    
+                    print(f"[Backend] Generated {len(all_chart_paths)} total charts")
+                    
+                    # Build summary
+                    summary = {}
+                    if nwea_data:
+                        summary['nwea'] = {
+                            'rows': len(nwea_data),
+                            'columns': len(nwea_data[0]) if nwea_data else 0
+                        }
+                    if iready_data:
+                        summary['iready'] = {
+                            'rows': len(iready_data),
+                            'columns': len(iready_data[0]) if iready_data else 0
+                        }
+                    if star_data:
+                        summary['star'] = {
+                            'rows': len(star_data),
+                            'columns': len(star_data[0]) if star_data else 0
+                        }
+                    
+                    return jsonify({
+                        'success': True,
+                        'charts': all_chart_paths,
+                        'summary': summary,
+                        'charts_generated': len(all_chart_paths),
+                        'note': 'Processed synchronously (Celery unavailable)'
+                    }), 200
+                except Exception as chart_error:
+                    # Clean up temp directory on error
+                    if os.path.exists(temp_charts_dir):
+                        print(f"[Backend] Cleaning up temp directory on error: {temp_charts_dir}")
+                        shutil.rmtree(temp_charts_dir, ignore_errors=True)
+                    raise chart_error
+            else:
+                # Re-raise non-connection errors
+                raise
     except Exception as e:
         error_msg = str(e)
         print(f"[Backend] Error: {error_msg}")
@@ -468,22 +613,68 @@ def create_slides():
         user_prompt = data.get('userPrompt')
         description = data.get('description')
         
-        # Queue the task with Celery
-        task = create_slides_presentation_task.delay(
-            title=title,
-            chart_paths=chart_paths,
-            drive_folder_url=drive_folder_url,
-            enable_ai_insights=enable_ai_insights,
-            user_prompt=user_prompt,
-            clerk_user_id=clerk_user_id,
-            description=description
-        )
-        
-        return jsonify({
-            'success': True,
-            'task_id': task.id,
-            'status': 'PENDING'
-        }), 202  # 202 Accepted for async processing
+        # Try to queue the task with Celery, fall back to synchronous if Redis unavailable
+        try:
+            task = create_slides_presentation_task.delay(
+                title=title,
+                chart_paths=chart_paths,
+                drive_folder_url=drive_folder_url,
+                enable_ai_insights=enable_ai_insights,
+                user_prompt=user_prompt,
+                clerk_user_id=clerk_user_id,
+                description=description
+            )
+            
+            return jsonify({
+                'success': True,
+                'task_id': task.id,
+                'status': 'PENDING'
+            }), 202  # 202 Accepted for async processing
+        except Exception as celery_error:
+            # If Celery/Redis is unavailable, fall back to synchronous processing
+            error_msg = str(celery_error)
+            if 'Connection refused' in error_msg or 'ConnectionError' in error_msg or 'OperationalError' in error_msg:
+                print(f"[Backend] Celery unavailable ({error_msg}), falling back to synchronous processing")
+                
+                # Process synchronously
+                print(f"[Backend] Creating slides presentation: {title}")
+                print(f"[Backend] Charts: {len(chart_paths)}")
+                
+                result = create_slides_presentation(
+                    title=title,
+                    chart_paths=chart_paths,
+                    drive_folder_url=drive_folder_url,
+                    enable_ai_insights=enable_ai_insights,
+                    user_prompt=user_prompt
+                )
+                
+                # Save deck to Supabase (if clerk_user_id provided)
+                if clerk_user_id:
+                    try:
+                        supabase = get_supabase_client()
+                        
+                        deck_data = {
+                            'clerk_user_id': clerk_user_id,
+                            'title': title,
+                            'description': description,
+                            'slide_count': result.get('slideCount'),
+                            'presentation_id': result.get('presentationId'),
+                            'presentation_url': result.get('presentationUrl')
+                        }
+                        
+                        deck_response = supabase.table('decks').insert(deck_data).execute()
+                        
+                        if deck_response.data:
+                            result['deckId'] = deck_response.data[0]['id']
+                            print(f"[Backend] Deck saved to Supabase: {result['deckId']}")
+                    except Exception as e:
+                        print(f"[Backend] Error saving deck to Supabase: {e}")
+                
+                result['note'] = 'Processed synchronously (Celery unavailable)'
+                return jsonify(result), 200
+            else:
+                # Re-raise non-connection errors
+                raise
         
     except Exception as e:
         error_msg = str(e)

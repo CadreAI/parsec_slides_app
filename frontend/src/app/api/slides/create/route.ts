@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
     try {
@@ -31,7 +31,9 @@ export async function POST(req: NextRequest) {
         }
 
         // Forward request to Python backend
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000'
+        // Use Render backend URL in production, localhost in development
+        const backendUrl =
+            process.env.BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://parsec-slides-app-backend.onrender.com' : 'http://localhost:5000')
         console.log(`[Frontend] Forwarding slide creation to backend: ${backendUrl}/create-slides`)
 
         try {
