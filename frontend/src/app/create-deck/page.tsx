@@ -6,7 +6,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
-import { Progress } from '@/components/ui/progress'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAssessmentFilters } from '@/hooks/useAssessmentFilters'
@@ -36,7 +35,6 @@ export default function CreateSlide() {
     const router = useRouter()
     const [isIngesting, setIsIngesting] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
-    const [slideProgress, setSlideProgress] = useState({ value: 0, step: '' })
     const [formData, setFormData] = useState({
         // Partner & Data Configuration
         partnerName: '',
@@ -179,8 +177,7 @@ export default function CreateSlide() {
         setIsIngesting(true)
 
         try {
-            // Step 1: Ingest data and generate charts
-            toast.info('Step 1/2: Ingesting data and generating charts...')
+            toast.info('Queueing your deck generation task...')
 
             // Build sources object
             const sources: Record<string, string> = {}
@@ -218,137 +215,65 @@ export default function CreateSlide() {
                     charts_dir: './charts',
                     config_dir: '.'
                 },
-                // Chart generation filters
-                chart_filters: {
-                    grades:
-                        formData.grades.length > 0
-                            ? formData.grades
-                                  .map((g) => {
-                                      if (g === 'K') return 0
-                                      const parsed = parseInt(g)
-                                      return isNaN(parsed) ? null : parsed
-                                  })
-                                  .filter((g) => g !== null)
-                            : undefined,
-                    years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
-                    quarters: formData.quarters.length > 0 ? formData.quarters : undefined,
-                    subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
-                    student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
-                    race: formData.race.length > 0 ? formData.race : undefined
-                },
                 // Scope selection: only generate charts for selected schools/districts
                 selected_schools: formData.schools.length > 0 ? formData.schools : [],
                 include_district_scope: !!formData.districtName // Include district scope if district is selected
             }
 
-            // Call the data ingestion API
-            const ingestRes = await fetch('/api/data/ingest', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ config })
-            })
-
-            const ingestData = await ingestRes.json()
-
-            if (!ingestRes.ok) {
-                throw new Error(ingestData.error || ingestData.details || 'Failed to ingest data')
+            // Build chart filters
+            const chartFilters = {
+                grades:
+                    formData.grades.length > 0
+                        ? formData.grades
+                              .map((g) => {
+                                  if (g === 'K') return 0
+                                  const parsed = parseInt(g)
+                                  return isNaN(parsed) ? null : parsed
+                              })
+                              .filter((g) => g !== null)
+                        : undefined,
+                years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
+                quarters: formData.quarters.length > 0 ? formData.quarters : undefined,
+                subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
+                student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
+                race: formData.race.length > 0 ? formData.race : undefined
             }
 
-            const chartCount = ingestData.charts?.length || 0
-            const charts = ingestData.charts || []
-
-            toast.success(`Step 1 complete! Generated ${chartCount} charts.`)
-
-            // Step 2: Create slide deck
-            toast.info('Step 2/2: Creating slide deck...')
-            setSlideProgress({ value: 0, step: 'Initializing...' })
-
             const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`
-
-            // Use selectedDataSources for assessments (they're now combined)
-            const assessmentsToUse = formData.assessments.length > 0 ? formData.assessments : formData.selectedDataSources
 
             // Hardcoded Google Drive folder
             const driveFolderUrl = 'https://drive.google.com/drive/folders/1CUOM-Sz6ulyzD2mTREdcYoBXUJLrgngw'
 
-            // Estimate total steps for progress tracking
-            const totalCharts = charts.length
-            const estimatedSteps = Math.max(10, 5 + Math.ceil(totalCharts * 0.5)) // Base steps + chart processing
-            let currentStep = 0
-
-            const updateProgress = (step: string, increment: number = 1) => {
-                currentStep += increment
-                const progress = Math.min(Math.round((currentStep / estimatedSteps) * 100), 95) // Cap at 95% until complete
-                setSlideProgress({ value: progress, step })
-            }
-
-            // Simulate progress updates during API call
-            const progressInterval = setInterval(() => {
-                if (currentStep < estimatedSteps - 1) {
-                    // Gradually increase progress to show activity
-                    const simulatedProgress = Math.min(currentStep + 0.3, estimatedSteps - 1)
-                    const progress = Math.round((simulatedProgress / estimatedSteps) * 100)
-                    setSlideProgress((prev) => ({
-                        value: Math.max(prev.value, Math.min(progress, 95)),
-                        step: prev.step || 'Processing...'
-                    }))
-                }
-            }, 300)
-
-            updateProgress('Creating presentation...', 1)
-            setTimeout(() => updateProgress('Uploading charts to Drive...', 2), 500)
-            setTimeout(() => updateProgress('Creating slides...', 2), 1000)
-            setTimeout(() => updateProgress('Adding charts to slides...', 2), 1500)
-
-            // Call the API route to create the presentation
-            const res = await fetch('/api/slides/create', {
+            // Call the new task API endpoint
+            const res = await fetch('/api/tasks/create-deck-with-slides', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    title: presentationTitle,
-                    assessments: assessmentsToUse,
-                    charts: charts.length > 0 ? charts : undefined,
-                    driveFolderUrl: driveFolderUrl,
-                    schoolName: 'Parsec Academy',
-                    quarters: formData.quarters,
                     partnerName: formData.partnerName,
-                    userPrompt: formData.slidePrompt || undefined, // User prompt for decision LLM
-                    deckName: formData.deckName,
-                    districtName: formData.districtName,
-                    schools: formData.schools,
-                    projectId: formData.projectId,
-                    location: formData.location,
-                    selectedDataSources: formData.selectedDataSources,
-                    customDataSources: formData.customDataSources,
-                    chartFilters: {
-                        grades: formData.grades,
-                        years: formData.years,
-                        quarters: formData.quarters,
-                        subjects: formData.subjects,
-                        studentGroups: formData.studentGroups,
-                        race: formData.race
-                    }
+                    config: config,
+                    chartFilters: chartFilters,
+                    title: presentationTitle,
+                    driveFolderUrl: driveFolderUrl,
+                    enableAIInsights: true,
+                    userPrompt: formData.slidePrompt || undefined,
+                    description: `Deck for ${formData.districtName || 'Parsec Academy'}`
                 })
             })
-
-            clearInterval(progressInterval)
-            updateProgress('Finalizing...', estimatedSteps - currentStep)
 
             const data = await res.json()
 
             if (!res.ok) {
-                const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error || 'Failed to create presentation'
+                const errorMsg = data.error || 'Failed to queue task'
                 console.error('API Error:', data)
                 throw new Error(errorMsg)
             }
 
-            console.log('Presentation created:', data.presentationId)
-            setSlideProgress({ value: 100, step: 'Complete!' })
-            toast.success(`✅ Complete! Presentation created. View it here: ${data.presentationUrl}`)
+            toast.success('Task queued successfully! Returning to dashboard...')
 
+            // Redirect to dashboard
             setTimeout(() => {
                 router.push('/dashboard')
-            }, 2000)
+            }, 1000)
         } catch (error: unknown) {
             console.error('Error:', error)
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -356,7 +281,6 @@ export default function CreateSlide() {
         } finally {
             setIsCreating(false)
             setIsIngesting(false)
-            setSlideProgress({ value: 0, step: '' })
         }
     }
 
@@ -702,21 +626,6 @@ export default function CreateSlide() {
                             </div>
                         </CardContent>
                     </Card>
-
-                    {/* Progress Bar */}
-                    {isCreating && slideProgress.value > 0 && (
-                        <Card className="mb-6">
-                            <CardContent className="pt-6">
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="font-medium">{slideProgress.step}</span>
-                                        <span className="text-muted-foreground">{slideProgress.value}%</span>
-                                    </div>
-                                    <Progress value={slideProgress.value} max={100} />
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )}
 
                     {/* Submit Button */}
                     <div className="flex justify-end gap-4">
