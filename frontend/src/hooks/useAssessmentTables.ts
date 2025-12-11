@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 
-interface FormData {
-    customDataSources: Record<string, string>
-    [key: string]: unknown
-}
-
-export function useAssessmentTables(partnerName: string, projectId: string, location: string, setFormData: React.Dispatch<React.SetStateAction<FormData>>) {
+export function useAssessmentTables<T extends { customDataSources?: Record<string, string> }>(
+    partnerName: string,
+    projectId: string,
+    location: string,
+    setFormData: React.Dispatch<React.SetStateAction<T>>
+) {
     const [availableAssessments, setAvailableAssessments] = useState<string[]>([])
     const [assessmentTables, setAssessmentTables] = useState<Record<string, string>>({})
     const [isLoadingAssessmentTables, setIsLoadingAssessmentTables] = useState(false)
@@ -32,7 +32,7 @@ export function useAssessmentTables(partnerName: string, projectId: string, loca
                     setAssessmentTables(tables)
 
                     // Auto-update customDataSources with found tables
-                    setFormData((prev: FormData) => {
+                    setFormData((prev: T) => {
                         const updatedCustomDataSources = { ...(prev.customDataSources || {}) }
                         for (const [assessmentId, tableId] of Object.entries(tables)) {
                             if (typeof tableId === 'string') {
@@ -42,7 +42,7 @@ export function useAssessmentTables(partnerName: string, projectId: string, loca
                         return {
                             ...prev,
                             customDataSources: updatedCustomDataSources
-                        }
+                        } as T
                     })
 
                     console.log(`[Assessment Tables] Available assessments: ${assessments.join(', ')}`)

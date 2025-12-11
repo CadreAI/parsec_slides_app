@@ -192,7 +192,27 @@ def parse_chart_instructions(
     # Get layout context from reference decks (filtered by deck_type)
     layout_context = get_layout_context(deck_type=deck_type)
     
+    # Extract max slides limit from user prompt
+    import re
+    max_slides = None
+    max_slides_patterns = [
+        r'limit.*?(\d+).*?slide',
+        r'max.*?(\d+).*?slide',
+        r'(\d+).*?slide',
+        r'up to (\d+)',
+        r'maximum of (\d+)',
+        r'no more than (\d+)'
+    ]
+    for pattern in max_slides_patterns:
+        match = re.search(pattern, user_prompt.lower())
+        if match:
+            max_slides = int(match.group(1))
+            print(f"[Chart Selection] Detected max slides limit: {max_slides}")
+            break
+    
     # Build prompt for chart selection/ordering
+    max_slides_instruction = f"\n**IMPORTANT**: User requested a maximum of {max_slides} slides. Prioritize the MOST SPECIFIC and RELEVANT charts that match their criteria. If more than {max_slides} charts match, select the {max_slides} most important/relevant ones." if max_slides else ""
+    
     selection_prompt = f"""You are a chart selection assistant. Parse the user's instructions to determine which charts to include and in what order.
 
 User request: "{user_prompt}"
@@ -201,9 +221,10 @@ Available charts (by filename):
 {chr(10).join(f"- {name}" for name in chart_names)}
 
 {layout_context if layout_context else ""}
+{max_slides_instruction}
 
 **CHART SELECTION GUIDELINES (CRITICAL):**
-1. If the user says "all graphs", "all charts", "all of them", "everything", "include all", "show all", or "output all" → return ALL charts in chart_selection list.
+1. If the user says "all graphs", "all charts", "all of them", "everything", "include all", "show all", or "output all" → return ALL charts in chart_selection list (unless a max slides limit is specified).
 
 2. Otherwise, use reference deck patterns to INTELLIGENTLY SELECT charts:
    - **REQUIRED CHARTS**: Charts listed as "required charts" appear in 80%+ of reference decks - prioritize including these if they match user's request
@@ -238,16 +259,16 @@ Instructions:
 
 Respond with JSON:
 {{
-    "chart_selection": ["list of chart filenames in desired order - ONLY include charts that match user's request AND reference deck patterns. If user wants ALL charts, list ALL filenames here"],
+    "chart_selection": ["list of chart filenames in desired order - ONLY include charts that match user's request AND reference deck patterns.{" If user specified a max slides limit, prioritize the MOST SPECIFIC charts up to that limit." if max_slides else " If user wants ALL charts, list ALL filenames here"}],
     "instructions": {{
         "grades": ["list of ALL grade numbers mentioned (e.g., ['1', '2', '3', '4'] for 'grades 1-4'), empty array if all grades"],
         "subjects": ["math", "reading", or both, empty array if all subjects],
         "sections": ["section1", "section2", "section3", etc., empty array if all sections],
         "order_matters": true/false,
         "exclude_others": false if user wants all charts, true only if user says "only" or "that's it",
-        "filter_by_reference_patterns": true
+        "filter_by_reference_patterns": true{"" + (f',\n        "max_slides": {max_slides}' if max_slides else "")}
     }},
-    "reasoning": "brief explanation of selection, including which charts were included/excluded based on reference deck patterns"
+    "reasoning": "brief explanation of selection, including which charts were included/excluded based on reference deck patterns{" and how the max slides limit was applied" if max_slides else ""}"
 }}"""
 
     try:
@@ -495,6 +516,40 @@ Respond with JSON:
             # User wanted specific charts but we couldn't match - return empty to signal issue
             print(f"[Chart Selection] WARNING: Could not match any charts from selection: {selected_filenames}")
             selected_paths = chart_paths  # Fallback to all charts
+        
+        # Apply max slides limit if specified
+        if max_slides and len(selected_paths) > max_slides:
+            print(f"[Chart Selection] Limiting to {max_slides} most specific charts (had {len(selected_paths)})")
+            # Prioritize: section1 > section2 > section3 > section4 > section5
+            # Within same section: district > school, lower grades first, reading before math
+            def chart_priority(path):
+                path_name_lower = Path(path).name.lower()
+                # Section priority (lower number = higher priority)
+                section_priority = 999
+                for i in range(1, 6):
+                    if f'section{i}' in path_name_lower:
+                        section_priority = i
+                        break
+                
+                # Scope priority (district = 0, school = 1)
+                scope_priority = 1 if 'school' in path_name_lower or 'SCHOOL_' in Path(path).name else 0
+                
+                # Grade priority (lower grade = higher priority)
+                grade_num = 999
+                for g in range(0, 13):
+                    if f'grade{g}' in path_name_lower or f'grade_{g}' in path_name_lower:
+                        grade_num = g
+                        break
+                
+                # Subject priority (reading = 0, math = 1)
+                subject_priority = 1 if 'math' in path_name_lower else 0
+                
+                return (section_priority, scope_priority, grade_num, subject_priority)
+            
+            # Sort by priority and take top max_slides
+            selected_paths.sort(key=chart_priority)
+            selected_paths = selected_paths[:max_slides]
+            print(f"[Chart Selection] Limited to {len(selected_paths)} charts after applying max slides limit")
         
         print(f"[Chart Selection] Selected {len(selected_paths)}/{len(chart_paths)} charts")
         print(f"[Chart Selection] Reasoning: {reasoning}")

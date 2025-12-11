@@ -1,5 +1,5 @@
 """
-STAR chart generation script - generates charts from ingested STAR data
+STAR Fall chart generation script - generates charts from ingested STAR data for Fall window
 """
 
 # Set matplotlib backend to non-interactive before any imports
@@ -1571,15 +1571,247 @@ def plot_star_consolidated_sgp_all_grades(
 
 def main(star_data=None):
     """
-    Main router function - routes to appropriate quarter-specific module based on selection.
-    This function should not be called directly - use generate_star_charts() instead.
+    Main function to generate STAR Fall charts
+    
+    Args:
+        star_data: Optional list of dicts or DataFrame with STAR data.
+                   If None, will load from CSV using args.data_dir
     """
-    print("\n[STAR Router] This function should not be called directly.")
-    print("[STAR Router] Use generate_star_charts() wrapper function instead.")
-    return []
+    global chart_links, _chart_tracking_set
+    chart_links = []
+    _chart_tracking_set = set()
+    
+    parser = argparse.ArgumentParser(description='Generate STAR charts')
+    parser.add_argument('--partner', required=True, help='Partner name')
+    parser.add_argument('--data-dir', required=False, help='Data directory path')
+    parser.add_argument('--output-dir', required=True, help='Output directory path')
+    parser.add_argument('--dev-mode', default='false', help='Development mode')
+    parser.add_argument('--config', default='{}', help='Config JSON string')
+    
+    args = parser.parse_args()
+    
+    cfg = load_config_from_args(args.config)
+    hf.DEV_MODE = args.dev_mode.lower() in ('true', '1', 'yes', 'on')
+    
+    chart_filters = cfg.get("chart_filters", {})
+    
+    # Load data
+    if star_data is not None:
+        star_base = load_star_data(star_data=star_data, cfg=cfg)
+    else:
+        if not args.data_dir:
+            raise ValueError("Either star_data must be provided or --data-dir must be specified")
+        star_base = load_star_data(data_dir=args.data_dir, cfg=cfg)
+    
+    # Always use Fall for this module
+    selected_quarters = ["Fall"]
+    
+    # Get scopes
+    scopes = get_scopes(star_base, cfg)
+    
+    chart_paths = []
+    
+    # Section 0: Predicted vs Actual CAASPP
+    print("\n[Section 0] Generating Predicted vs Actual CAASPP...")
+    for scope_df, scope_label, folder in scopes:
+        try:
+            payload = {}
+            for subj in ["Reading", "Mathematics"]:
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                proj, act, metrics, year = _prep_section0_star(scope_df, subj)
+                if proj is None:
+                    continue
+                payload[subj] = {"proj_pct": proj, "act_pct": act, "metrics": metrics}
+            if payload:
+                _plot_section0_star(scope_label, folder, payload, args.output_dir, preview=hf.DEV_MODE)
+        except Exception as e:
+            print(f"Error generating Section 0 chart for {scope_label}: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            continue
+    
+    # Section 1: Fall Performance Trends
+    print("\n[Section 1] Generating Fall Performance Trends...")
+    # If multiple quarters selected, generate one chart per scope (shows all quarters if possible)
+    # Otherwise generate per quarter
+    if len(selected_quarters) > 1:
+        # Generate one chart per scope (will show latest quarter or combine)
+        for scope_df, scope_label, folder in scopes:
+            try:
+                # Use the first quarter as primary, but chart will show trends across time
+                chart_path = plot_star_dual_subject_dashboard(
+                    scope_df,
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    window_filter=selected_quarters[0],  # Use first quarter
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error generating chart for {scope_label}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+                continue
+    else:
+        # Single quarter - generate normally
+        for quarter in selected_quarters:
+            for scope_df, scope_label, folder in scopes:
+                try:
+                    chart_path = plot_star_dual_subject_dashboard(
+                        scope_df,
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        window_filter=quarter,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating chart for {scope_label} ({quarter}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
+    
+    # Section 2: Student Group Performance Trends
+    print("\n[Section 2] Generating Student Group Performance Trends...")
+    student_groups_cfg = cfg.get("student_groups", {})
+    group_order = cfg.get("student_group_order", {})
+    
+    # Limit to most important student groups if too many
+    max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
+    sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99))
+    groups_to_plot = sorted_groups[:max_groups]
+    
+    for scope_df, scope_label, folder in scopes:
+        for group_name, group_def in groups_to_plot:
+            if group_def.get("type") == "all":
+                continue
+            if not should_generate_student_group(group_name, chart_filters):
+                continue
+            print(f"  [Generate] {group_name}")
+            # Use first quarter only if multiple quarters selected (reduces charts)
+            quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
+            for quarter in quarters_to_use:
+                try:
+                    chart_path = plot_star_subject_dashboard_by_group(
+                        scope_df.copy(), scope_label, folder, args.output_dir,
+                        window_filter=quarter, group_name=group_name, group_def=group_def,
+                        cfg=cfg, preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"  Error generating Section 2 chart for {scope_label} - {group_name} ({quarter}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
+    
+    # Section 3: Overall + Cohort Trends
+    print("\n[Section 3] Generating Overall + Cohort Trends...")
+    selected_grades = chart_filters.get("grades", [])
+    if not selected_grades:
+        # Default: grades 3-8
+        selected_grades = list(range(3, 9))
+    
+    anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
+    
+    # Always generate individual charts per grade (no consolidated charts)
+    
+    for scope_df, scope_label, folder in scopes:
+        for subj in ["Reading", "Mathematics"]:
+            if not should_generate_subject(subj, chart_filters):
+                continue
+            # Use first quarter only if multiple quarters selected (reduces charts significantly)
+            quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
+            for quarter in quarters_to_use:
+                # Always generate individual charts per grade (no consolidated charts for cohort trends)
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
+                    try:
+                        chart_path = plot_star_blended_dashboard(
+                            scope_df.copy(), scope_label, folder, args.output_dir,
+                            subject_str=subj, current_grade=grade,
+                            window_filter=quarter, cohort_year=anchor_year,
+                            cfg=cfg, preview=hf.DEV_MODE
+                        )
+                        if chart_path:
+                            chart_paths.append(chart_path)
+                    except Exception as e:
+                        print(f"  Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
+    
+    # Section 4: Overall Growth Trends by Site
+    print("\n[Section 4] Generating Overall Growth Trends by Site...")
+    for scope_df, scope_label, folder in scopes:
+        # Only generate for district scope (shows all schools)
+        if folder == "_district":
+            for subj in ["Reading", "Mathematics"]:
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                # Use first quarter only if multiple quarters selected
+                quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
+                for quarter in quarters_to_use:
+                    try:
+                        chart_path = plot_star_growth_by_site(
+                            scope_df.copy(), scope_label, folder, args.output_dir,
+                            subject_str=subj, window_filter=quarter,
+                            cfg=cfg, preview=hf.DEV_MODE
+                        )
+                        if chart_path:
+                            chart_paths.append(chart_path)
+                    except Exception as e:
+                        print(f"  Error generating Section 4 chart for {scope_label} - {subj} ({quarter}): {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
+    
+    # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort
+    print("\n[Section 5] Generating STAR SGP Growth...")
+    # Always generate individual charts per grade (no consolidated charts for SGP growth)
+    
+    for scope_df, scope_label, folder in scopes:
+        for subj in ["Reading", "Mathematics"]:
+            if not should_generate_subject(subj, chart_filters):
+                continue
+            # Use first quarter only if multiple quarters selected
+            quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
+            for quarter in quarters_to_use:
+                # Always generate individual charts per grade
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
+                    try:
+                        chart_path = plot_star_sgp_growth(
+                            scope_df.copy(), scope_label, folder, args.output_dir,
+                            subject_str=subj, current_grade=grade,
+                            window_filter=quarter, cfg=cfg, preview=hf.DEV_MODE
+                        )
+                        if chart_path:
+                            chart_paths.append(chart_path)
+                    except Exception as e:
+                        print(f"  Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
+    
+    return chart_paths
 
 
-def generate_star_charts(
+def generate_star_fall_charts(
     star_data=None,
     config=None,
     partner_name="default",
@@ -1589,7 +1821,7 @@ def generate_star_charts(
     dev_mode=False
 ):
     """
-    Flask wrapper function to generate STAR charts
+    Flask wrapper function to generate STAR Fall charts
     
     Args:
         star_data: List of dicts or DataFrame with STAR data
@@ -1613,139 +1845,33 @@ def generate_star_charts(
     
     hf.DEV_MODE = cfg.get('dev_mode', dev_mode)
     
-    # Check which quarters are selected and route to appropriate module
-    chart_filters_check = cfg.get('chart_filters', {})
-    selected_quarters = chart_filters_check.get("quarters", [])
-    all_chart_paths = []
+    class Args:
+        def __init__(self):
+            self.partner = partner_name
+            self.data_dir = data_dir if star_data is None else None
+            self.output_dir = output_dir
+            self.dev_mode = 'true' if hf.DEV_MODE else 'false'
+            self.config = json.dumps(cfg) if cfg else '{}'
     
-    # Normalize selected_quarters to handle both list and single value
-    if isinstance(selected_quarters, str):
-        selected_quarters = [selected_quarters]
-    elif not isinstance(selected_quarters, list):
-        selected_quarters = []
+    args = Args()
     
-    # Debug: Print the raw chart_filters to see what we're getting
-    print(f"\n[STAR Router] DEBUG - chart_filters_check keys: {list(chart_filters_check.keys())}")
-    print(f"[STAR Router] DEBUG - chart_filters_check['quarters']: {chart_filters_check.get('quarters')}")
-    print(f"[STAR Router] DEBUG - selected_quarters after normalization: {selected_quarters}")
-    
-    # If no quarters specified, check if there are any other indicators
-    # Don't default to Fall automatically - this could mask Winter selection issues
-    if not selected_quarters:
-        print("\n[STAR Router] WARNING: No quarters specified in chart_filters!")
-        print("[STAR Router] This likely indicates quarters are not being passed correctly from frontend")
-        print("[STAR Router] Checking for any quarter indicators in chart_filters...")
+    old_argv = sys.argv
+    try:
+        sys.argv = [
+            'star_fall.py',
+            '--partner', args.partner,
+            '--output-dir', args.output_dir,
+            '--dev-mode', args.dev_mode,
+            '--config', args.config
+        ]
+        if args.data_dir:
+            sys.argv.extend(['--data-dir', args.data_dir])
         
-        # Check if there's a window_filter or testwindow field that might indicate the selection
-        if "window_filter" in chart_filters_check:
-            window_filter = chart_filters_check.get("window_filter", "").lower()
-            if "winter" in window_filter:
-                selected_quarters = ["Winter"]
-                print(f"[STAR Router] Found window_filter='{window_filter}' - using Winter")
-            elif "fall" in window_filter:
-                selected_quarters = ["Fall"]
-                print(f"[STAR Router] Found window_filter='{window_filter}' - using Fall")
-        else:
-            # Default to Fall only if no other indicators found
-            selected_quarters = ["Fall"]
-            print("[STAR Router] No quarter indicators found - defaulting to Fall for backward compatibility")
+        chart_paths = main(star_data=star_data)
+    finally:
+        sys.argv = old_argv
     
-    print(f"\n[STAR Router] Selected quarters from chart_filters: {selected_quarters}")
-    print(f"[STAR Router] Full chart_filters: {chart_filters_check}")
-    
-    # Normalize quarters to handle case-insensitive matching
-    normalized_quarters = [str(q).strip() for q in selected_quarters]
-    normalized_quarters = [q for q in normalized_quarters if q]  # Remove empty strings
-    
-    # Check for Winter first (case-insensitive)
-    has_winter = any("winter" in str(q).lower() for q in normalized_quarters)
-    has_fall = any("fall" in str(q).lower() for q in normalized_quarters)
-    has_spring = any("spring" in str(q).lower() for q in normalized_quarters)
-    
-    print(f"[STAR Router] Normalized quarters: {normalized_quarters}")
-    print(f"[STAR Router] has_winter={has_winter}, has_fall={has_fall}, has_spring={has_spring}")
-    
-    # If Winter is selected but we still have Fall in the list, that's a problem
-    if has_winter and has_fall:
-        print(f"[STAR Router] WARNING: Both Winter and Fall detected in quarters: {normalized_quarters}")
-        print(f"[STAR Router] This may indicate a frontend issue - both quarters are being selected")
-    
-    # Route to Winter module if Winter is selected
-    if has_winter:
-        from .star_winter import generate_star_winter_charts
-        print("\n[STAR Router] Winter detected - routing to star_winter.py...")
-        try:
-            winter_charts = generate_star_winter_charts(
-                star_data=star_data,
-                config=cfg,
-                partner_name=partner_name,
-                data_dir=data_dir,
-                output_dir=output_dir,
-                chart_filters=chart_filters_check,
-                dev_mode=dev_mode
-            )
-            if winter_charts:
-                all_chart_paths.extend(winter_charts)
-                print(f"[STAR Router] Generated {len(winter_charts)} Winter charts")
-        except Exception as e:
-            print(f"[STAR Router] Error generating Winter charts: {e}")
-            if hf.DEV_MODE:
-                import traceback
-                traceback.print_exc()
-        
-        # If ONLY Winter is selected (no Fall, no Spring), return early
-        # Check both normalized and original lists to be safe
-        only_winter = (
-            (not has_fall and not has_spring) or
-            (len(normalized_quarters) == 1 and "winter" in normalized_quarters[0].lower()) or
-            (len(selected_quarters) == 1 and str(selected_quarters[0]).lower() == "winter")
-        )
-        
-        if only_winter:
-            print("\n[STAR Router] Only Winter selected - returning early (no Fall/Spring charts)")
-            print(f"[STAR Router] Confirmed: normalized_quarters={normalized_quarters}, has_fall={has_fall}, has_spring={has_spring}")
-            return all_chart_paths
-        else:
-            print(f"\n[STAR Router] Winter selected but other quarters also present - will generate both")
-            print(f"[STAR Router] normalized_quarters={normalized_quarters}, has_fall={has_fall}, has_spring={has_spring}")
-    
-    # Route to Fall module if Fall or Spring is selected
-    # BUT: Skip Fall if ONLY Winter was selected (already handled above)
-    if has_fall or has_spring:
-        # Double-check: if Winter was selected and we're here, it means both are selected
-        # OR Winter check failed (which shouldn't happen)
-        if has_winter:
-            print(f"\n[STAR Router] Both Winter and {'Fall' if has_fall else ''} {'Spring' if has_spring else ''} detected")
-            print(f"[STAR Router] Will generate both Winter and Fall/Spring charts")
-        
-        from .star_fall import generate_star_fall_charts
-        print(f"\n[STAR Router] {'Fall' if has_fall else ''} {'Spring' if has_spring else ''} detected - routing to star_fall.py...")
-        try:
-            fall_charts = generate_star_fall_charts(
-                star_data=star_data,
-                config=cfg,
-                partner_name=partner_name,
-                data_dir=data_dir,
-                output_dir=output_dir,
-                chart_filters=chart_filters_check,
-                dev_mode=dev_mode
-            )
-            if fall_charts:
-                all_chart_paths.extend(fall_charts)
-                print(f"[STAR Router] Generated {len(fall_charts)} Fall charts")
-        except Exception as e:
-            print(f"[STAR Router] Error generating Fall charts: {e}")
-            if hf.DEV_MODE:
-                import traceback
-                traceback.print_exc()
-    else:
-        if not has_winter:
-            print("\n[STAR Router] No Fall, Spring, or Winter selected - skipping chart generation")
-        else:
-            print("\n[STAR Router] Only Winter selected - Fall chart generation already skipped above")
-    
-    print(f"\n[STAR Router] Total charts generated: {len(all_chart_paths)}")
-    return all_chart_paths
+    return chart_paths
 
 
 if __name__ == "__main__":

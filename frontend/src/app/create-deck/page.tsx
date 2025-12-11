@@ -16,6 +16,7 @@ import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { useFormOptions } from '@/hooks/useFormOptions'
 import { useStudentGroups } from '@/hooks/useStudentGroups'
 import { getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
+import { getQuarterBackendValue, getQuarterDisplayLabel } from '@/utils/quarterLabels'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -49,7 +50,7 @@ export default function CreateSlide() {
         districtOnly: false, // New: Filter to district-level charts only
         grades: [] as string[],
         years: [] as string[],
-        quarters: [] as string[],
+        quarters: '' as string,
         subjects: [] as string[],
         studentGroups: [] as string[],
         race: [] as string[],
@@ -77,8 +78,7 @@ export default function CreateSlide() {
         formData.assessments,
         formData.projectId,
         formData.partnerName,
-        formData.location,
-        setFormData
+        formData.location
     )
 
     // Helper functions
@@ -116,7 +116,7 @@ export default function CreateSlide() {
             partnerName: partner,
             districtName: '',
             schools: [],
-            quarters: []
+            quarters: ''
         }))
     }
 
@@ -234,7 +234,7 @@ export default function CreateSlide() {
                               .filter((g) => g !== null)
                         : undefined,
                 years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
-                quarters: formData.quarters.length > 0 ? formData.quarters : undefined,
+                quarters: formData.quarters ? [formData.quarters] : undefined,
                 subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
                 student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
                 race: formData.race.length > 0 ? formData.race : undefined
@@ -551,15 +551,24 @@ export default function CreateSlide() {
                                             {availableQuarters.length > 0 && (
                                                 <div className="space-y-2">
                                                     <Label>
-                                                        Quarter(s) <span className="text-destructive">*</span>
+                                                        Quarter <span className="text-destructive">*</span>
                                                     </Label>
-                                                    <MultiSelect
-                                                        options={availableQuarters}
-                                                        selected={formData.quarters}
-                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, quarters: selected }))}
-                                                        placeholder="Select quarter(s)..."
+                                                    <Select
+                                                        value={formData.quarters ? getQuarterDisplayLabel(formData.quarters) : ''}
+                                                        onChange={(e) => {
+                                                            // Convert display label back to backend value for storage
+                                                            const backendQuarter = getQuarterBackendValue(e.target.value)
+                                                            setFormData((prev) => ({ ...prev, quarters: backendQuarter }))
+                                                        }}
                                                         disabled={isLoadingFilters}
-                                                    />
+                                                    >
+                                                        <option value="">Select Type of Slides...</option>
+                                                        {availableQuarters.map((quarter) => (
+                                                            <option key={quarter} value={getQuarterDisplayLabel(quarter)}>
+                                                                {getQuarterDisplayLabel(quarter)}
+                                                            </option>
+                                                        ))}
+                                                    </Select>
                                                 </div>
                                             )}
                                             {availableSubjects.length > 0 && (
