@@ -547,6 +547,29 @@ def create_slides():
         drive_folder_url = data.get('driveFolderUrl')
         enable_ai_insights = data.get('enableAIInsights', True)
         user_prompt = data.get('userPrompt')
+        
+        # Determine deck_type from quarters
+        # quarters should be ['BOY'], ['MOY'], ['EOY'], or combinations
+        quarters = data.get('quarters', [])
+        deck_type = None
+        if quarters:
+            # If multiple quarters, prioritize: EOY > MOY > BOY
+            if 'EOY' in quarters:
+                deck_type = 'EOY'
+            elif 'MOY' in quarters:
+                deck_type = 'MOY'
+            elif 'BOY' in quarters:
+                deck_type = 'BOY'
+            else:
+                # Fallback: use first quarter if it's a recognized type
+                first_quarter = quarters[0] if quarters else None
+                if first_quarter in ['BOY', 'MOY', 'EOY']:
+                    deck_type = first_quarter
+        
+        if deck_type:
+            print(f"[Backend] Detected deck_type: {deck_type} from quarters: {quarters}")
+        else:
+            print(f"[Backend] No deck_type detected from quarters: {quarters}, will use base reference decks")
 
         print(f"[Backend] Creating slides presentation: {title}")
         print(f"[Backend] Charts: {len(chart_paths)}")
@@ -562,7 +585,8 @@ def create_slides():
             chart_paths=chart_paths,
             drive_folder_url=drive_folder_url,
             enable_ai_insights=enable_ai_insights,
-            user_prompt=user_prompt
+            user_prompt=user_prompt,
+            deck_type=deck_type
         )
 
         # Save deck to Supabase (if clerk_user_id provided)

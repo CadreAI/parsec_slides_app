@@ -311,7 +311,25 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 0: {out_path}")
-    track_chart(f"{prefix}{scope_label.replace(' ', '_')}_section0_iready_vs_cers", out_path, scope=folder, section=0)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Spring",
+        "year": year,
+        "subjects": list(data_dict.keys()),
+        "iready_vs_cers": {
+            subj: {
+                "iready_mid_above": float(metrics["iready_mid_above"]),
+                "cers_met_exceed": float(metrics["cers_met_exceed"]),
+                "delta": float(metrics["delta"]),
+                "iready_distribution": {level: float(pct) for level, pct in metrics["iready_pct"].items()},
+                "cers_distribution": {level: float(pct) for level, pct in metrics["cers_pct"].items()}
+            }
+            for subj, (_, metrics) in data_dict.items()
+        }
+    }
+    track_chart(f"{prefix}{scope_label.replace(' ', '_')}_section0_iready_vs_cers", out_path, scope=folder, section=0, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
@@ -581,7 +599,30 @@ def plot_iready_subject_dashboard_by_group(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 2: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=2)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": metrics_list,
+        "time_orders": time_orders,
+        "pct_data": [
+            {
+                "subject": subj,
+                "data": pct_df.to_dict('records') if pct_df is not None and not pct_df.empty else []
+            }
+            for subj, pct_df in zip(subjects, pct_dfs)
+        ],
+        "score_data": [
+            {
+                "subject": subj,
+                "data": score_df.to_dict('records') if score_df is not None and not score_df.empty else []
+            }
+            for subj, score_df in zip(subjects, score_dfs)
+        ]
+    }
+    track_chart(out_name, str(out_path), scope=scope_label, section=2, chart_data=chart_data)
     
     return str(out_path)
 
@@ -813,7 +854,27 @@ def plot_iready_blended_dashboard(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 3: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=3)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": current_grade,
+        "subject": subject_str,
+        "metrics": metrics_left,
+        "pct_data": {
+            "overall": pct_df_left.to_dict('records') if not pct_df_left.empty else []
+        },
+        "score_data": {
+            "overall": score_df_left.to_dict('records') if not score_df_left.empty else []
+        }
+    }
+    
+    if not pct_df_right.empty and not score_df_right.empty:
+        chart_data["cohort_metrics"] = metrics_right
+        chart_data["pct_data"]["cohort"] = pct_df_right.to_dict('records')
+        chart_data["score_data"]["cohort"] = score_df_right.to_dict('records')
+    
+    track_chart(out_name, str(out_path), scope=scope_label, section=3, chart_data=chart_data)
     
     return str(out_path)
 
@@ -1010,6 +1071,16 @@ def main(iready_data=None):
             unique_grades = [g for g in unique_grades if g in chart_filters["grades"]]
         
         print(f"  [Section 3] Found {len(unique_grades)} grade(s) in filtered data: {unique_grades}")
+        
+        # Use consolidated charts if more than 3 grades
+        use_consolidated = len(unique_grades) > 3
+        
+        if use_consolidated:
+            # Generate consolidated chart with all grades arranged horizontally
+            print(f"  [Section 3] Using consolidated horizontal layout for {len(unique_grades)} grades")
+            # For now, generate individual charts but we'll add consolidated function later
+            # TODO: Create plot_iready_consolidated_blended_dashboard function
+            pass
         
         for g in unique_grades:
             # Check if grade exists in data (for chart generation decision)

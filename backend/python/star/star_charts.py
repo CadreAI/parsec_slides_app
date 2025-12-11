@@ -357,7 +357,25 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
     out_name = f"{scope_label}_section0_pred_vs_actual.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
-    track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Spring",
+        "subjects": list(subj_payload.keys()),
+        "predicted_vs_actual": {
+            subj: {
+                "predicted_pct": {level: float(proj_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["proj_order"]},
+                "actual_pct": {level: float(act_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["act_order"]},
+                "predicted_met_exceed": float(subj_payload[subj]["metrics"]["proj_met"]),
+                "actual_met_exceed": float(subj_payload[subj]["metrics"]["act_met"]),
+                "delta": float(subj_payload[subj]["metrics"]["delta"])
+            }
+            for subj in subj_payload.keys()
+            for proj_pct, act_pct in [(subj_payload[subj]["proj_pct"], subj_payload[subj]["act_pct"])]
+        }
+    }
+    track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0, chart_data=chart_data)
     print(f"Saved Section 0: {out_path}")
 
 # ---------------------------------------------------------------------
@@ -704,7 +722,31 @@ def plot_star_subject_dashboard_by_group(
     out_name = f"{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
-    track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": metrics_list,
+        "time_orders": time_orders,
+        "pct_data": [
+            {
+                "subject": subj,
+                "data": pct_df.to_dict('records') if pct_df is not None and not pct_df.empty else []
+            }
+            for subj, pct_df in zip(subjects, pct_dfs)
+        ],
+        "score_data": [
+            {
+                "subject": subj,
+                "data": score_df.to_dict('records') if score_df is not None and not score_df.empty else []
+            }
+            for subj, score_df in zip(subjects, score_dfs)
+        ]
+    }
+    track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2, chart_data=chart_data)
     print(f"Saved Section 2: {out_path}")
     return str(out_path)
 
@@ -951,7 +993,27 @@ def plot_star_blended_dashboard(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 3: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=3)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": current_grade,
+        "subject": subject_str,
+        "metrics": metrics_left,
+        "pct_data": {
+            "overall": pct_df_left.to_dict('records') if not pct_df_left.empty else []
+        },
+        "score_data": {
+            "overall": score_df_left.to_dict('records') if not score_df_left.empty else []
+        }
+    }
+    
+    if not pct_df_right.empty and not score_df_right.empty:
+        chart_data["cohort_metrics"] = metrics_right
+        chart_data["pct_data"]["cohort"] = pct_df_right.to_dict('records')
+        chart_data["score_data"]["cohort"] = score_df_right.to_dict('records')
+    
+    track_chart(out_name, str(out_path), scope=scope_label, section=3, chart_data=chart_data)
     
     return str(out_path)
 
@@ -1050,7 +1112,22 @@ def plot_star_growth_by_site(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 4: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=4)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "subject": subject_str,
+        "school_data": {
+            school: {
+                "pct_data": data["pct_df"].to_dict('records') if not data["pct_df"].empty else [],
+                "score_data": data["score_df"].to_dict('records') if not data["score_df"].empty else [],
+                "metrics": data["metrics"],
+                "time_order": data["time_order"]
+            }
+            for school, data in school_data.items()
+        }
+    }
+    track_chart(out_name, str(out_path), scope=scope_label, section=4, chart_data=chart_data)
     
     return str(out_path)
 
@@ -1253,7 +1330,22 @@ def plot_star_sgp_growth(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 5: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=5)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": current_grade,
+        "subject": subject_str,
+        "grade_metrics": metrics_grade,
+        "cohort_metrics": metrics_cohort,
+        "sgp_data": {
+            "grade_trend": sgp_df_grade.to_dict('records') if not sgp_df_grade.empty else [],
+            "cohort_trend": cohort_df.to_dict('records') if not cohort_df.empty else []
+        },
+        "time_order": time_order,
+        "cohort_labels": cohort_labels
+    }
+    track_chart(out_name, str(out_path), scope=scope_label, section=5, chart_data=chart_data)
     
     return str(out_path)
 
@@ -1289,48 +1381,43 @@ def plot_star_consolidated_cohort_all_grades(
         print(f"[Consolidated Section 3] No cohort data for {scope_label} - {subject_str}")
         return None
     
-    # Split grades into groups of 3
+    # Generate one chart per grade (no grouping)
     sorted_grades = sorted(grade_data.keys())
-    grade_groups = [sorted_grades[i:i+3] for i in range(0, len(sorted_grades), 3)]
-    
     chart_paths = []
     
-    # Create one chart per group of 3 grades
-    for group_idx, grade_group in enumerate(grade_groups):
-        # Create figure with subplots for 3 grades
-        n_grades_in_group = len(grade_group)
-        fig = plt.figure(figsize=(16, 4 * n_grades_in_group), dpi=300)
-        gs = fig.add_gridspec(nrows=n_grades_in_group, ncols=2, height_ratios=[1] * n_grades_in_group)
-        fig.subplots_adjust(hspace=0.4, wspace=0.3)
+    # Create one chart per grade
+    for grade in sorted_grades:
+        # Single grade chart - use standard layout
+        fig = plt.figure(figsize=(16, 9), dpi=300)
+        gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[1, 0.6])
+        fig.subplots_adjust(wspace=0.3)
         
         legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
         
-        for idx, grade in enumerate(grade_group):
-            data = grade_data[grade]
-            pct_df = data["pct_df"]
-            score_df = data["score_df"]
-            metrics = data["metrics"]
-            
-            # Stacked bar chart
-            ax1 = fig.add_subplot(gs[idx, 0])
-            draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER)
-            ax1.set_title(f"Grade {grade} - Cohort Trends", fontsize=12, fontweight="bold")
-            
-            # Score bar chart
-            ax2 = fig.add_subplot(gs[idx, 1])
-            n_map = None
-            if "N_total" in pct_df.columns:
-                n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
-                n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
-            draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map)
-            ax2.set_title("Average Unified Scale Score", fontsize=10, fontweight="bold")
+        # Process single grade
+        data = grade_data[grade]
+        pct_df = data["pct_df"]
+        score_df = data["score_df"]
+        metrics = data["metrics"]
+        
+        # Standard layout: stacked bar on left, score bar on right
+        ax1 = fig.add_subplot(gs[0, 0])
+        draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER)
+        ax1.set_title(f"Grade {grade} - Cohort Trends", fontsize=12, fontweight="bold")
+        
+        ax2 = fig.add_subplot(gs[0, 1])
+        n_map = None
+        if "N_total" in pct_df.columns:
+            n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
+            n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
+        draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map)
+        ax2.set_title(f"Grade {grade} Avg Score", fontsize=10, fontweight="bold")
         
         fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center", bbox_to_anchor=(0.5, 0.98),
                   ncol=len(hf.STAR_ORDER), frameon=False, fontsize=9)
         
-        # Create title with grade range
-        grade_range = f"Grades {min(grade_group)}-{max(grade_group)}" if len(grade_group) > 1 else f"Grade {grade_group[0]}"
-        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} Cohort Trends ({grade_range})",
+        # Create title for single grade
+        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} Cohort Trends (Grade {grade})",
                     fontsize=18, fontweight="bold", y=0.995)
         
         # Save
@@ -1339,14 +1426,28 @@ def plot_star_consolidated_cohort_all_grades(
         prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
         
         safe_subj = subject_str.replace(" ", "_").lower()
-        grade_suffix = f"grades_{min(grade_group)}_{max(grade_group)}" if len(grade_group) > 1 else f"grade_{grade_group[0]}"
-        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_consolidated_{grade_suffix}_{safe_subj}_{window_filter.lower()}_cohort.png"
+        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_grade_{grade}_{safe_subj}_{window_filter.lower()}_cohort.png"
         out_path = out_dir / out_name
         
         hf._save_and_render(fig, out_path, dev_mode=preview)
-        print(f"Saved Consolidated Section 3 (Part {group_idx + 1}/{len(grade_groups)}): {out_path}")
+        print(f"Saved Section 3 Grade {grade}: {out_path}")
         
-        track_chart(out_name, str(out_path), scope=scope_label, section=3)
+        # Prepare chart_data for consolidated chart
+        chart_data = {
+            "scope": scope_label,
+            "window_filter": window_filter,
+            "subject": subject_str,
+            "grades": [grade],
+            "grade_data": {
+                grade: {
+                    "metrics": grade_data[grade]["metrics"],
+                    "pct_data": grade_data[grade]["pct_df"].to_dict('records') if not grade_data[grade]["pct_df"].empty else [],
+                    "score_data": grade_data[grade]["score_df"].to_dict('records') if not grade_data[grade]["score_df"].empty else []
+                }
+            }
+        }
+        
+        track_chart(out_name, str(out_path), scope=scope_label, section=3, chart_data=chart_data)
         chart_paths.append(str(out_path))
     
     return chart_paths[0] if len(chart_paths) == 1 else chart_paths
@@ -1375,56 +1476,61 @@ def plot_star_consolidated_sgp_all_grades(
         print(f"[Consolidated Section 5] No SGP data for {scope_label} - {subject_str}")
         return None
     
-    # Split grades into groups of 3
+    # Generate one chart per grade (no grouping)
     sorted_grades = sorted(grade_data.keys())
-    grade_groups = [sorted_grades[i:i+3] for i in range(0, len(sorted_grades), 3)]
-    
     chart_paths = []
     
-    # Create one chart per group of 3 grades
-    for group_idx, grade_group in enumerate(grade_groups):
-        # Create figure - one row per grade (max 3)
-        n_grades_in_group = len(grade_group)
-        fig = plt.figure(figsize=(16, 3 * n_grades_in_group), dpi=300)
-        gs = fig.add_gridspec(nrows=n_grades_in_group, ncols=1, height_ratios=[1] * n_grades_in_group)
-        fig.subplots_adjust(hspace=0.3)
+    # Create one chart per grade
+    for grade in sorted_grades:
+        # Single grade chart - use standard layout
+        fig = plt.figure(figsize=(16, 6), dpi=300)
+        gs = fig.add_gridspec(nrows=1, ncols=1)
+        fig.subplots_adjust()
         
-        for idx, grade in enumerate(grade_group):
-            data = grade_data[grade]
-            sgp_df = data["sgp_df"]
-            metrics = data["metrics"]
-            
-            ax = fig.add_subplot(gs[idx, 0])
-            
-            x_labels = sgp_df["time_label"].tolist()
-            x = np.arange(len(x_labels))
-            y = sgp_df["avg_sgp"].tolist()
-            
-            ax.plot(x, y, marker="o", linewidth=2, markersize=8, color="#2E86AB", label=f"Grade {grade}")
-            ax.fill_between(x, y, alpha=0.2, color="#2E86AB")
-            
-            # Add value labels
-            for i, (xi, yi) in enumerate(zip(x, y)):
-                ax.text(xi, yi + 2, f"{yi:.1f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
-            
-            ax.set_xticks(x)
-            ax.set_xticklabels(x_labels, rotation=45, ha="right")
-            ax.set_ylabel("Average SGP", fontsize=11, fontweight="bold")
-            ax.set_title(f"Grade {grade} - SGP Trend", fontsize=12, fontweight="bold")
-            ax.grid(axis="y", alpha=0.2)
-            ax.spines["top"].set_visible(False)
-            ax.spines["right"].set_visible(False)
-            
-            # Add n-counts
-            if "N_total" in sgp_df.columns:
-                n_map = dict(zip(sgp_df["time_label"].astype(str), sgp_df["N_total"]))
-                for i, label in enumerate(x_labels):
-                    n_val = n_map.get(str(label), 0)
-                    ax.text(i, ax.get_ylim()[0] + 2, f"n={n_val}", ha="center", fontsize=8, style="italic")
+        # Process single grade
+        data = grade_data[grade]
+        sgp_df = data["sgp_df"]
+        metrics = data["metrics"]
         
-        # Create title with grade range
-        grade_range = f"Grades {min(grade_group)}-{max(grade_group)}" if len(grade_group) > 1 else f"Grade {grade_group[0]}"
-        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} SGP Growth ({grade_range})",
+        ax = fig.add_subplot(gs[0, 0])
+        
+        x_labels = sgp_df["time_label"].tolist()
+        x = np.arange(len(x_labels))
+        y = sgp_df["avg_sgp"].tolist()
+        
+        ax.plot(x, y, marker="o", linewidth=2, markersize=8, color="#2E86AB", label=f"Grade {grade}")
+        ax.fill_between(x, y, alpha=0.2, color="#2E86AB")
+        
+        # Add value labels with clearer formatting
+        for i, (xi, yi) in enumerate(zip(x, y)):
+            ax.text(xi, yi + 2, f"{yi:.1f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
+        
+        ax.set_xticks(x)
+        ax.set_xticklabels(x_labels, rotation=45, ha="right")
+        ax.set_ylabel("Average SGP", fontsize=11, fontweight="bold")
+        ax.set_title(f"Grade {grade} SGP", fontsize=11, fontweight="bold", pad=8)
+        
+        # Add latest SGP value prominently
+        if len(y) > 0:
+            latest_sgp = y[-1]
+            ax.text(0.5, 0.95, f"Latest: {latest_sgp:.1f}", 
+                   transform=ax.transAxes, ha="center", va="top",
+                   fontsize=10, fontweight="bold",
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+        
+        ax.grid(axis="y", alpha=0.2)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        
+        # Add n-counts
+        if "N_total" in sgp_df.columns:
+            n_map = dict(zip(sgp_df["time_label"].astype(str), sgp_df["N_total"]))
+            for i, label in enumerate(x_labels):
+                n_val = n_map.get(str(label), 0)
+                ax.text(i, ax.get_ylim()[0] + 2, f"n={n_val}", ha="center", fontsize=8, style="italic")
+        
+        # Create title for single grade
+        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} SGP Growth (Grade {grade})",
                     fontsize=18, fontweight="bold", y=0.995)
         
         # Save
@@ -1433,14 +1539,27 @@ def plot_star_consolidated_sgp_all_grades(
         prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
         
         safe_subj = subject_str.replace(" ", "_").lower()
-        grade_suffix = f"grades_{min(grade_group)}_{max(grade_group)}" if len(grade_group) > 1 else f"grade_{grade_group[0]}"
-        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section5_consolidated_{grade_suffix}_{safe_subj}_{window_filter.lower()}_sgp.png"
+        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section5_grade_{grade}_{safe_subj}_{window_filter.lower()}_sgp.png"
         out_path = out_dir / out_name
         
         hf._save_and_render(fig, out_path, dev_mode=preview)
-        print(f"Saved Consolidated Section 5 (Part {group_idx + 1}/{len(grade_groups)}): {out_path}")
+        print(f"Saved Section 5 Grade {grade}: {out_path}")
         
-        track_chart(out_name, str(out_path), scope=scope_label, section=5)
+        # Prepare chart_data for consolidated SGP chart
+        chart_data = {
+            "scope": scope_label,
+            "window_filter": window_filter,
+            "subject": subject_str,
+            "grades": [grade],
+            "sgp_data": {
+                grade: {
+                    "metrics": data["metrics"],
+                    "sgp_trend": sgp_df.to_dict('records') if not sgp_df.empty else []
+                }
+            }
+        }
+        
+        track_chart(out_name, str(out_path), scope=scope_label, section=5, chart_data=chart_data)
         chart_paths.append(str(out_path))
     
     return chart_paths[0] if len(chart_paths) == 1 else chart_paths
@@ -1606,8 +1725,7 @@ def main(star_data=None):
     
     anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
     
-    # Use consolidated charts if 3+ grades selected (reduces chart count significantly)
-    use_consolidated = len(selected_grades) >= 3
+    # Always generate individual charts per grade (no consolidated charts)
     
     for scope_df, scope_label, folder in scopes:
         for subj in ["Reading", "Mathematics"]:
@@ -1616,47 +1734,25 @@ def main(star_data=None):
             # Use first quarter only if multiple quarters selected (reduces charts significantly)
             quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
             for quarter in quarters_to_use:
-                if use_consolidated:
-                    # Generate consolidated charts showing 3 grades per chart
+                # Always generate individual charts per grade (no consolidated charts for cohort trends)
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
                     try:
-                        chart_result = plot_star_consolidated_cohort_all_grades(
+                        chart_path = plot_star_blended_dashboard(
                             scope_df.copy(), scope_label, folder, args.output_dir,
-                            subject_str=subj, window_filter=quarter,
-                            cohort_year=anchor_year, selected_grades=selected_grades,
+                            subject_str=subj, current_grade=grade,
+                            window_filter=quarter, cohort_year=anchor_year,
                             cfg=cfg, preview=hf.DEV_MODE
                         )
-                        if chart_result:
-                            # Handle both single path and list of paths
-                            if isinstance(chart_result, list):
-                                chart_paths.extend(chart_result)
-                            else:
-                                chart_paths.append(chart_result)
+                        if chart_path:
+                            chart_paths.append(chart_path)
                     except Exception as e:
-                        print(f"  Error generating consolidated Section 3 chart for {scope_label} - {subj} ({quarter}): {e}")
+                        print(f"  Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
                         if hf.DEV_MODE:
                             import traceback
                             traceback.print_exc()
                         continue
-                else:
-                    # Generate individual charts per grade (for 1-2 grades)
-                    for grade in selected_grades:
-                        if not should_generate_grade(grade, chart_filters):
-                            continue
-                        try:
-                            chart_path = plot_star_blended_dashboard(
-                                scope_df.copy(), scope_label, folder, args.output_dir,
-                                subject_str=subj, current_grade=grade,
-                                window_filter=quarter, cohort_year=anchor_year,
-                                cfg=cfg, preview=hf.DEV_MODE
-                            )
-                            if chart_path:
-                                chart_paths.append(chart_path)
-                        except Exception as e:
-                            print(f"  Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
-                            if hf.DEV_MODE:
-                                import traceback
-                                traceback.print_exc()
-                            continue
     
     # Section 4: Overall Growth Trends by Site
     print("\n[Section 4] Generating Overall Growth Trends by Site...")
@@ -1686,8 +1782,7 @@ def main(star_data=None):
     
     # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort
     print("\n[Section 5] Generating STAR SGP Growth...")
-    # Use consolidated charts if 3+ grades selected
-    use_consolidated_sgp = len(selected_grades) >= 3
+    # Always generate individual charts per grade (no consolidated charts for SGP growth)
     
     for scope_df, scope_label, folder in scopes:
         for subj in ["Reading", "Mathematics"]:
@@ -1696,45 +1791,24 @@ def main(star_data=None):
             # Use first quarter only if multiple quarters selected
             quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
             for quarter in quarters_to_use:
-                if use_consolidated_sgp:
-                    # Generate consolidated charts showing 3 grades per chart
+                # Always generate individual charts per grade
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
                     try:
-                        chart_result = plot_star_consolidated_sgp_all_grades(
+                        chart_path = plot_star_sgp_growth(
                             scope_df.copy(), scope_label, folder, args.output_dir,
-                            subject_str=subj, window_filter=quarter,
-                            selected_grades=selected_grades, cfg=cfg, preview=hf.DEV_MODE
+                            subject_str=subj, current_grade=grade,
+                            window_filter=quarter, cfg=cfg, preview=hf.DEV_MODE
                         )
-                        if chart_result:
-                            # Handle both single path and list of paths
-                            if isinstance(chart_result, list):
-                                chart_paths.extend(chart_result)
-                            else:
-                                chart_paths.append(chart_result)
+                        if chart_path:
+                            chart_paths.append(chart_path)
                     except Exception as e:
-                        print(f"  Error generating consolidated Section 5 chart for {scope_label} - {subj} ({quarter}): {e}")
+                        print(f"  Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
                         if hf.DEV_MODE:
                             import traceback
                             traceback.print_exc()
                         continue
-                else:
-                    # Generate individual charts per grade (for 1-2 grades)
-                    for grade in selected_grades:
-                        if not should_generate_grade(grade, chart_filters):
-                            continue
-                        try:
-                            chart_path = plot_star_sgp_growth(
-                                scope_df.copy(), scope_label, folder, args.output_dir,
-                                subject_str=subj, current_grade=grade,
-                                window_filter=quarter, cfg=cfg, preview=hf.DEV_MODE
-                            )
-                            if chart_path:
-                                chart_paths.append(chart_path)
-                        except Exception as e:
-                            print(f"  Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
-                            if hf.DEV_MODE:
-                                import traceback
-                                traceback.print_exc()
-                            continue
     
     return chart_paths
 

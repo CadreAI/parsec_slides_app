@@ -28,3 +28,8 @@ python-dotenv>=1.0.0
 celery[redis]>=5.3.6
 redis>=5.0.0
 
+# PDF parsing for layout learning (try multiple libraries for better extraction)
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0  # Better for complex layouts
+pymupdf>=1.23.0  # Better for image-based PDFs (PyMuPDF)
+

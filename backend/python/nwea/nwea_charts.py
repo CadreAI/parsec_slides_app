@@ -377,7 +377,26 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 0: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder, section=0)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Spring",
+        "subjects": subjects,
+        "year": first_metrics.get('year'),
+        "predicted_vs_actual": {
+            subj: {
+                "predicted_pct": {level: float(proj_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["proj_order"]},
+                "actual_pct": {level: float(act_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["act_order"]},
+                "predicted_met_exceed": float(subj_payload[subj]["metrics"]["proj_met"]),
+                "actual_met_exceed": float(subj_payload[subj]["metrics"]["act_met"]),
+                "delta": float(subj_payload[subj]["metrics"]["delta"])
+            }
+            for subj in subjects
+            for proj_pct, act_pct in [(subj_payload[subj]["proj_pct"], subj_payload[subj]["act_pct"])]
+        }
+    }
+    track_chart(out_name, out_path, scope=folder, section=0, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
@@ -592,7 +611,31 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 2: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder_name, section=2)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": metrics_list,
+        "time_orders": time_orders,
+        "pct_data": [
+            {
+                "subject": subj,
+                "data": pct_df.to_dict('records') if not pct_df.empty else []
+            }
+            for subj, pct_df in zip(subjects, pct_dfs)
+        ],
+        "score_data": [
+            {
+                "subject": subj,
+                "data": score_df.to_dict('records') if not score_df.empty else []
+            }
+            for subj, score_df in zip(subjects, score_dfs)
+        ]
+    }
+    track_chart(out_name, out_path, scope=folder_name, section=2, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
@@ -1051,7 +1094,30 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     hf._save_and_render(fig, out_path, dev_mode=preview)
     # Print absolute path as string for reliable parsing
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder_name, section=3)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": int(current_grade),
+        "subject": course_str,
+        "metrics": metrics_left,
+        "time_order": time_order_left,
+        "pct_data": {
+            "overall": pct_df_left.to_dict('records') if not pct_df_left.empty else []
+        },
+        "score_data": {
+            "overall": score_df_left.to_dict('records') if not score_df_left.empty else []
+        }
+    }
+    
+    if has_cohort_data:
+        chart_data["cohort_metrics"] = metrics_right
+        chart_data["cohort_time_order"] = time_order_right
+        chart_data["pct_data"]["cohort"] = pct_df_right.to_dict('records') if not pct_df_right.empty else []
+        chart_data["score_data"]["cohort"] = score_df_right.to_dict('records') if not score_df_right.empty else []
+    
+    track_chart(out_name, out_path, scope=folder_name, section=3, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
@@ -1240,7 +1306,18 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder_name, section=4)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Fall",
+        "subjects": subjects,
+        "cgp_data": {
+            subj: cgp_trend[(cgp_trend["scope_label"] == scope_label) & (cgp_trend["subject"] == subj)].to_dict('records') if not cgp_trend.empty else []
+            for subj in subjects
+        }
+    }
+    track_chart(out_name, out_path, scope=folder_name, section=4, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
@@ -1305,7 +1382,26 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
     out_path = out_dir / f"section6A_2025_pred_vs_actual_{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(f"section6A_2025_pred_vs_actual_{folder}.png", out_path, scope=folder, section=6)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "year": 2025,
+        "type": "predicted_vs_actual",
+        "subjects": ["Reading", "Mathematics"],
+        "data": {}
+    }
+    for subject in ["Reading", "Mathematics"]:
+        r = results.get(subject)
+        if r:
+            y_true, y_pred, labs = r  # results contains (y_true, y_pred, labs)
+            pct_pred = {lab: float(pct) for lab, pct in zip(labs, _pct(y_pred, labs))}
+            pct_actual = {lab: float(pct) for lab, pct in zip(labs, _pct(y_true, labs))}
+            chart_data["data"][subject] = {
+                "predicted": pct_pred,
+                "actual": pct_actual
+            }
+    track_chart(f"section6A_2025_pred_vs_actual_{folder}.png", out_path, scope=folder, section=6, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close(fig)
@@ -1351,7 +1447,22 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
     out_path = out_dir / f"section6B_2026_projection_{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(f"section6B_2026_projection_{folder}.png", out_path, scope=folder, section=6)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "year": 2026,
+        "type": "projection",
+        "subjects": ["Reading", "Mathematics"],
+        "data": {}
+    }
+    for subject in ["Reading", "Mathematics"]:
+        r = results.get(subject)
+        if r:
+            y_pred, labs = r
+            pct_dict = {lab: float(pct) for lab, pct in zip(labs, _pct(y_pred, labs))}
+            chart_data["data"][subject] = {"projected": pct_dict}
+    track_chart(f"section6B_2026_projection_{folder}.png", out_path, scope=folder, section=6, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close(fig)
@@ -1615,6 +1726,16 @@ def main(nwea_data=None):
         unique_grades = sorted([g for g in scope_df["grade_normalized"].dropna().unique() if g is not None])
         
         print(f"  [Section 3] Found {len(unique_grades)} grade(s) in filtered data: {unique_grades}")
+        
+        # Use consolidated charts if more than 3 grades
+        use_consolidated = len(unique_grades) > 3
+        
+        if use_consolidated:
+            # Generate consolidated chart with all grades arranged horizontally
+            print(f"  [Section 3] Using consolidated horizontal layout for {len(unique_grades)} grades")
+            # For now, generate individual charts but we'll add consolidated function later
+            # TODO: Create plot_nwea_consolidated_blended_dashboard function
+            pass
         
         for g in unique_grades:
             # Filter scope_df to this specific grade for chart generation

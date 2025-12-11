@@ -8,7 +8,7 @@ import os
 from celery_app import celery_app
 
 
-@celery_app.task(bind=True, name="create_deck_with_slides_task")
+@celery_app.task(bind=True, name="create_deck_with_slides_task", soft_time_limit=1800, time_limit=2400)
 def create_deck_with_slides_task(
     self,
     partner_name: str,
@@ -152,61 +152,162 @@ def create_deck_with_slides_task(
         # Generate NWEA charts if data is available
         if nwea_data:
             logging.info(f"[Task {task_id}] Generating NWEA charts...")
-            nwea_charts = generate_nwea_charts(
-                partner_name=partner_name,
-                output_dir=temp_charts_dir,
-                config=config,
-                chart_filters=chart_filters,
-                data_dir=data_dir,
-                nwea_data=nwea_data
-            )
-            all_chart_paths.extend(nwea_charts)
-            logging.info(f"[Task {task_id}] Generated {len(nwea_charts)} NWEA charts")
+            try:
+                nwea_charts = generate_nwea_charts(
+                    partner_name=partner_name,
+                    output_dir=temp_charts_dir,
+                    config=config,
+                    chart_filters=chart_filters,
+                    data_dir=data_dir,
+                    nwea_data=nwea_data
+                )
+                all_chart_paths.extend(nwea_charts)
+                logging.info(f"[Task {task_id}] Generated {len(nwea_charts)} NWEA charts")
+            except Exception as e:
+                logging.error(f"[Task {task_id}] Error generating NWEA charts: {e}")
+                import traceback
+                logging.error(f"[Task {task_id}] NWEA chart generation traceback: {traceback.format_exc()}")
+        else:
+            logging.warning(f"[Task {task_id}] No NWEA data available for chart generation")
 
         # Generate iReady charts if data is available
         if iready_data:
             logging.info(f"[Task {task_id}] Generating iReady charts...")
-            iready_charts = generate_iready_charts(
-                partner_name=partner_name,
-                output_dir=temp_charts_dir,
-                config=config,
-                chart_filters=chart_filters,
-                data_dir=data_dir,
-                iready_data=iready_data
-            )
-            all_chart_paths.extend(iready_charts)
-            logging.info(f"[Task {task_id}] Generated {len(iready_charts)} iReady charts")
+            try:
+                iready_charts = generate_iready_charts(
+                    partner_name=partner_name,
+                    output_dir=temp_charts_dir,
+                    config=config,
+                    chart_filters=chart_filters,
+                    data_dir=data_dir,
+                    iready_data=iready_data
+                )
+                all_chart_paths.extend(iready_charts)
+                logging.info(f"[Task {task_id}] Generated {len(iready_charts)} iReady charts")
+            except Exception as e:
+                logging.error(f"[Task {task_id}] Error generating iReady charts: {e}")
+                import traceback
+                logging.error(f"[Task {task_id}] iReady chart generation traceback: {traceback.format_exc()}")
+        else:
+            logging.warning(f"[Task {task_id}] No iReady data available for chart generation")
 
         # Generate STAR charts if data is available
         if star_data:
             logging.info(f"[Task {task_id}] Generating STAR charts...")
-            star_charts = generate_star_charts(
-                partner_name=partner_name,
-                output_dir=temp_charts_dir,
-                config=config,
-                chart_filters=chart_filters,
-                data_dir=data_dir,
-                star_data=star_data
-            )
-            all_chart_paths.extend(star_charts)
-            logging.info(f"[Task {task_id}] Generated {len(star_charts)} STAR charts")
+            try:
+                star_charts = generate_star_charts(
+                    partner_name=partner_name,
+                    output_dir=temp_charts_dir,
+                    config=config,
+                    chart_filters=chart_filters,
+                    data_dir=data_dir,
+                    star_data=star_data
+                )
+                all_chart_paths.extend(star_charts)
+                logging.info(f"[Task {task_id}] Generated {len(star_charts)} STAR charts")
+            except Exception as e:
+                logging.error(f"[Task {task_id}] Error generating STAR charts: {e}")
+                import traceback
+                logging.error(f"[Task {task_id}] STAR chart generation traceback: {traceback.format_exc()}")
+        else:
+            logging.warning(f"[Task {task_id}] No STAR data available for chart generation")
 
         logging.info(f"[Task {task_id}] Generated {len(all_chart_paths)} total charts")
+        
+        # Verify all charts were actually saved to disk
+        import time
+        from pathlib import Path
+        missing_charts = []
+        verified_charts = []
+        
+        logging.info(f"[Task {task_id}] Verifying all charts exist on disk...")
+        for chart_path in all_chart_paths:
+            chart_path_obj = Path(chart_path)
+            max_retries = 10
+            retry_delay = 0.2  # 200ms
+            
+            for attempt in range(max_retries):
+                if chart_path_obj.exists() and chart_path_obj.stat().st_size > 0:
+                    verified_charts.append(chart_path)
+                    break
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 1.5  # Gradual increase
+            
+            if chart_path_obj not in [Path(c) for c in verified_charts]:
+                missing_charts.append(chart_path)
+                logging.warning(f"[Task {task_id}] Chart not found or empty after retries: {chart_path}")
+        
+        if missing_charts:
+            logging.error(f"[Task {task_id}] {len(missing_charts)} charts failed to save:")
+            for chart_path in missing_charts:
+                logging.error(f"[Task {task_id}]   - {chart_path}")
+            # Remove missing charts from the list
+            all_chart_paths = verified_charts
+            logging.warning(f"[Task {task_id}] Continuing with {len(all_chart_paths)} verified charts")
+        else:
+            logging.info(f"[Task {task_id}] ✓ All {len(all_chart_paths)} charts verified on disk")
 
         if not all_chart_paths:
-            raise ValueError("No charts were generated. Cannot create slides without charts.")
+            # Build detailed error message
+            error_details = []
+            error_details.append("No charts were generated. Possible reasons:")
+            
+            if not nwea_data and not iready_data and not star_data:
+                error_details.append("- No data was ingested (check data ingestion logs)")
+            else:
+                if nwea_data:
+                    error_details.append(f"- NWEA: {len(nwea_data)} rows ingested but no charts generated (check filters/data quality)")
+                if iready_data:
+                    error_details.append(f"- iReady: {len(iready_data)} rows ingested but no charts generated (check filters/data quality)")
+                if star_data:
+                    error_details.append(f"- STAR: {len(star_data)} rows ingested but no charts generated (check filters/data quality)")
+            
+            if chart_filters:
+                error_details.append(f"- Chart filters applied: {chart_filters}")
+                if chart_filters.get('quarters'):
+                    error_details.append(f"  - Selected quarters: {chart_filters.get('quarters')}")
+                if chart_filters.get('subjects'):
+                    error_details.append(f"  - Selected subjects: {chart_filters.get('subjects')}")
+                if chart_filters.get('grades'):
+                    error_details.append(f"  - Selected grades: {chart_filters.get('grades')}")
+            
+            error_details.append("- Check logs above for specific chart generation errors")
+            error_details.append("- Common issues: data doesn't match filters, insufficient data points, or missing required columns")
+            
+            error_msg = "\n".join(error_details)
+            logging.error(f"[Task {task_id}] {error_msg}")
+            raise ValueError(error_msg)
 
         # ====================
         # STEP 3: Create Slides
         # ====================
         logging.info(f"[Task {task_id}] Creating slides presentation: {title}")
-        slides_result = create_slides_presentation(
-            title=title,
-            chart_paths=all_chart_paths,
-            drive_folder_url=drive_folder_url,
-            enable_ai_insights=enable_ai_insights,
-            user_prompt=user_prompt
-        )
+        logging.info(f"[Task {task_id}] This may take several minutes for large decks ({len(all_chart_paths)} charts)...")
+        try:
+            slides_result = create_slides_presentation(
+                title=title,
+                chart_paths=all_chart_paths,
+                drive_folder_url=drive_folder_url,
+                enable_ai_insights=enable_ai_insights,
+                user_prompt=user_prompt
+            )
+        except Exception as e:
+            import traceback
+            error_msg = str(e)
+            tb_str = traceback.format_exc()
+            logging.error(f"[Task {task_id}] Error creating slides: {error_msg}")
+            logging.error(f"[Task {task_id}] Traceback: {tb_str}")
+            
+            # Check if it's a timeout error
+            if "SoftTimeLimitExceeded" in error_msg or "timeout" in error_msg.lower():
+                logging.error(f"[Task {task_id}] Task timed out. Consider:")
+                logging.error(f"[Task {task_id}]   1. Reducing number of charts")
+                logging.error(f"[Task {task_id}]   2. Disabling AI insights (enable_ai_insights=False)")
+                logging.error(f"[Task {task_id}]   3. Using more specific chart filters")
+                logging.error(f"[Task {task_id}]   4. Increasing Celery time limits")
+            
+            raise
 
         # ====================
         # STEP 4: Save Deck to Supabase

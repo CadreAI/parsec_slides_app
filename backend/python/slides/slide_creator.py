@@ -246,7 +246,8 @@ def create_slides_presentation(
     chart_paths: List[str],
     drive_folder_url: Optional[str] = None,
     enable_ai_insights: bool = True,
-    user_prompt: Optional[str] = None
+    user_prompt: Optional[str] = None,
+    deck_type: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Main function to create a Google Slides presentation
@@ -257,6 +258,7 @@ def create_slides_presentation(
         drive_folder_url: Optional Google Drive folder URL
         enable_ai_insights: Whether to use AI-generated insights (can be overridden by decision LLM)
         user_prompt: Optional user prompt describing preferences (used by decision LLM)
+        deck_type: Type of deck being created - 'BOY', 'MOY', or 'EOY' (determines which reference decks to use for training)
     
     Returns:
         Dict with presentationId, presentationUrl, title, decision_info
@@ -275,15 +277,25 @@ def create_slides_presentation(
     
     # Parse user instructions for chart selection and ordering
     chart_selection_info = None
+    original_chart_count = len(normalized_charts)
     if user_prompt and user_prompt.strip() and normalized_charts:
         print(f"[Chart Selection] Parsing user instructions for chart selection...")
-        chart_selection_info = parse_chart_instructions(user_prompt, normalized_charts)
+        print(f"[Chart Selection] User prompt: '{user_prompt[:100]}...'")
+        chart_selection_info = parse_chart_instructions(user_prompt, normalized_charts, deck_type=deck_type)
         if chart_selection_info.get('chart_selection'):
             original_count = len(normalized_charts)
             normalized_charts = chart_selection_info['chart_selection']
-            print(f"[Chart Selection] Filtered charts: {original_count} → {len(normalized_charts)}")
+            filtered_count = len(normalized_charts)
+            print(f"[Chart Selection] ✓ Filtered charts: {original_count} → {filtered_count} (removed {original_count - filtered_count} charts)")
             if chart_selection_info.get('reasoning'):
-                print(f"[Chart Selection] {chart_selection_info['reasoning']}")
+                print(f"[Chart Selection] Reasoning: {chart_selection_info['reasoning']}")
+        else:
+            print(f"[Chart Selection] ⚠ No chart_selection returned - using all {original_chart_count} charts")
+    else:
+        if not user_prompt or not user_prompt.strip():
+            print(f"[Chart Selection] No user prompt provided - using all {original_chart_count} charts")
+        else:
+            print(f"[Chart Selection] No charts to filter - using all {original_chart_count} charts")
     
     # Extract parent folder ID
     parent_folder_id = extract_folder_id_from_url(drive_folder_url) if drive_folder_url else None
@@ -350,11 +362,12 @@ def create_slides_presentation(
         total_slides_needed = 0
         i = 0
         while i < len(normalized_charts):
-            current_charts = normalized_charts[i:i+2]
-            if is_subject_graph_pair(current_charts) and i + 1 < len(normalized_charts):
+            # Check for dual chart slide (math + reading pair)
+            if is_subject_graph_pair(normalized_charts[i:i+2]) and i + 1 < len(normalized_charts):
                 total_slides_needed += 1
                 i += 2
             else:
+                # Single chart slide
                 total_slides_needed += 1
                 i += 1
         
@@ -416,7 +429,8 @@ def create_slides_presentation(
             analyses = analyze_charts_batch_paths(
                 normalized_charts, 
                 batch_size=10,
-                analysis_focus=analysis_focus
+                analysis_focus=analysis_focus,
+                charts_per_api_call=8  # Analyze 8 charts per API call - optimal for single-worker environments
             )
             for insight in analyses:
                 if 'chart_path' in insight:
@@ -453,13 +467,17 @@ def create_slides_presentation(
             print(f"[Slides] WARNING: Mismatch - {len(chart_urls)} URLs but {len(normalized_charts)} charts")
         
         i = 0
-        paired_indices = set()  # Track which charts have been paired
+        processed_indices = set()  # Track which charts have been processed
         while i < len(chart_urls) and i < len(normalized_charts):
-            # Skip if this chart was already paired
-            if i in paired_indices:
+            # Skip if this chart was already processed
+            if i in processed_indices:
                 i += 1
                 continue
             
+            is_subject_pair = False
+            pair_index = None
+            
+            # No triple chart slides - only single or dual (math+reading pairs)
             current_chart_name = Path(normalized_charts[i]).stem.lower()
             is_math = 'math' in current_chart_name
             is_reading = 'reading' in current_chart_name or 'read' in current_chart_name
@@ -467,19 +485,18 @@ def create_slides_presentation(
             
             # Try to find a math+reading/ela pair starting from current index
             # Only look for pairs if current chart is math, reading, or ela
-            pair_index = None
             if is_math or is_reading or is_ela:
                 print(f"[Pairing] Looking for pair for chart at index {i}: {Path(normalized_charts[i]).name}")
                 current_subj = 'math' if is_math else ('reading' if is_reading else 'ela')
                 looking_for = 'reading/ela' if is_math else 'math'
                 print(f"[Pairing] Current chart is {current_subj}, looking for {looking_for}")
-                pair_index = find_math_reading_pair(normalized_charts, i, paired_indices)
+                pair_index = find_math_reading_pair(normalized_charts, i, processed_indices)
                 if pair_index is not None:
                     print(f"[Pairing] ✓ Found pair at index {pair_index}: {Path(normalized_charts[pair_index]).name}")
                 else:
                     print(f"[Pairing] ✗ No pair found for chart at index {i}")
             
-            if pair_index is not None and pair_index not in paired_indices:
+            if pair_index is not None and pair_index not in processed_indices:
                 # Found a math+reading/ela pair - use those two charts
                 current_charts = [normalized_charts[i], normalized_charts[pair_index]]
                 current_urls = [chart_urls[i], chart_urls[pair_index]]
@@ -488,12 +505,12 @@ def create_slides_presentation(
                     i += 1
                     continue
                 is_subject_pair = True
-                paired_indices.add(i)
-                paired_indices.add(pair_index)
+                processed_indices.add(i)
+                processed_indices.add(pair_index)
             else:
                 # No pair found - process as single chart slide
                 # Only pair sequentially if the next chart is already a valid math+reading/ela pair
-                if i + 1 < len(normalized_charts) and (i + 1) not in paired_indices:
+                if i + 1 < len(normalized_charts) and (i + 1) not in processed_indices:
                     next_chart_name = Path(normalized_charts[i + 1]).stem.lower()
                     next_is_math = 'math' in next_chart_name
                     next_is_reading = 'reading' in next_chart_name or 'read' in next_chart_name
@@ -515,23 +532,26 @@ def create_slides_presentation(
                             current_charts = normalized_charts[i:i+2]
                             current_urls = [url for url in chart_urls[i:i+2] if url is not None]
                             is_subject_pair = len(current_urls) == 2
-                            paired_indices.add(i)
-                            paired_indices.add(i + 1)
+                            processed_indices.add(i)
+                            processed_indices.add(i + 1)
                         else:
                             # Not a valid pair - process as single chart
                             current_charts = [normalized_charts[i]]
                             current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
                             is_subject_pair = False
+                            processed_indices.add(i)
                     else:
                         # Not a math+reading pair - process as single chart
                         current_charts = [normalized_charts[i]]
                         current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
                         is_subject_pair = False
+                        processed_indices.add(i)
                 else:
-                    # No next chart or next chart already paired - process as single chart
+                    # No next chart or next chart already processed - process as single chart
                     current_charts = [normalized_charts[i]]
                     current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
                     is_subject_pair = False
+                    processed_indices.add(i)
             
             # Log which charts we're processing
             chart_names = [Path(p).name for p in current_charts]
@@ -789,6 +809,7 @@ def create_slides_presentation(
                     print(f"[Slides]   Chart: {Path(current_charts[0]).name} -> {current_urls[0][:50]}...")
                     i += 1
                 
+                # Execute chart requests for this slide
                 if chart_requests:
                     try:
                         # Log request details for debugging

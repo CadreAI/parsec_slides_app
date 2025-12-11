@@ -5,6 +5,7 @@ Uses lightweight GPT-3.5-turbo for fast, cost-effective decisions
 import os
 import re
 from typing import Dict, Optional, List
+from pathlib import Path
 from dotenv import load_dotenv
 
 try:
@@ -14,6 +15,14 @@ except ImportError:
 
 # Load environment variables
 load_dotenv()
+
+# Import layout learner
+try:
+    from .layout_learner import get_layout_context
+except ImportError:
+    # Fallback if layout_learner not available
+    def get_layout_context(reference_deck_dir: Optional[str] = None) -> str:
+        return ""
 
 
 def should_use_ai_insights(
@@ -130,7 +139,8 @@ Respond with a JSON object:
 
 def parse_chart_instructions(
     user_prompt: Optional[str] = None,
-    chart_paths: Optional[List[str]] = None
+    chart_paths: Optional[List[str]] = None,
+    deck_type: Optional[str] = None
 ) -> Dict[str, any]:
     """
     Parse user prompt to extract chart selection and ordering instructions
@@ -177,8 +187,10 @@ def parse_chart_instructions(
     client = OpenAI(api_key=api_key)
     
     # Extract chart names for context
-    from pathlib import Path
     chart_names = [Path(p).name for p in chart_paths]
+    
+    # Get layout context from reference decks (filtered by deck_type)
+    layout_context = get_layout_context(deck_type=deck_type)
     
     # Build prompt for chart selection/ordering
     selection_prompt = f"""You are a chart selection assistant. Parse the user's instructions to determine which charts to include and in what order.
@@ -188,7 +200,25 @@ User request: "{user_prompt}"
 Available charts (by filename):
 {chr(10).join(f"- {name}" for name in chart_names)}
 
-CRITICAL: If the user says "all graphs", "all charts", "all of them", "everything", "include all", "show all", or "output all" → return ALL charts in chart_selection list.
+{layout_context if layout_context else ""}
+
+**CHART SELECTION GUIDELINES (CRITICAL):**
+1. If the user says "all graphs", "all charts", "all of them", "everything", "include all", "show all", or "output all" → return ALL charts in chart_selection list.
+
+2. Otherwise, use reference deck patterns to INTELLIGENTLY SELECT charts:
+   - **REQUIRED CHARTS**: Charts listed as "required charts" appear in 80%+ of reference decks - prioritize including these if they match user's request
+   - **OPTIONAL CHARTS**: Charts listed as "optional charts" appear inconsistently - only include if explicitly relevant to user's request
+   - **OMIT UNNECESSARY CHARTS**: If a chart type doesn't appear in reference decks AND isn't explicitly requested by the user, OMIT IT
+   - **FOLLOW GROUPINGS**: If charts typically appear together in reference decks, include them together when relevant
+   - **RESPECT FLOW**: Follow the presentation flow patterns from reference decks when ordering
+
+3. **FILTERING LOGIC**:
+   - Start with charts that match user's explicit request
+   - Then add required charts from reference decks that are relevant
+   - Only add optional charts if they enhance the presentation
+   - EXCLUDE charts that don't match reference deck patterns unless explicitly requested
+
+4. **EXAMPLE**: If reference decks show that "section3" charts are common but "section5" charts never appear, and user requests "grade 1-4 trends", include section3 charts but don't include section5 charts unless user explicitly asks for them.
 
 Instructions:
 1. If user wants ALL charts → list ALL chart filenames in chart_selection and set exclude_others=false
@@ -208,15 +238,16 @@ Instructions:
 
 Respond with JSON:
 {{
-    "chart_selection": ["list of chart filenames in desired order - if user wants ALL charts, list ALL filenames here"],
+    "chart_selection": ["list of chart filenames in desired order - ONLY include charts that match user's request AND reference deck patterns. If user wants ALL charts, list ALL filenames here"],
     "instructions": {{
         "grades": ["list of ALL grade numbers mentioned (e.g., ['1', '2', '3', '4'] for 'grades 1-4'), empty array if all grades"],
         "subjects": ["math", "reading", or both, empty array if all subjects],
         "sections": ["section1", "section2", "section3", etc., empty array if all sections],
         "order_matters": true/false,
-        "exclude_others": false if user wants all charts, true only if user says "only" or "that's it"
+        "exclude_others": false if user wants all charts, true only if user says "only" or "that's it",
+        "filter_by_reference_patterns": true
     }},
-    "reasoning": "brief explanation of selection"
+    "reasoning": "brief explanation of selection, including which charts were included/excluded based on reference deck patterns"
 }}"""
 
     try:
@@ -264,10 +295,55 @@ Respond with JSON:
                             seen_paths.add(path)
                             break
         
+        # Get exclude_others flag early
+        exclude_others = instructions.get('exclude_others', False) if instructions else False
+        
+        # Apply reference deck filtering if enabled
+        filter_by_reference = instructions.get('filter_by_reference_patterns', True) if instructions else True
+        
+        # If filtering is enabled, check against reference deck patterns
+        # Only filter if user didn't explicitly request all charts
+        if filter_by_reference and not exclude_others and len(selected_paths) > 0:
+            try:
+                from .layout_learner import learn_layout_patterns
+                script_dir = Path(__file__).parent
+                reference_deck_dir = script_dir / 'reference_decks'
+                patterns = learn_layout_patterns(str(reference_deck_dir))
+                selection_patterns = patterns.get('chart_selection_patterns', {})
+                required_charts = selection_patterns.get('required_charts', [])
+                optional_charts = selection_patterns.get('optional_charts', [])
+                
+                # Build set of chart types that match reference patterns
+                reference_chart_types = set(required_charts + optional_charts)
+                
+                # Filter selected paths to only include those matching reference patterns
+                # unless user explicitly requested them
+                if reference_chart_types:
+                    filtered_paths = []
+                    for path in selected_paths:
+                        path_name_lower = Path(path).name.lower()
+                        # Check if chart matches any reference pattern
+                        matches_reference = False
+                        for ref_type in reference_chart_types:
+                            # Check if chart filename contains elements of reference type
+                            ref_parts = ref_type.lower().split('_')
+                            if all(part in path_name_lower for part in ref_parts if len(part) > 3):
+                                matches_reference = True
+                                break
+                        
+                        # Include if matches reference OR if user explicitly requested (check if in user prompt keywords)
+                        if matches_reference or any(keyword in user_prompt_lower for keyword in Path(path).stem.lower().split('_')):
+                            filtered_paths.append(path)
+                    
+                    if filtered_paths:
+                        print(f"[Chart Selection] Filtered by reference patterns: {len(selected_paths)} → {len(filtered_paths)} charts")
+                        selected_paths = filtered_paths
+            except Exception as e:
+                print(f"[Chart Selection] Error applying reference filtering: {e}")
+        
         # Fallback: If instructions specify grades/subjects/sections, match charts by criteria
         # This handles cases where LLM didn't list all filenames but gave criteria
         # BUT: If user wanted all charts, skip criteria filtering
-        exclude_others = instructions.get('exclude_others', False) if instructions else False
         if instructions and len(selected_paths) < len(chart_paths) and not exclude_others:
             grades = instructions.get('grades', [])
             subjects = instructions.get('subjects', [])
@@ -323,25 +399,59 @@ Respond with JSON:
                         seen_paths.add(path)
         
         # Sort charts by order specified in user prompt
-        # If order_matters is True, prioritize by section (section3 first, then section1, then others)
+        # If order_matters is True, prioritize by section using learned patterns from reference decks
         # Within sections, sort by grade number
         if instructions and instructions.get('order_matters', False):
+            # Get learned section order from reference decks (filtered by deck_type)
+            try:
+                from .layout_learner import learn_layout_patterns
+                script_dir = Path(__file__).parent
+                base_reference_dir = script_dir / 'reference_decks'
+                
+                # Map deck_type to specific folder
+                if deck_type:
+                    deck_type_upper = deck_type.upper()
+                    if deck_type_upper == 'BOY':
+                        reference_deck_dir = base_reference_dir / 'BOY-DECKS'
+                    elif deck_type_upper == 'MOY':
+                        reference_deck_dir = base_reference_dir / 'MOY-DECKS'
+                    elif deck_type_upper == 'EOY':
+                        reference_deck_dir = base_reference_dir / 'EOY-DECKS'
+                    else:
+                        reference_deck_dir = base_reference_dir
+                else:
+                    reference_deck_dir = base_reference_dir
+                
+                patterns = learn_layout_patterns(str(reference_deck_dir))
+                learned_section_order = patterns.get('section_order', [])
+            except Exception as e:
+                print(f"[Chart Selection] Could not load layout patterns: {e}, using default order")
+                learned_section_order = []
+            
+            # Build section priority map from learned order, fallback to default
+            section_priority_map = {}
+            if learned_section_order:
+                for idx, section in enumerate(learned_section_order):
+                    section_priority_map[section.lower()] = idx + 1
+            else:
+                # Default fallback order
+                section_priority_map = {
+                    'section3': 1,
+                    'section1': 2,
+                    'section4': 3,
+                    'section2': 4,
+                    'section0': 5,
+                    'section6': 6
+                }
+            
             def chart_sort_key(path: str) -> tuple:
                 path_name_lower = Path(path).name.lower()
-                # Section priority: section3 (grade trends) first, then section1 (fall trends), then others
+                # Section priority: use learned order, fallback to default
                 section_priority = 999
-                if 'section3' in path_name_lower:
-                    section_priority = 1
-                elif 'section1' in path_name_lower:
-                    section_priority = 2
-                elif 'section4' in path_name_lower:
-                    section_priority = 3
-                elif 'section2' in path_name_lower:
-                    section_priority = 4
-                elif 'section0' in path_name_lower:
-                    section_priority = 5
-                elif 'section6' in path_name_lower:
-                    section_priority = 6
+                for section_name, priority in section_priority_map.items():
+                    if section_name in path_name_lower:
+                        section_priority = priority
+                        break
                 
                 # Scope priority: district before school (so district charts come first for same grade/section/subject)
                 scope_priority = 1 if path_name_lower.startswith('district_') else 2 if path_name_lower.startswith('school_') else 3
