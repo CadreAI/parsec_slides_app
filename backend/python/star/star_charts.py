@@ -1709,17 +1709,38 @@ def generate_star_charts(
             print(f"\n[STAR Router] Winter selected but other quarters also present - will generate both")
             print(f"[STAR Router] normalized_quarters={normalized_quarters}, has_fall={has_fall}, has_spring={has_spring}")
     
-    # Route to Fall module if Fall or Spring is selected
-    # BUT: Skip Fall if ONLY Winter was selected (already handled above)
-    if has_fall or has_spring:
-        # Double-check: if Winter was selected and we're here, it means both are selected
-        # OR Winter check failed (which shouldn't happen)
-        if has_winter:
-            print(f"\n[STAR Router] Both Winter and {'Fall' if has_fall else ''} {'Spring' if has_spring else ''} detected")
-            print(f"[STAR Router] Will generate both Winter and Fall/Spring charts")
+    # Route to Spring module if Spring is selected
+    if has_spring:
+        from .star_spring import generate_star_spring_charts
+        print("\n[STAR Router] Spring detected - routing to star_spring.py...")
+        try:
+            spring_charts = generate_star_spring_charts(
+                star_data=star_data,
+                config=cfg,
+                partner_name=partner_name,
+                data_dir=data_dir,
+                output_dir=output_dir,
+                chart_filters=chart_filters_check,
+                dev_mode=dev_mode
+            )
+            if spring_charts:
+                all_chart_paths.extend(spring_charts)
+                print(f"[STAR Router] Generated {len(spring_charts)} Spring charts")
+        except Exception as e:
+            print(f"[STAR Router] Error generating Spring charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    
+    # Route to Fall module if Fall is selected
+    # BUT: Skip Fall if ONLY Winter or ONLY Spring was selected (already handled above)
+    if has_fall:
+        # Double-check: if Winter or Spring was selected and we're here, it means multiple quarters are selected
+        if has_winter or has_spring:
+            print(f"\n[STAR Router] Multiple quarters detected - will generate charts for all selected quarters")
         
         from .star_fall import generate_star_fall_charts
-        print(f"\n[STAR Router] {'Fall' if has_fall else ''} {'Spring' if has_spring else ''} detected - routing to star_fall.py...")
+        print("\n[STAR Router] Fall detected - routing to star_fall.py...")
         try:
             fall_charts = generate_star_fall_charts(
                 star_data=star_data,
@@ -1739,10 +1760,8 @@ def generate_star_charts(
                 import traceback
                 traceback.print_exc()
     else:
-        if not has_winter:
+        if not has_winter and not has_spring:
             print("\n[STAR Router] No Fall, Spring, or Winter selected - skipping chart generation")
-        else:
-            print("\n[STAR Router] Only Winter selected - Fall chart generation already skipped above")
     
     print(f"\n[STAR Router] Total charts generated: {len(all_chart_paths)}")
     return all_chart_paths

@@ -14,9 +14,15 @@ from .star_helper_functions import (
     STAR_TIME_COL_OPTIONS,
     STAR_LEVEL_LABELS,
 )
+from .star_spring import generate_star_spring_charts
+from .star_winter import generate_star_winter_charts
+from .star_fall import generate_star_fall_charts
 
 __all__ = [
     'generate_star_charts',
+    'generate_star_spring_charts',
+    'generate_star_winter_charts',
+    'generate_star_fall_charts',
     'main',
     'load_star_data',
     'prep_star_for_charts',
