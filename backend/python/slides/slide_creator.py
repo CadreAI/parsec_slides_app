@@ -391,7 +391,11 @@ def create_slides_presentation(
         print(f"[Slides] ✗ Error creating slides:")
         if error_details:
             for idx, error in enumerate(error_details, 1):
-                print(f"[Slides]   Error {idx}: {error.get('message', 'Unknown error')} (reason: {error.get('reason', 'unknown')})")
+                if isinstance(error, dict):
+                    print(f"[Slides]   Error {idx}: {error.get('message', 'Unknown error')} (reason: {error.get('reason', 'unknown')})")
+                else:
+                    # error might be a string
+                    print(f"[Slides]   Error {idx}: {error}")
         else:
             print(f"[Slides]   Error: {e}")
         raise
@@ -827,7 +831,11 @@ def create_slides_presentation(
                         print(f"[Slides] ✗ Error updating slide {slide_index}:")
                         if error_details:
                             for idx, error in enumerate(error_details, 1):
-                                print(f"[Slides]   Error {idx}: {error.get('message', 'Unknown error')} (reason: {error.get('reason', 'unknown')})")
+                                if isinstance(error, dict):
+                                    print(f"[Slides]   Error {idx}: {error.get('message', 'Unknown error')} (reason: {error.get('reason', 'unknown')})")
+                                else:
+                                    # error might be a string
+                                    print(f"[Slides]   Error {idx}: {error}")
                         else:
                             print(f"[Slides]   Error: {e}")
                         

@@ -135,12 +135,42 @@ export async function GET(req: NextRequest) {
 
         // Query NWEA table if it exists
         if (nweaTableId) {
+            // Check which columns exist in the table
+            let hasLearningCenter = false
+            let hasDistrictName = false
+            try {
+                const tableName = nweaTableId.split('.').pop()!
+                const [table] = await client.dataset(datasetId).table(tableName).getMetadata()
+                const fields = table.schema?.fields || []
+                hasLearningCenter = fields.some(
+                    (field: { name?: string }) => field.name?.toLowerCase() === 'learning_center' || field.name?.toLowerCase() === 'learningcenter'
+                )
+                hasDistrictName = fields.some(
+                    (field: { name?: string }) =>
+                        field.name?.toLowerCase() === 'districtname' ||
+                        field.name?.toLowerCase() === 'district_name' ||
+                        field.name?.toLowerCase() === 'district'
+                )
+                console.log(`NWEA table has learning_center column: ${hasLearningCenter}`)
+                console.log(`NWEA table has district name column: ${hasDistrictName}`)
+            } catch (error) {
+                console.warn(`Could not check table schema: ${error}`)
+            }
+
+            // Use learning_center if it exists, otherwise fall back to SchoolName
+            // BigQuery column names: learning_center (lowercase with underscore), SchoolName (PascalCase)
+            const schoolColumn = hasLearningCenter ? `COALESCE(learning_center, SchoolName)` : `SchoolName`
+
+            // Build WHERE clause - only require school column to have values
+            // Pull all DistrictName values (including NULL) to get all possible districts
+            const whereClause = `WHERE ${schoolColumn} IS NOT NULL`
+
             const nweaSql = `
                 SELECT DISTINCT
                     DistrictName,
-                    SchoolName
+                    ${schoolColumn} AS SchoolName
                 FROM \`${nweaTableId}\`
-                WHERE DistrictName IS NOT NULL
+                ${whereClause}
             `
 
             const nweaOptions = {
@@ -155,23 +185,30 @@ export async function GET(req: NextRequest) {
                 const [nweaRows] = await nweaJob.getQueryResults()
 
                 for (const row of nweaRows) {
-                    const districtName = String(row.DistrictName || row.districtname || row.District_Name || row.district_name || '').trim()
-                    const schoolName = String(row.SchoolName || row.schoolname || row.School_Name || row.school_name || '').trim()
+                    // NWEA table uses DistrictName column - get all possible values including NULL
+                    const districtName = row.DistrictName != null ? String(row.DistrictName).trim() : null
+                    // Check for learning_center first (lowercase with underscore), then fall back to SchoolName
+                    const schoolName = String(row.learning_center || row.SchoolName || '').trim()
 
-                    if (districtName) {
-                        districtSet.add(districtName)
-                        if (schoolName) {
-                            if (!districtSchoolMap[districtName]) {
-                                districtSchoolMap[districtName] = []
+                    if (schoolName) {
+                        // Add district name if it exists, otherwise use dataset name for charter schools
+                        const effectiveDistrictName = districtName || (hasLearningCenter ? datasetId : null)
+
+                        // Only add district if we have a valid name
+                        if (effectiveDistrictName) {
+                            districtSet.add(effectiveDistrictName)
+
+                            if (!districtSchoolMap[effectiveDistrictName]) {
+                                districtSchoolMap[effectiveDistrictName] = []
                             }
-                            if (!districtSchoolMap[districtName].includes(schoolName)) {
-                                districtSchoolMap[districtName].push(schoolName)
+                            if (!districtSchoolMap[effectiveDistrictName].includes(schoolName)) {
+                                districtSchoolMap[effectiveDistrictName].push(schoolName)
                             }
-                            schoolSet.add(schoolName)
                         }
+                        schoolSet.add(schoolName)
                     }
                 }
-                console.log(`Found ${nweaRows.length} rows from NWEA table`)
+                console.log(`Found ${nweaRows.length} rows from NWEA table (using ${hasLearningCenter ? 'learning_center' : 'SchoolName'} for schools)`)
             } catch (error) {
                 console.warn(`Error querying NWEA table: ${error}`)
             }

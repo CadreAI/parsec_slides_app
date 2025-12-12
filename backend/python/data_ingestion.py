@@ -11,6 +11,7 @@ from python.bigquery_client import get_bigquery_client, run_query
 from python.nwea.sql_builders import sql_nwea
 from python.iready.sql_builders import sql_iready
 from python.star.sql_builders import sql_star
+from python import helper_functions as hf
 
 
 def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -95,16 +96,10 @@ def ingest_nwea(
     if chart_filters.get('schools'):
         base_filters['schools'] = chart_filters['schools']
 
-    # Determine if we should apply grade filter in SQL
-    # Always apply grade filter in SQL when grades are specified (more efficient)
-    # This reduces data fetched significantly
-    apply_grade_filter_sql = bool(chart_filters.get('grades') and len(chart_filters.get('grades', [])) > 0)
-
-    if apply_grade_filter_sql:
-        base_filters['grades'] = chart_filters['grades']
-        print(f"[Data Ingestion] Will apply grade filter in SQL: {chart_filters['grades']}")
-    else:
-        print(f"[Data Ingestion] No grade filter specified - will fetch all grades")
+    # NWEA: Do NOT filter by grades or quarters during data collection
+    # Only filter by years. Grade and quarter filtering happens during chart generation.
+    apply_grade_filter_sql = False
+    print(f"[Data Ingestion] NWEA: Fetching all grades (grade filtering happens during chart generation)")
 
     # Note: districts filter is applied in Python after query (no DistrictName column in NWEA)
 
@@ -113,110 +108,40 @@ def ingest_nwea(
         print(f"[Data Ingestion] ⚠️  WARNING: No school filter applied!")
         print(f"[Data Ingestion] ⚠️  This will fetch data for ALL schools (may be very large)")
 
-    # Determine years to query
-    years = chart_filters.get('years')
-    if not years or len(years) == 0:
-        # Default: last 3 years
-        current_date = datetime.now()
-        current_year = current_date.year
-        if current_date.month >= 7:
-            current_year += 1
-        years = [current_year - 2, current_year - 1, current_year]
-        print(f"[Data Ingestion] No years specified, using default: {years}")
-    else:
-        print(f"[Data Ingestion] Querying years: {years}")
+    # NWEA: Use simplified query that fetches last 3 years in a single query
+    print(f"[Data Ingestion] NWEA: Executing single query for last 3 years...")
+    print(f"[Data Ingestion] Table: {table_id}")
 
     # Get exclude columns from config if specified
     exclude_cols = None
     if isinstance(nwea_source, dict) and 'exclude_cols' in nwea_source:
         exclude_cols = nwea_source.get('exclude_cols')
+    # Also check config-level exclude_cols
+    if not exclude_cols and isinstance(config.get('exclude_cols'), dict):
+        exclude_cols = config.get('exclude_cols', {}).get('nwea', [])
 
-    # Function to query a single year
-    def query_year(year: int) -> List[Dict[str, Any]]:
-        """Query a single year with its own BigQuery client (thread-safe)"""
+    # Build and execute single SQL query
+    try:
+        credentials_path = config.get('gcp', {}).get('credentials_path')
+        client = get_bigquery_client(project_id, credentials_path)
+
+        # Ensure table_id is a string
+        if not isinstance(table_id, str):
+            raise ValueError(f"table_id must be a string, got {type(table_id)}: {table_id}")
+        
+        sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols)
+
+        print(f"[Data Ingestion] SQL Query:")
+        print(f"[Data Ingestion] {sql}")
+        print(f"[Data Ingestion] Executing query...")
+        rows = run_query(sql, client, None)
+        print(f"[Data Ingestion] Retrieved {len(rows):,} total rows from query")
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Data Ingestion] Error: {error_msg}")
         import traceback
-        try:
-            print(f"[Data Ingestion] [Year {year}] Starting query setup...")
-            # Create a new client for this thread (thread-safe)
-            credentials_path = config.get('gcp', {}).get('credentials_path')
-            client = get_bigquery_client(project_id, credentials_path)
-
-            # Build SQL query for this specific year
-            sql_filters = {'years': [year]}
-            sql = sql_nwea(table_id, exclude_cols, filters=sql_filters, apply_grade_filter=apply_grade_filter_sql)
-
-            print(f"[Data Ingestion] [Year {year}] Executing query...")
-            rows = run_query(sql, client, None)
-            print(f"[Data Ingestion] [Year {year}] Retrieved {len(rows):,} rows")
-            return rows
-        except Exception as e:
-            error_msg = str(e)
-            print(f"[Data Ingestion] [Year {year}] Error: {error_msg}")
-            print(f"[Data Ingestion] [Year {year}] Traceback:")
-            traceback.print_exc()
-            return []
-
-    # Execute queries in parallel
-    print(f"[Data Ingestion] Executing {len(years)} year queries in parallel...")
-    print(f"[Data Ingestion] Table: {table_id}")
-
-    all_rows = []
-
-    # Use ThreadPoolExecutor to run queries in parallel
-    # Limit to max 5 concurrent queries to avoid overwhelming BigQuery
-    max_workers = min(len(years), 5)
-
-    print(f"[Data Ingestion] Using ThreadPoolExecutor with {max_workers} workers for {len(years)} years")
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all year queries
-        future_to_year = {executor.submit(query_year, year): year for year in years}
-        print(f"[Data Ingestion] Submitted {len(future_to_year)} queries")
-
-        # Collect results as they complete with timeout
-        import time
-        start_time = time.time()
-        query_timeout = 300  # 5 minute timeout per query
-
-        completed_years = set()
-
-        try:
-            # Wait for all futures with a reasonable timeout
-            total_timeout = query_timeout * len(years) + 60  # Extra buffer
-            for future in concurrent.futures.as_completed(future_to_year, timeout=total_timeout):
-                year = future_to_year[future]
-                elapsed = time.time() - start_time
-                try:
-                    rows = future.result(timeout=30)  # 30 second timeout for result retrieval
-                    all_rows.extend(rows)
-                    completed_years.add(year)
-                    print(f"[Data Ingestion] [Year {year}] Completed: {len(rows):,} rows (Total: {len(all_rows):,}) in {elapsed:.1f}s")
-                except concurrent.futures.TimeoutError:
-                    print(f"[Data Ingestion] [Year {year}] TIMEOUT: Result retrieval took longer than 30s")
-                except Exception as e:
-                    print(f"[Data Ingestion] [Year {year}] Failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-        except concurrent.futures.TimeoutError:
-            print(f"[Data Ingestion] TIMEOUT: Some queries exceeded {total_timeout}s total timeout")
-            # Check which queries are still pending
-            for future, year in future_to_year.items():
-                if year not in completed_years:
-                    if future.running():
-                        print(f"[Data Ingestion] [Year {year}] Still running...")
-                    elif future.done():
-                        try:
-                            rows = future.result(timeout=5)
-                            all_rows.extend(rows)
-                            print(f"[Data Ingestion] [Year {year}] Late completion: {len(rows):,} rows")
-                        except:
-                            print(f"[Data Ingestion] [Year {year}] Failed to retrieve result")
-                    else:
-                        print(f"[Data Ingestion] [Year {year}] Not started")
-
-    print(f"[Data Ingestion] All queries completed. Total rows: {len(all_rows):,}")
-
-    rows = all_rows
+        traceback.print_exc()
+        rows = []
 
     if not rows:
         print("[Data Ingestion] Warning: No rows returned from queries")
@@ -224,69 +149,113 @@ def ingest_nwea(
 
     # Convert to DataFrame
     df = pd.DataFrame(rows)
-    print(f"[Data Ingestion] Raw data: {len(df)} rows, {len(df.columns)} columns")
+    print(f"[Data Ingestion] Raw data after combining all years: {len(df)} rows, {len(df.columns)} columns")
+    
+    # Check for year distribution before column name cleaning
+    if 'Year' in df.columns:
+        year_counts = df['Year'].value_counts().sort_index()
+        print(f"[Data Ingestion] Year distribution in raw data:")
+        for year, count in year_counts.items():
+            print(f"[Data Ingestion]   Year {year}: {count:,} rows")
 
     # Clean column names
     df = clean_column_names(df)
+    
+    # Debug: Print available columns for deduplication
+    print(f"[Data Ingestion] Available columns after cleaning: {sorted(df.columns.tolist())}")
+    
+    # Check for year distribution after column name cleaning
+    if 'year' in df.columns:
+        year_counts = df['year'].value_counts().sort_index()
+        print(f"[Data Ingestion] Year distribution after column cleaning:")
+        for year, count in year_counts.items():
+            print(f"[Data Ingestion]   Year {year}: {count:,} rows")
 
     # Apply filters in Python (not in SQL)
     print("[Data Ingestion] Applying filters in Python...")
 
     # School filter
-    if chart_filters.get('schools') and 'school' in df.columns:
+    # For charter schools, school name may be in learning_center column instead of school column
+    # Use fuzzy matching similar to get_scopes() to handle name variations
+    if chart_filters.get('schools'):
         schools = chart_filters['schools']
-        before_filter = len(df)
-        df = df[df['school'].isin(schools)]
-        print(f"[Data Ingestion] Applied school filter: {before_filter} -> {len(df)} rows")
+        school_col = None
+        
+        # Check learning_center first (for charter schools), then school (for regular schools)
+        if 'learning_center' in df.columns:
+            school_col = 'learning_center'
+        elif 'school' in df.columns:
+            school_col = 'school'
+        
+        if school_col:
+            before_filter = len(df)
+            # Use fuzzy matching instead of exact matching
+            # Normalize selected schools
+            selected_schools_normalized = [hf._safe_normalize_school_name(s, config) for s in schools]
+            
+            # Find matching schools using fuzzy logic
+            available_schools = df[school_col].dropna().unique()
+            matching_schools = []
+            for school in available_schools:
+                normalized_school = hf._safe_normalize_school_name(school, config)
+                # Check normalized match
+                if normalized_school in selected_schools_normalized:
+                    matching_schools.append(school)
+                # Also check direct case-insensitive/partial match
+                elif any(school.lower() == selected.lower() or 
+                        selected.lower() in school.lower() or 
+                        school.lower() in selected.lower() 
+                        for selected in schools):
+                    matching_schools.append(school)
+            
+            if matching_schools:
+                df = df[df[school_col].isin(matching_schools)]
+                print(f"[Data Ingestion] Applied school filter using column '{school_col}': {before_filter} -> {len(df)} rows")
+                print(f"[Data Ingestion] Matched schools: {matching_schools}")
+            else:
+                print(f"[Data Ingestion] ⚠️  No matching schools found for: {schools}")
+                print(f"[Data Ingestion] Available schools in '{school_col}': {sorted(available_schools)}")
+                print(f"[Data Ingestion] Keeping all data - will let get_scopes() handle filtering")
+        else:
+            print(f"[Data Ingestion] Warning: School filter specified but no school column found (checked: learning_center, school)")
 
     # District filter (applied in Python since DistrictName column doesn't exist in NWEA)
-    if chart_filters.get('districts') and 'districtname' in df.columns:
+    # Handle both column name variations: DistrictName -> districtname, or district_name -> district_name
+    if chart_filters.get('districts'):
         districts = chart_filters['districts']
-        before_filter = len(df)
-        df = df[df['districtname'].isin(districts)]
-        print(f"[Data Ingestion] Applied district filter: {before_filter} -> {len(df)} rows")
+        district_col = None
+        
+        # Check for both possible column names (after clean_column_names normalization)
+        if 'districtname' in df.columns:
+            district_col = 'districtname'
+        elif 'district_name' in df.columns:
+            district_col = 'district_name'
+        
+        if district_col:
+            before_filter = len(df)
+            df = df[df[district_col].isin(districts)]
+            print(f"[Data Ingestion] Applied district filter using column '{district_col}': {before_filter} -> {len(df)} rows")
+        else:
+            print(f"[Data Ingestion] Warning: District filter specified but no district column found (checked: districtname, district_name)")
 
-    # Deduplication logic
+    # NWEA: No deduplication needed - SQL query uses SELECT DISTINCT
+    # The database handles deduplication, so we keep all rows as-is
     initial_count = len(df)
-    print(f"[Data Ingestion] Starting deduplication (initial count: {initial_count:,})")
+    print(f"[Data Ingestion] NWEA data: {initial_count:,} rows (deduplication handled by SQL DISTINCT)")
+    
+    # Summary of filtering impact
+    raw_row_count = len(rows)  # Store original count before filtering
+    print(f"[Data Ingestion] Data reduction summary:")
+    print(f"[Data Ingestion]   - Raw data from query (DISTINCT): {raw_row_count:,} rows")
+    print(f"[Data Ingestion]   - After school/district filters: {initial_count:,} rows")
+    print(f"[Data Ingestion]   - Final data: {len(df):,} rows")
+    if raw_row_count != len(df):
+        print(f"[Data Ingestion]   - Total reduction: {raw_row_count - len(df):,} rows ({100 * (raw_row_count - len(df)) / raw_row_count:.1f}%)")
 
-    # Key columns for deduplication (matching NWEA deduplication logic)
-    key_cols = ['studentid', 'teststartdate', 'discipline']
-    if all(col in df.columns for col in key_cols):
-        before_key_dedup = len(df)
-        # Sort by teststartdate descending, then drop duplicates keeping first (most recent)
-        group_cols = ['studentid', 'discipline']
-        df = df.sort_values('teststartdate', ascending=False).drop_duplicates(
-            subset=group_cols,
-            keep='first'
-        )
-        key_dupes_removed = before_key_dedup - len(df)
-        if key_dupes_removed > 0:
-            print(f"[Data Ingestion] Removed {key_dupes_removed} duplicates based on key columns: {group_cols}")
-
-        # If there's a uniqueidentifier column, use that for final deduplication
-        if 'uniqueidentifier' in df.columns:
-            before_unique_dedup = len(df)
-            df = df.drop_duplicates(subset=['uniqueidentifier'], keep='first')
-            unique_dupes_removed = before_unique_dedup - len(df)
-            if unique_dupes_removed > 0:
-                print(f"[Data Ingestion] Removed {unique_dupes_removed} duplicates based on uniqueidentifier")
-    else:
-        # Fallback: remove exact duplicates only if we don't have the key columns
-        print("[Data Ingestion] Warning: Missing key columns for deduplication, using exact match")
-        df = df.drop_duplicates(keep='first')
-
-    total_removed = initial_count - len(df)
-    print(f"[Data Ingestion] Final data: {len(df)} rows after deduplication (removed {total_removed:,} duplicates, {total_removed/initial_count*100:.1f}%)")
-
-    # Apply grade filter if specified (after deduplication)
-    # Note: If grade filter was applied in SQL, this is a safety check/re-filter
-    # If grade filter was NOT applied in SQL, this is the primary filter
-    if chart_filters.get('grades') and 'grade' in df.columns:
-        grades = chart_filters['grades']
-        before_filter = len(df)
-        df = df[df['grade'].isin(grades)]
-        print(f"[Data Ingestion] Applied grade filter in Python: {before_filter} -> {len(df)} rows")
+    # NWEA: Do NOT apply grade filter during data collection
+    # Grade filtering happens during chart generation when needed
+    # This allows us to collect all grade data and filter later as needed
+    # (Grade filtering removed per user request - only filter by years)
 
     # Convert back to list of dicts
     result = df.to_dict('records')
@@ -468,11 +437,23 @@ def ingest_iready(
     print("[Data Ingestion] Applying filters in Python...")
 
     # School filter
-    if chart_filters.get('schools') and 'school' in df.columns:
+    # For charter schools, school name may be in learning_center column instead of school column
+    if chart_filters.get('schools'):
         schools = chart_filters['schools']
-        before_filter = len(df)
-        df = df[df['school'].isin(schools)]
-        print(f"[Data Ingestion] Applied school filter: {before_filter} -> {len(df)} rows")
+        school_col = None
+        
+        # Check learning_center first (for charter schools), then school (for regular schools)
+        if 'learning_center' in df.columns:
+            school_col = 'learning_center'
+        elif 'school' in df.columns:
+            school_col = 'school'
+        
+        if school_col:
+            before_filter = len(df)
+            df = df[df[school_col].isin(schools)]
+            print(f"[Data Ingestion] Applied school filter using column '{school_col}': {before_filter} -> {len(df)} rows")
+        else:
+            print(f"[Data Ingestion] Warning: School filter specified but no school column found (checked: learning_center, school)")
 
     # Note: Year filtering is done in SQL, not in Python
     # This ensures we only fetch the years we need from BigQuery
@@ -587,11 +568,12 @@ def ingest_star(
     print("[Data Ingestion] Applying filters in Python...")
 
     # School filter (STAR uses School_Name column, normalized to school_name after clean_column_names)
+    # For charter schools, school name may be in learning_center column instead of school column
     if chart_filters.get('schools'):
         schools = chart_filters['schools']
-        # Try multiple column name variations
+        # Check learning_center first (for charter schools), then other variations
         school_col = None
-        for col_name in ['school_name', 'schoolname', 'school']:
+        for col_name in ['learning_center', 'school_name', 'schoolname', 'school']:
             if col_name in df.columns:
                 school_col = col_name
                 break
@@ -599,9 +581,9 @@ def ingest_star(
         if school_col:
             before_filter = len(df)
             df = df[df[school_col].isin(schools)]
-            print(f"[Data Ingestion] Applied school filter: {before_filter} -> {len(df)} rows")
+            print(f"[Data Ingestion] Applied school filter using column '{school_col}': {before_filter} -> {len(df)} rows")
         else:
-            print("[Data Ingestion] Warning: Could not find school column for filtering")
+            print("[Data Ingestion] Warning: Could not find school column for filtering (checked: learning_center, school_name, schoolname, school)")
 
     # District filter (STAR uses District_Name column, normalized to district_name after clean_column_names)
     if chart_filters.get('districts'):

@@ -1864,7 +1864,7 @@ def generate_nwea_charts(
     nwea_data: list = None
 ) -> list:
     """
-    Generate NWEA charts (wrapper function for Flask backend)
+    Generate NWEA charts (router function - directs to Winter or Fall modules based on quarter selection)
     
     Args:
         partner_name: Partner name
@@ -1877,51 +1877,92 @@ def generate_nwea_charts(
     Returns:
         List of chart file paths
     """
-    # Reset global chart tracking state at the start of each request
-    # This prevents collisions when multiple requests run concurrently
     global chart_links, _chart_tracking_set
     chart_links = []
     _chart_tracking_set = set()
     
-    # Set up config
     cfg = config or {}
     if chart_filters:
         cfg['chart_filters'] = chart_filters
     
-    # Set dev mode from config
     hf.DEV_MODE = cfg.get('dev_mode', False)
     
-    # Create mock args object to pass to main logic
-    class Args:
-        def __init__(self):
-            self.partner = partner_name
-            self.data_dir = data_dir if nwea_data is None else None  # Only use data_dir if no data provided
-            self.output_dir = output_dir
-            self.dev_mode = 'true' if hf.DEV_MODE else 'false'
-            self.config = json.dumps(cfg) if cfg else '{}'
+    chart_filters_check = cfg.get('chart_filters', {})
+    selected_quarters = chart_filters_check.get("quarters", [])
+    all_chart_paths = []
     
-    args = Args()
+    # Normalize selected_quarters to handle both list and single value
+    if isinstance(selected_quarters, str):
+        selected_quarters = [selected_quarters]
+    elif not isinstance(selected_quarters, list):
+        selected_quarters = []
     
-    # Temporarily override sys.argv to call main()
-    import sys
-    old_argv = sys.argv
-    try:
-        sys.argv = [
-            'nwea_charts.py',
-            '--partner', args.partner,
-            '--output-dir', args.output_dir,
-            '--dev-mode', args.dev_mode,
-            '--config', args.config
-        ]
-        # Add --data-dir only if needed (when nwea_data is None)
-        if args.data_dir:
-            sys.argv.extend(['--data-dir', args.data_dir])
+    # If no quarters are explicitly selected, default to Fall for backward compatibility
+    if not selected_quarters:
+        selected_quarters = ["Fall"]
+        print("\n[NWEA Router] No quarters specified in chart_filters - defaulting to Fall")
+    
+    normalized_quarters = [str(q).lower() for q in selected_quarters]
+    has_winter = "winter" in normalized_quarters
+    has_fall = "fall" in normalized_quarters
+    has_spring = "spring" in normalized_quarters
+    
+    print(f"\n[NWEA Router] Selected quarters from chart_filters: {selected_quarters}")
+    print(f"[NWEA Router] Normalized quarters: {normalized_quarters}")
+    print(f"[NWEA Router] has_winter={has_winter}, has_fall={has_fall}, has_spring={has_spring}")
+    
+    # Route to Winter module if Winter is selected
+    if has_winter:
+        from .nwea_winter import generate_nwea_winter_charts
+        print("\n[NWEA Router] Winter detected - routing to nwea_winter.py...")
+        try:
+            winter_charts = generate_nwea_winter_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                nwea_data=nwea_data
+            )
+            if winter_charts:
+                all_chart_paths.extend(winter_charts)
+                print(f"[NWEA Router] Generated {len(winter_charts)} Winter charts")
+        except Exception as e:
+            print(f"[NWEA Router] Error generating Winter charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
         
-        chart_paths = main(nwea_data=nwea_data)
-    finally:
-        sys.argv = old_argv
+        # If ONLY Winter is selected (no Fall, no Spring), return early
+        if has_winter and not has_fall and not has_spring:
+            print("\n[NWEA Router] Only Winter selected - returning early, skipping Fall/Spring chart generation.")
+            return all_chart_paths
     
-    return chart_paths
+    # Route to Fall/Spring module if Fall or Spring is selected
+    if has_fall or has_spring:
+        from .nwea_fall import generate_nwea_fall_charts
+        print(f"\n[NWEA Router] {'Fall' if has_fall else ''} {'Spring' if has_spring else ''} detected - routing to nwea_fall.py...")
+        try:
+            fall_charts = generate_nwea_fall_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                nwea_data=nwea_data
+            )
+            if fall_charts:
+                all_chart_paths.extend(fall_charts)
+                print(f"[NWEA Router] Generated {len(fall_charts)} Fall/Spring charts")
+        except Exception as e:
+            print(f"[NWEA Router] Error generating Fall/Spring charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    else:
+        print("\n[NWEA Router] No Fall or Spring selected - skipping Fall/Spring chart generation.")
+    
+    return all_chart_paths
 
 
 if __name__ == "__main__":

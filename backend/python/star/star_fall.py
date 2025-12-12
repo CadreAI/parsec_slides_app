@@ -1808,7 +1808,33 @@ def main(star_data=None):
                             traceback.print_exc()
                         continue
     
-    return chart_paths
+    # Build chart_paths from tracked charts (merge both sources)
+    # Some sections manually append to chart_paths, others use track_chart() which adds to chart_links
+    chart_paths_from_links = [str(Path(chart['file_path']).absolute()) for chart in chart_links]
+    
+    print(f"\n[Chart Tracking] Manual chart_paths: {len(chart_paths)}, track_chart() chart_links: {len(chart_links)}")
+    
+    # Merge both sources
+    all_chart_paths = chart_paths + chart_paths_from_links
+    
+    # Remove duplicates
+    seen = set()
+    unique_chart_paths = []
+    for chart_path in all_chart_paths:
+        normalized_path = str(Path(chart_path).resolve())
+        if normalized_path not in seen:
+            seen.add(normalized_path)
+            unique_chart_paths.append(chart_path)
+    
+    print(f"\n✅ Generated {len(unique_chart_paths)} unique STAR Fall charts")
+    if len(unique_chart_paths) == 0:
+        print(f"⚠️  WARNING: No charts were generated!")
+        print(f"   - Data rows after filtering: {star_base.shape[0]:,}")
+        print(f"   - Scopes found: {len(scopes)}")
+        print(f"   - Selected quarters: {selected_quarters}")
+        print(f"   - Chart filters: {chart_filters}")
+    
+    return unique_chart_paths
 
 
 def generate_star_fall_charts(
