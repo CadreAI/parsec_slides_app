@@ -1938,10 +1938,32 @@ def generate_nwea_charts(
             print("\n[NWEA Router] Only Winter selected - returning early, skipping Fall/Spring chart generation.")
             return all_chart_paths
     
-    # Route to Fall/Spring module if Fall or Spring is selected
-    if has_fall or has_spring:
+    # Route to Spring module if Spring is selected
+    if has_spring:
+        from .nwea_spring import generate_nwea_spring_charts
+        print("\n[NWEA Router] Spring detected - routing to nwea_spring.py...")
+        try:
+            spring_charts = generate_nwea_spring_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                nwea_data=nwea_data
+            )
+            if spring_charts:
+                all_chart_paths.extend(spring_charts)
+                print(f"[NWEA Router] Generated {len(spring_charts)} Spring charts")
+        except Exception as e:
+            print(f"[NWEA Router] Error generating Spring charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    
+    # Route to Fall module if Fall is selected
+    if has_fall:
         from .nwea_fall import generate_nwea_fall_charts
-        print(f"\n[NWEA Router] {'Fall' if has_fall else ''} {'Spring' if has_spring else ''} detected - routing to nwea_fall.py...")
+        print("\n[NWEA Router] Fall detected - routing to nwea_fall.py...")
         try:
             fall_charts = generate_nwea_fall_charts(
                 partner_name=partner_name,
@@ -1953,14 +1975,15 @@ def generate_nwea_charts(
             )
             if fall_charts:
                 all_chart_paths.extend(fall_charts)
-                print(f"[NWEA Router] Generated {len(fall_charts)} Fall/Spring charts")
+                print(f"[NWEA Router] Generated {len(fall_charts)} Fall charts")
         except Exception as e:
-            print(f"[NWEA Router] Error generating Fall/Spring charts: {e}")
+            print(f"[NWEA Router] Error generating Fall charts: {e}")
             if hf.DEV_MODE:
                 import traceback
                 traceback.print_exc()
     else:
-        print("\n[NWEA Router] No Fall or Spring selected - skipping Fall/Spring chart generation.")
+        if not has_winter and not has_spring:
+            print("\n[NWEA Router] No Fall, Spring, or Winter selected - skipping chart generation.")
     
     return all_chart_paths
 
