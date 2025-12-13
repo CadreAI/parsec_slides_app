@@ -4,7 +4,8 @@ Uses lightweight GPT-3.5-turbo for fast, cost-effective decisions
 """
 import os
 import re
-from typing import Dict, Optional, List
+import json
+from typing import Dict, Optional, List, Tuple
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -137,6 +138,240 @@ Respond with a JSON object:
         }
 
 
+def is_chart_valuable(chart_path: str, use_llm_analysis: bool = False) -> Tuple[bool, str]:
+    """
+    Analyze chart data JSON to determine if chart is valuable/meaningful
+    
+    Args:
+        chart_path: Path to chart image file (will look for corresponding _data.json)
+        use_llm_analysis: If True, use LLM for deeper analysis when data exists but value is unclear
+    
+    Returns:
+        Tuple of (is_valuable: bool, reason: str)
+    """
+    chart_path_obj = Path(chart_path)
+    data_path = chart_path_obj.parent / f"{chart_path_obj.stem}_data.json"
+    
+    # If no data file exists, we can't determine value - assume valuable to be safe
+    if not data_path.exists():
+        return (True, "No data file found - assuming valuable")
+    
+    try:
+        with open(data_path, 'r') as f:
+            chart_data = json.load(f)
+    except Exception as e:
+        print(f"[Chart Value Check] Warning: Failed to load chart data from {data_path}: {e}")
+        return (True, "Failed to load data - assuming valuable")
+    
+    # Check 1: Empty data structure
+    if not chart_data or (isinstance(chart_data, dict) and len(chart_data) == 0):
+        return (False, "Empty data structure")
+    
+    # Check 2: Check for meaningful data in common fields
+    has_meaningful_data = False
+    
+    # Check metrics
+    if 'metrics' in chart_data:
+        metrics = chart_data['metrics']
+        if isinstance(metrics, list):
+            for metric in metrics:
+                if isinstance(metric, dict) and metric:
+                    # Check if any metric value is non-zero and meaningful
+                    for key, value in metric.items():
+                        if value is not None:
+                            if isinstance(value, (int, float)) and value != 0:
+                                has_meaningful_data = True
+                                break
+                            elif isinstance(value, str) and value.strip():
+                                has_meaningful_data = True
+                                break
+        elif isinstance(metrics, dict) and metrics:
+            for key, value in metrics.items():
+                if value is not None:
+                    if isinstance(value, (int, float)) and value != 0:
+                        has_meaningful_data = True
+                        break
+                    elif isinstance(value, str) and value.strip():
+                        has_meaningful_data = True
+                        break
+    
+    # Check percentage data
+    if 'pct_data' in chart_data:
+        pct_data = chart_data['pct_data']
+        if isinstance(pct_data, list) and len(pct_data) > 0:
+            for pct_info in pct_data:
+                if isinstance(pct_info, dict) and pct_info.get('data'):
+                    data_list = pct_info['data']
+                    if isinstance(data_list, list) and len(data_list) > 0:
+                        # Check if any percentage is non-zero
+                        for record in data_list:
+                            if isinstance(record, dict):
+                                pct = record.get('pct', 0)
+                                n = record.get('n', 0)
+                                if (isinstance(pct, (int, float)) and pct > 0) or (isinstance(n, (int, float)) and n > 0):
+                                    has_meaningful_data = True
+                                    break
+                        if has_meaningful_data:
+                            break
+    
+    # Check score data
+    if 'score_data' in chart_data:
+        score_data = chart_data['score_data']
+        if isinstance(score_data, list) and len(score_data) > 0:
+            for score_info in score_data:
+                if isinstance(score_info, dict) and score_info.get('data'):
+                    data_list = score_info['data']
+                    if isinstance(data_list, list) and len(data_list) > 0:
+                        # Check if any score is non-zero
+                        for record in data_list:
+                            if isinstance(record, dict):
+                                avg_score = record.get('avg_score', 0)
+                                if isinstance(avg_score, (int, float)) and avg_score != 0:
+                                    has_meaningful_data = True
+                                    break
+                        if has_meaningful_data:
+                            break
+    
+    # Check predicted vs actual data
+    if 'predicted_vs_actual' in chart_data:
+        pva_data = chart_data['predicted_vs_actual']
+        if isinstance(pva_data, dict) and pva_data:
+            has_meaningful_data = True  # If this exists, it's likely meaningful
+    
+    # Check time orders
+    if 'time_orders' in chart_data:
+        time_orders = chart_data['time_orders']
+        if isinstance(time_orders, (list, dict)) and len(time_orders) > 0:
+            has_meaningful_data = True
+    
+    # Check for other data fields
+    data_fields = ['pct_df', 'score_df', 'cohort_data', 'sgp_data', 'school_data', 'grade_data']
+    for field in data_fields:
+        if field in chart_data and chart_data[field]:
+            if isinstance(chart_data[field], (list, dict)) and len(chart_data[field]) > 0:
+                has_meaningful_data = True
+                break
+    
+    # Check 3: If we have data but need to verify it's not all zeros/empty
+    if not has_meaningful_data:
+        return (False, "No meaningful data found (all zeros/empty)")
+    
+    # Additional check: verify there's actual variation or meaningful values
+    # Check for variation in percentage data
+    has_variation = False
+    if 'pct_data' in chart_data:
+        pct_data = chart_data['pct_data']
+        if isinstance(pct_data, list) and len(pct_data) > 0:
+            for pct_info in pct_data:
+                if isinstance(pct_info, dict) and pct_info.get('data'):
+                    data_list = pct_info['data']
+                    if isinstance(data_list, list) and len(data_list) > 1:
+                        # Check if there's variation in percentages
+                        pct_values = [r.get('pct', 0) for r in data_list if isinstance(r, dict)]
+                        if len(set(pct_values)) > 1:  # More than one unique value
+                            has_variation = True
+                            break
+    
+    # Check for variation in score data
+    if not has_variation and 'score_data' in chart_data:
+        score_data = chart_data['score_data']
+        if isinstance(score_data, list) and len(score_data) > 0:
+            for score_info in score_data:
+                if isinstance(score_info, dict) and score_info.get('data'):
+                    data_list = score_info['data']
+                    if isinstance(data_list, list) and len(data_list) > 1:
+                        # Check if there's variation in scores
+                        score_values = [r.get('avg_score', 0) for r in data_list if isinstance(r, dict)]
+                        if len(set(score_values)) > 1:  # More than one unique value
+                            has_variation = True
+                            break
+    
+    # If we have meaningful data, consider it valuable
+    # Variation check is informational but doesn't disqualify (e.g., all students in one category can still be valuable)
+    
+    # Optional: Use LLM for deeper analysis if data exists but value is unclear
+    if use_llm_analysis and OpenAI and os.getenv('OPENAI_API_KEY'):
+        try:
+            # Check if data is truly insightful using LLM
+            api_key = os.getenv('OPENAI_API_KEY')
+            client = OpenAI(api_key=api_key)
+            
+            # Create a summary of the chart data for LLM analysis
+            data_summary = json.dumps(chart_data, indent=2, default=str)[:2000]  # Limit to avoid token issues
+            
+            llm_prompt = f"""Analyze this educational assessment chart data and determine if it contains valuable insights or meaningful information.
+
+Chart Data Summary:
+{data_summary}
+
+Consider:
+1. Is there actual data (not just empty structures or zeros)?
+2. Does the data show meaningful patterns, trends, or comparisons?
+3. Would this data be useful for educators to understand student performance?
+4. Are there actionable insights that can be derived?
+
+Respond with JSON:
+{{
+    "is_valuable": true/false,
+    "reason": "brief explanation of why it is or isn't valuable"
+}}"""
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a data quality analyst. Always respond with valid JSON only."},
+                    {"role": "user", "content": llm_prompt}
+                ],
+                temperature=0.2,
+                max_tokens=150,
+                response_format={"type": "json_object"}
+            )
+            
+            llm_result = json.loads(response.choices[0].message.content)
+            is_valuable_llm = llm_result.get('is_valuable', True)
+            reason_llm = llm_result.get('reason', 'LLM analysis completed')
+            
+            if not is_valuable_llm:
+                return (False, f"LLM analysis: {reason_llm}")
+            
+        except Exception as e:
+            print(f"[Chart Value Check] LLM analysis failed: {e}, using basic check result")
+    
+    # Return based on basic checks
+    if has_variation:
+        return (True, "Contains meaningful data with variation")
+    else:
+        return (True, "Contains meaningful data (no variation detected but may still be informative)")
+
+
+def filter_valuable_charts(chart_paths: List[str]) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """
+    Filter charts to only include those with valuable data
+    
+    Args:
+        chart_paths: List of chart file paths
+    
+    Returns:
+        Tuple of (valuable_charts: List[str], filtered_out: List[str])
+    """
+    valuable_charts = []
+    filtered_out = []
+    
+    for chart_path in chart_paths:
+        is_valuable, reason = is_chart_valuable(chart_path)
+        if is_valuable:
+            valuable_charts.append(chart_path)
+        else:
+            filtered_out.append((chart_path, reason))
+            chart_name = Path(chart_path).name
+            print(f"[Chart Value Check] Filtered out {chart_name}: {reason}")
+    
+    if filtered_out:
+        print(f"[Chart Value Check] Filtered out {len(filtered_out)}/{len(chart_paths)} charts with no valuable data")
+    
+    return valuable_charts, filtered_out
+
+
 def parse_chart_instructions(
     user_prompt: Optional[str] = None,
     chart_paths: Optional[List[str]] = None,
@@ -155,33 +390,45 @@ def parse_chart_instructions(
             - instructions: Dict with selection criteria (grades, subjects, sections, etc.)
     """
     if not user_prompt or not user_prompt.strip() or not chart_paths:
+        # Still filter by value even if no user prompt
+        valuable_charts, filtered = filter_valuable_charts(chart_paths or [])
         return {
-            'chart_selection': chart_paths or [],
-            'instructions': None
+            'chart_selection': valuable_charts,
+            'instructions': None,
+            'filtered_out': filtered
         }
     
     # Check if user explicitly wants ALL charts
     user_prompt_lower = user_prompt.lower().strip()
     all_keywords = ['all graphs', 'all charts', 'all of them', 'everything', 'include all', 'show all', 'output all']
     if any(keyword in user_prompt_lower for keyword in all_keywords):
-        print(f"[Chart Selection] User requested all charts - skipping filtering")
+        print(f"[Chart Selection] User requested all charts - still filtering by data quality")
+        # Still filter by value even if user wants all charts
+        valuable_charts, filtered = filter_valuable_charts(chart_paths)
         return {
-            'chart_selection': chart_paths,
+            'chart_selection': valuable_charts,
             'instructions': None,
-            'reasoning': 'User requested all charts/graphs'
+            'reasoning': 'User requested all charts/graphs (filtered by data quality)',
+            'filtered_out': filtered
         }
     
     if OpenAI is None:
+        # Still filter by value even without OpenAI
+        valuable_charts, filtered = filter_valuable_charts(chart_paths)
         return {
-            'chart_selection': chart_paths,
-            'instructions': None
+            'chart_selection': valuable_charts,
+            'instructions': None,
+            'filtered_out': filtered
         }
     
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key:
+        # Still filter by value even without API key
+        valuable_charts, filtered = filter_valuable_charts(chart_paths)
         return {
-            'chart_selection': chart_paths,
-            'instructions': None
+            'chart_selection': valuable_charts,
+            'instructions': None,
+            'filtered_out': filtered
         }
     
     client = OpenAI(api_key=api_key)
@@ -238,6 +485,7 @@ Available charts (by filename):
    - Then add required charts from reference decks that are relevant
    - Only add optional charts if they enhance the presentation
    - EXCLUDE charts that don't match reference deck patterns unless explicitly requested
+   - **IMPORTANT**: Charts without valuable data (empty data, all zeros, no meaningful insights) will be automatically filtered out after selection, so you don't need to worry about excluding them manually
 
 4. **EXAMPLE**: If reference decks show that "section3" charts are common but "section5" charts never appear, and user requests "grade 1-4 trends", include section3 charts but don't include section5 charts unless user explicitly asks for them.
 
@@ -268,7 +516,7 @@ Respond with JSON:
         "exclude_others": false if user wants all charts, true only if user says "only" or "that's it",
         "filter_by_reference_patterns": true{"" + (f',\n        "max_slides": {max_slides}' if max_slides else "")}
     }},
-    "reasoning": "brief explanation of selection, including which charts were included/excluded based on reference deck patterns{" and how the max slides limit was applied" if max_slides else ""}"
+    "reasoning": "brief explanation of selection, including which charts were included/excluded based on reference deck patterns{" and how the max slides limit was applied" if max_slides else ""}. Note: Charts without valuable data will be automatically filtered out after selection."
 }}"""
 
     try:
@@ -279,7 +527,7 @@ Respond with JSON:
                 {"role": "user", "content": selection_prompt}
             ],
             temperature=0.2,  # Lower temperature for more consistent parsing
-            max_tokens=500,
+            max_tokens=1000,
             response_format={"type": "json_object"}
         )
         
@@ -370,11 +618,12 @@ Respond with JSON:
             subjects = instructions.get('subjects', [])
             sections = instructions.get('sections', [])
             
-            # If user wants all charts (empty arrays or all sections mentioned), return all
+            # If user wants all charts (empty arrays or all sections mentioned), return all (but still filter by value)
             all_sections_mentioned = sections and len(sections) >= 3  # If 3+ sections mentioned, probably wants all
             if all_sections_mentioned and not grades and not subjects:
-                print(f"[Chart Selection] Detected 'all charts' request from instructions - returning all charts")
-                selected_paths = chart_paths
+                print(f"[Chart Selection] Detected 'all charts' request from instructions - filtering by data quality")
+                valuable_charts, filtered = filter_valuable_charts(chart_paths)
+                selected_paths = valuable_charts
             elif grades or subjects or sections:
                 print(f"[Chart Selection] Using criteria-based matching: grades={grades}, subjects={subjects}, sections={sections}")
                 for path in chart_paths:
@@ -505,17 +754,22 @@ Respond with JSON:
             exclude_others = instructions.get('exclude_others', False)
             # If we selected very few charts but user didn't say "only", they probably want all
             if len(selected_paths) < len(chart_paths) * 0.1 and not exclude_others:
-                print(f"[Chart Selection] Selected only {len(selected_paths)}/{len(chart_paths)} charts but exclude_others=false - returning all charts")
-                selected_paths = chart_paths
+                print(f"[Chart Selection] Selected only {len(selected_paths)}/{len(chart_paths)} charts but exclude_others=false - filtering all charts by data quality")
+                valuable_charts, filtered = filter_valuable_charts(chart_paths)
+                selected_paths = valuable_charts
         else:
             exclude_others = False
         
         if not selected_paths and not exclude_others:
-            selected_paths = chart_paths
+            # Filter all charts by value
+            valuable_charts, filtered = filter_valuable_charts(chart_paths)
+            selected_paths = valuable_charts
         elif not selected_paths and exclude_others:
             # User wanted specific charts but we couldn't match - return empty to signal issue
             print(f"[Chart Selection] WARNING: Could not match any charts from selection: {selected_filenames}")
-            selected_paths = chart_paths  # Fallback to all charts
+            # Still filter by value even in fallback
+            valuable_charts, filtered = filter_valuable_charts(chart_paths)
+            selected_paths = valuable_charts  # Fallback to all valuable charts
         
         # Apply max slides limit if specified
         if max_slides and len(selected_paths) > max_slides:
@@ -551,6 +805,14 @@ Respond with JSON:
             selected_paths = selected_paths[:max_slides]
             print(f"[Chart Selection] Limited to {len(selected_paths)} charts after applying max slides limit")
         
+        # Filter out charts with no valuable data
+        print(f"[Chart Selection] Checking chart data quality before final selection...")
+        valuable_charts, filtered_out = filter_valuable_charts(selected_paths)
+        
+        if len(filtered_out) > 0:
+            print(f"[Chart Selection] Filtered out {len(filtered_out)} charts with no valuable data")
+            selected_paths = valuable_charts
+        
         print(f"[Chart Selection] Selected {len(selected_paths)}/{len(chart_paths)} charts")
         print(f"[Chart Selection] Reasoning: {reasoning}")
         if instructions:
@@ -559,7 +821,8 @@ Respond with JSON:
         return {
             'chart_selection': selected_paths,
             'instructions': instructions,
-            'reasoning': reasoning
+            'reasoning': reasoning,
+            'filtered_out': filtered_out if filtered_out else None
         }
         
     except Exception as e:

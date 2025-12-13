@@ -29,6 +29,125 @@ def is_subject_graph_pair(chart_paths: List[str]) -> bool:
     return has_math and has_reading
 
 
+def format_analysis_for_speaker_notes(insight: Optional[Dict[str, Any]]) -> str:
+    """
+    Format AI analysis/insights into speaker notes text
+    
+    Args:
+        insight: Dictionary containing chart analysis (title, insights, groundTruths, etc.)
+    
+    Returns:
+        Formatted text string for speaker notes
+    """
+    if not insight:
+        return ""
+    
+    notes_parts = []
+    
+    # Add title
+    title = insight.get('title', '')
+    if title:
+        notes_parts.append(f"**{title}**\n")
+    
+    # Add description
+    description = insight.get('description', '')
+    if description:
+        notes_parts.append(f"{description}\n")
+    
+    # Add ground truths
+    ground_truths = insight.get('groundTruths', [])
+    if ground_truths:
+        notes_parts.append("\n**Key Facts:**")
+        for truth in ground_truths:
+            if isinstance(truth, str):
+                notes_parts.append(f"• {truth}")
+            elif isinstance(truth, dict):
+                notes_parts.append(f"• {truth.get('fact', str(truth))}")
+    
+    # Add insights
+    insights_list = insight.get('insights', [])
+    if insights_list:
+        notes_parts.append("\n**Insights:**")
+        for insight_item in insights_list:
+            if isinstance(insight_item, dict):
+                finding = insight_item.get('finding', '')
+                implication = insight_item.get('implication', '')
+                recommendation = insight_item.get('recommendation', '')
+                
+                if finding:
+                    notes_parts.append(f"\n• **Finding:** {finding}")
+                if implication:
+                    notes_parts.append(f"  **Implication:** {implication}")
+                if recommendation:
+                    notes_parts.append(f"  **Recommendation:** {recommendation}")
+            elif isinstance(insight_item, str):
+                notes_parts.append(f"• {insight_item}")
+    
+    # Add hypotheses
+    hypotheses = insight.get('hypotheses', [])
+    if hypotheses:
+        notes_parts.append("\n**Hypotheses:**")
+        for hypothesis in hypotheses:
+            if isinstance(hypothesis, str):
+                notes_parts.append(f"• {hypothesis}")
+    
+    # Add opportunities
+    opportunities = insight.get('opportunities', {})
+    if opportunities:
+        notes_parts.append("\n**Opportunities:**")
+        if isinstance(opportunities, dict):
+            if opportunities.get('classroom'):
+                notes_parts.append(f"• **Classroom:** {opportunities['classroom']}")
+            if opportunities.get('grade'):
+                notes_parts.append(f"• **Grade Level:** {opportunities['grade']}")
+            if opportunities.get('school'):
+                notes_parts.append(f"• **School:** {opportunities['school']}")
+            if opportunities.get('system'):
+                notes_parts.append(f"• **System:** {opportunities['system']}")
+        elif isinstance(opportunities, str):
+            notes_parts.append(f"• {opportunities}")
+    
+    return "\n".join(notes_parts)
+
+
+def create_speaker_notes_requests(
+    speaker_notes_object_id: str,
+    analysis_text: str
+) -> List[Dict[str, Any]]:
+    """
+    Create API requests to add speaker notes to a slide
+    
+    According to Google Slides API docs:
+    https://developers.google.com/workspace/slides/api/guides/notes
+    
+    The speaker notes shape is identified by speakerNotesObjectId in the notes page's
+    NotesProperties. We should use insertText directly on this objectId.
+    
+    Args:
+        speaker_notes_object_id: The speakerNotesObjectId from the notes page's NotesProperties
+        analysis_text: Formatted analysis text to add to speaker notes
+    
+    Returns:
+        List of API request dictionaries
+    """
+    if not analysis_text or not analysis_text.strip():
+        return []
+    
+    requests = []
+    
+    # According to the API docs, we should use insertText directly on the speakerNotesObjectId
+    # The API will create the shape automatically if it doesn't exist
+    requests.append({
+        'insertText': {
+            'objectId': speaker_notes_object_id,
+            'text': analysis_text,
+            'insertionIndex': 0
+        }
+    })
+    
+    return requests
+
+
 def find_math_reading_pair(chart_paths: List[str], start_index: int, paired_indices: set = None) -> Optional[int]:
     """
     Find the index of a chart that pairs with the chart at start_index.
@@ -292,8 +411,15 @@ def create_slides_presentation(
         else:
             print(f"[Chart Selection] ⚠ No chart_selection returned - using all {original_chart_count} charts")
     else:
+        # Even without a user prompt, filter out charts with no valuable data
         if not user_prompt or not user_prompt.strip():
-            print(f"[Chart Selection] No user prompt provided - using all {original_chart_count} charts")
+            print(f"[Chart Selection] No user prompt provided - filtering charts by data quality...")
+            from ..decision_llm import filter_valuable_charts
+            valuable_charts, filtered_out = filter_valuable_charts(normalized_charts or [])
+            original_count = len(normalized_charts) if normalized_charts else 0
+            normalized_charts = valuable_charts
+            filtered_count = len(normalized_charts)
+            print(f"[Chart Selection] ✓ Filtered charts by data quality: {original_count} → {filtered_count} (removed {len(filtered_out)} charts with no valuable data)")
         else:
             print(f"[Chart Selection] No charts to filter - using all {original_chart_count} charts")
     
@@ -575,6 +701,11 @@ def create_slides_presentation(
                 
                 chart_requests = []
                 
+                # Initialize insight variables for speaker notes
+                insight1 = None
+                insight2 = None
+                insight = None
+                
                 if is_subject_pair and len(current_urls) >= 2:
                     # Dual chart slide
                     title_text = None
@@ -586,7 +717,6 @@ def create_slides_presentation(
                     chart_path_resolved2 = str(Path(chart_path_for_lookup2).resolve())
                     
                     # Try multiple lookup strategies for first chart
-                    insight1 = None
                     insight1 = chart_insights_map.get(chart_path_for_lookup1)
                     if not insight1:
                         insight1 = chart_insights_map.get(chart_path_resolved1)
@@ -826,6 +956,74 @@ def create_slides_presentation(
                             body={'requests': chart_requests}
                         ).execute()
                         print(f"[Slides] ✓ Added chart elements to slide {slide_index}")
+                        
+                        # Add speaker notes with analysis
+                        try:
+                            import time
+                            time.sleep(0.5)  # Brief delay to ensure slide is ready
+                            
+                            # Get the presentation to access slide's notesPage
+                            updated_presentation = slides_service.presentations().get(
+                                presentationId=presentation_id
+                            ).execute()
+                            
+                            # Find the slide and get speakerNotesObjectId
+                            # According to API docs: slideProperties.notesPage.notesProperties.speakerNotesObjectId
+                            slides_list = updated_presentation.get('slides', [])
+                            speaker_notes_object_id = None
+                            
+                            for slide in slides_list:
+                                if slide.get('objectId') == slide_object_id:
+                                    slide_properties = slide.get('slideProperties', {})
+                                    notes_page = slide_properties.get('notesPage', {})
+                                    if notes_page:
+                                        notes_properties = notes_page.get('notesProperties', {})
+                                        speaker_notes_object_id = notes_properties.get('speakerNotesObjectId')
+                                    break
+                            
+                            if speaker_notes_object_id:
+                                # Format analysis text for speaker notes
+                                analysis_text = ""
+                                
+                                if is_subject_pair and len(current_charts) >= 2:
+                                    # Dual chart slide - combine both insights
+                                    analysis_parts = []
+                                    
+                                    if insight1:
+                                        chart1_analysis = format_analysis_for_speaker_notes(insight1)
+                                        if chart1_analysis:
+                                            chart1_name = Path(current_charts[0]).stem.lower()
+                                            chart1_label = "Math" if 'math' in chart1_name else ("Reading" if 'reading' in chart1_name or 'read' in chart1_name else "Chart 1")
+                                            analysis_parts.append(f"**{chart1_label} Analysis:**\n{chart1_analysis}")
+                                    
+                                    if insight2:
+                                        chart2_analysis = format_analysis_for_speaker_notes(insight2)
+                                        if chart2_analysis:
+                                            chart2_name = Path(current_charts[1]).stem.lower()
+                                            chart2_label = "Math" if 'math' in chart2_name else ("Reading" if 'reading' in chart2_name or 'read' in chart2_name else "Chart 2")
+                                            analysis_parts.append(f"\n**{chart2_label} Analysis:**\n{chart2_analysis}")
+                                    
+                                    if analysis_parts:
+                                        analysis_text = "\n\n".join(analysis_parts)
+                                else:
+                                    # Single chart slide
+                                    if insight:
+                                        analysis_text = format_analysis_for_speaker_notes(insight)
+                                
+                                # Create and execute speaker notes requests
+                                if analysis_text and analysis_text.strip():
+                                    notes_requests = create_speaker_notes_requests(speaker_notes_object_id, analysis_text)
+                                    if notes_requests:
+                                        slides_service.presentations().batchUpdate(
+                                            presentationId=presentation_id,
+                                            body={'requests': notes_requests}
+                                        ).execute()
+                                        print(f"[Slides] ✓ Added speaker notes to slide {slide_index}")
+                            else:
+                                print(f"[Slides] Warning: Could not get speakerNotesObjectId for slide {slide_index}")
+                        except Exception as notes_error:
+                            print(f"[Slides] Warning: Failed to add speaker notes to slide {slide_index}: {notes_error}")
+                            # Don't fail the whole process if speaker notes fail
                     except HttpError as e:
                         error_details = e.error_details if hasattr(e, 'error_details') else []
                         print(f"[Slides] ✗ Error updating slide {slide_index}:")
