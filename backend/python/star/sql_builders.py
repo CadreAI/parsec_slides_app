@@ -51,13 +51,15 @@ def sql_star(
     # Build WHERE conditions
     where_conditions = []
     
-    # Year filter (STAR uses AcademicYear column)
+    # Year filter (STAR might use AcademicYear or Year column)
+    # Use COALESCE to handle both column names
+    year_column = "COALESCE(AcademicYear, Year)"
     if filters.get('years') and len(filters['years']) > 0:
         year_list = ', '.join(map(str, filters['years']))
-        where_conditions.append(f"AcademicYear IN ({year_list})")
+        where_conditions.append(f"{year_column} IN ({year_list})")
     else:
         # Default: last 3 years (matching the provided SQL pattern)
-        where_conditions.append("""AcademicYear >= (
+        where_conditions.append(f"""{year_column} >= (
             CASE
                 WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
                     THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1

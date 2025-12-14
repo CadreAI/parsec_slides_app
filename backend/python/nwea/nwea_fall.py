@@ -278,6 +278,7 @@ def main(nwea_data=None):
         scope_df = scope_df.copy()
         scope_df["year"] = pd.to_numeric(scope_df["year"], errors="coerce")
         
+        # Normalize grades (K -> 0, -1 -> pre-k)
         def normalize_grade_val(grade_val):
             if pd.isna(grade_val):
                 return None
@@ -285,7 +286,9 @@ def main(nwea_data=None):
             if grade_str == "K" or grade_str == "KINDERGARTEN":
                 return 0
             try:
-                return int(float(grade_str))
+                grade_num = int(float(grade_str))
+                # -1 represents pre-k
+                return grade_num
             except:
                 return None
         

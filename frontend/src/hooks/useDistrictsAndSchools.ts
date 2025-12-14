@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export function useDistrictsAndSchools(partnerName: string, projectId: string, location: string) {
+export function useDistrictsAndSchools(partnerName: string, projectId: string, location: string, assessments?: string[]) {
     const [availableDistricts, setAvailableDistricts] = useState<string[]>([])
     const [availableSchools, setAvailableSchools] = useState<string[]>([])
     const [districtSchoolMap, setDistrictSchoolMap] = useState<Record<string, string[]>>({})
@@ -15,11 +15,29 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
                 return
             }
 
+            // Don't fetch if assessments are required but not selected
+            if (assessments && assessments.length === 0) {
+                setAvailableDistricts([])
+                setAvailableSchools([])
+                setDistrictSchoolMap({})
+                return
+            }
+
             setIsLoadingDistrictsSchools(true)
             try {
-                const res = await fetch(
-                    `/api/bigquery/districts-schools?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(partnerName)}&location=${encodeURIComponent(location)}`
-                )
+                // Build query params
+                const params = new URLSearchParams({
+                    projectId: projectId,
+                    datasetId: partnerName,
+                    location: location
+                })
+
+                // Add assessments if provided
+                if (assessments && assessments.length > 0) {
+                    params.append('assessments', assessments.join(','))
+                }
+
+                const res = await fetch(`/api/bigquery/districts-schools?${params.toString()}`)
                 const data = await res.json()
 
                 if (res.ok && data.success) {
@@ -44,7 +62,7 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
         }
 
         fetchDistrictsAndSchools()
-    }, [partnerName, projectId, location])
+    }, [partnerName, projectId, location, assessments?.join(',')])
 
     return {
         availableDistricts,

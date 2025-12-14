@@ -215,39 +215,39 @@ Your analysis should support the Emergent Learning framework which has 4 quadran
 2. **Insights** (Meaning from Data):
    - What patterns emerge and WHY they matter
    - The significance for student learning
-   - What educators should consider doing based on each insight
-   - Format: Finding → Implication → Recommendation
+   - What questions educators should consider based on each insight
+   - Format: Finding → Implication → Question
 
 3. **Hypotheses** (Predictions & Implications):
    - What the data suggests for future student performance
    - Implications for teachers, principals, and administrators
    - Forward-looking predictions based on current trends
 
-4. **Opportunities** (Actionable Ideas):
-   - Specific actions at classroom-level
-   - Grade-level interventions
-   - School-level initiatives
-   - System-level changes
+4. **Opportunities** (Guiding Questions):
+   - Questions to explore at classroom-level
+   - Questions for grade-level collaboration
+   - Questions for school-level investigation
+   - Questions for system-level consideration
 
-Your insights should bridge between Ground Truths and Hypotheses, helping educators move from "what happened" to "what does this mean" to "what should we do."
+Your insights should bridge between Ground Truths and Hypotheses, helping educators move from "what happened" to "what does this mean" to "what questions should we explore."
 """,
         "insights": """
 **FOCUS: DEVELOPING INSIGHTS FROM GROUND TRUTHS**
 
-Transform the observable data (ground truths) into meaningful insights with actionable guidance:
+Transform the observable data (ground truths) into meaningful insights with guiding questions:
 
 For each insight, provide:
 1. **Finding**: What pattern or meaning emerges from the data?
 2. **Implication**: Why does this matter for student learning and outcomes?
-3. **Recommendation**: What should educators consider doing in response?
+3. **Question**: What question should educators consider to deepen understanding or guide next steps?
 
 Consider these guiding questions:
 - What patterns emerge across different time periods or groups?
 - What's surprising or unexpected in the data?
 - Why is this significant for teaching and learning?
-- What should educators pay attention to based on this finding?
-- What initial steps or considerations does this suggest?
-- How confident can we be in acting on this insight?
+- What questions should educators explore based on this finding?
+- What deeper investigation does this data prompt?
+- What should we be asking to understand this better?
 """,
         "hypotheses": """
 **FOCUS: DEVELOPING HYPOTHESES FROM INSIGHTS**
@@ -260,13 +260,13 @@ Based on the insights from the data, develop forward-looking hypotheses:
 - What intervention points does the data suggest?
 """,
         "opportunities": """
-**FOCUS: IDENTIFYING ACTIONABLE OPPORTUNITIES**
+**FOCUS: IDENTIFYING GUIDING QUESTIONS**
 
-Translate insights and hypotheses into concrete opportunities:
-- **Classroom-Level**: Specific teaching strategies, differentiation approaches
-- **Grade-Level**: Collaborative planning, shared interventions
-- **School-Level**: Programs, policies, resource allocation
-- **System-Level**: District initiatives, professional development, systemic changes
+Translate insights and hypotheses into questions that guide exploration:
+- **Classroom-Level**: Questions about teaching strategies, differentiation approaches
+- **Grade-Level**: Questions for collaborative planning and shared investigation
+- **School-Level**: Questions about programs, policies, resource allocation
+- **System-Level**: Questions about district initiatives, professional development, systemic considerations
 """
     }
     
@@ -302,12 +302,12 @@ Provide your response as a JSON object with this structure:
         {{
             "finding": "Pattern or meaning derived from ground truths - what does this MEAN?",
             "implication": "What this means for educators or students",
-            "recommendation": "Specific action or consideration based on this insight"
+            "question": "What question should educators explore to deepen understanding or guide next steps?"
         }},
         {{
             "finding": "Second insight connecting multiple data points or revealing trends",
             "implication": "What this means for educators or students",
-            "recommendation": "Specific action or consideration based on this insight"
+            "question": "What question should educators explore to deepen understanding or guide next steps?"
         }}
     ],
     "hypotheses": [
@@ -315,10 +315,10 @@ Provide your response as a JSON object with this structure:
         "Implication for instruction or student outcomes"
     ],
     "opportunities": {{
-        "classroom": "Specific classroom-level action teachers could take",
-        "grade": "Grade-level collaborative opportunity",
-        "school": "School-level initiative or program",
-        "system": "District/system-level recommendation"
+        "classroom": "Question about classroom-level teaching strategies or approaches",
+        "grade": "Question for grade-level collaborative investigation",
+        "school": "Question about school-level programs or policies",
+        "system": "Question about district/system-level considerations"
     }},
     "subject": "math" or "reading" or null,
     "grade": "grade level if visible" or null,
@@ -333,11 +333,11 @@ Provide your response as a JSON object with this structure:
 **CRITICAL GUIDELINES:**
 - Ground truths should be objective facts with specific numbers
 - Insights should explain MEANING and PATTERNS, not just restate facts
-- Hypotheses should be forward-looking and actionable
-- Opportunities should be specific and tied to the data
+- Hypotheses should be forward-looking and prompt investigation
+- Opportunities should be QUESTIONS that guide exploration, not directives
 - Use actual numbers from the chart data provided
 - Connect insights to the Emergent Learning approach shown in reference materials
-- Focus on what educators need to know to improve student outcomes
+- Focus on questions that help educators understand and investigate student outcomes
 """
     
     return prompt

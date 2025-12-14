@@ -22,6 +22,13 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+// Helper function to format grade display labels
+function getGradeDisplayLabel(grade: string): string {
+    if (grade === '-1') return 'Pre-K'
+    if (grade === 'K' || grade === '0') return 'Kindergarten'
+    return `Grade ${grade}`
+}
+
 // Partner configuration - maps partner_name to their districts and schools
 const PARTNER_CONFIG: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
     demodashboard: {
@@ -66,7 +73,8 @@ export default function CreateSlide() {
     const { availableDistricts, availableSchools, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
         formData.partnerName,
         formData.projectId,
-        formData.location
+        formData.location,
+        formData.assessments // Pass assessments to filter which tables to query
     )
     const { availableAssessments, assessmentTables, isLoadingAssessmentTables } = useAssessmentTables(
         formData.partnerName,
@@ -359,81 +367,6 @@ export default function CreateSlide() {
                                 </div>
                             </div>
 
-                            {/* Scope Selection */}
-                            <div className="space-y-4 border-b pb-4">
-                                <h3 className="text-lg font-semibold">Scope Selection</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label>
-                                            District <span className="text-destructive">*</span>
-                                        </Label>
-                                        <Select
-                                            id="districtName"
-                                            value={formData.districtName}
-                                            onChange={(e) => {
-                                                setFormData((prev) => ({
-                                                    ...prev,
-                                                    districtName: e.target.value,
-                                                    schools: []
-                                                }))
-                                            }}
-                                            required
-                                            disabled={isLoadingDistrictsSchools || !formData.partnerName}
-                                        >
-                                            <option value="">{isLoadingDistrictsSchools ? 'Loading districts...' : 'Select a district...'}</option>
-                                            {districtOptions.map((district: string) => (
-                                                <option key={district} value={district}>
-                                                    {district}
-                                                </option>
-                                            ))}
-                                        </Select>
-                                        {isLoadingDistrictsSchools && <p className="text-muted-foreground text-xs">Fetching districts from NWEA table...</p>}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <div className="mb-2 flex items-center space-x-2">
-                                            <Checkbox
-                                                id="districtOnly"
-                                                checked={formData.districtOnly}
-                                                onChange={(e) => {
-                                                    const checked = e.target.checked
-                                                    setFormData((prev) => ({
-                                                        ...prev,
-                                                        districtOnly: checked,
-                                                        schools: checked ? [] : prev.schools // Clear schools when enabling district only
-                                                    }))
-                                                }}
-                                                disabled={!formData.districtName || isLoadingDistrictsSchools}
-                                            />
-                                            <Label htmlFor="districtOnly" className="cursor-pointer text-sm font-normal">
-                                                District Only (exclude school-level charts)
-                                            </Label>
-                                        </div>
-                                        <Label>School(s) {!formData.districtOnly && <span className="text-destructive">*</span>}</Label>
-                                        <MultiSelect
-                                            options={schoolOptions}
-                                            selected={formData.schools}
-                                            onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
-                                            placeholder={
-                                                formData.districtOnly
-                                                    ? 'District only mode - schools disabled'
-                                                    : isLoadingDistrictsSchools
-                                                      ? 'Loading schools...'
-                                                      : !formData.districtName
-                                                        ? 'Select district first...'
-                                                        : 'Select school(s)...'
-                                            }
-                                            disabled={isLoadingDistrictsSchools || !formData.partnerName || !formData.districtName || formData.districtOnly}
-                                        />
-                                        {isLoadingDistrictsSchools && <p className="text-muted-foreground text-xs">Fetching schools from NWEA table...</p>}
-                                        {formData.districtOnly && (
-                                            <p className="text-muted-foreground text-xs">
-                                                District only mode enabled - only district-level charts will be generated
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
                             {/* Data Sources & Assessments - Only show when dataset is selected */}
                             {formData.partnerName && (
                                 <div className="space-y-4 border-b pb-4">
@@ -508,6 +441,97 @@ export default function CreateSlide() {
                                 </div>
                             )}
 
+                            {/* Scope Selection - Only show when assessments are selected */}
+                            {formData.assessments.length > 0 && (
+                                <div className="space-y-4 border-b pb-4">
+                                    <h3 className="text-lg font-semibold">Scope Selection</h3>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label>
+                                                District <span className="text-destructive">*</span>
+                                            </Label>
+                                            <Select
+                                                id="districtName"
+                                                value={formData.districtName}
+                                                onChange={(e) => {
+                                                    setFormData((prev) => ({
+                                                        ...prev,
+                                                        districtName: e.target.value,
+                                                        schools: []
+                                                    }))
+                                                }}
+                                                required
+                                                disabled={isLoadingDistrictsSchools || !formData.partnerName || formData.assessments.length === 0}
+                                            >
+                                                <option value="">
+                                                    {isLoadingDistrictsSchools
+                                                        ? 'Loading districts...'
+                                                        : formData.assessments.length === 0
+                                                          ? 'Select assessments first...'
+                                                          : 'Select a district...'}
+                                                </option>
+                                                {districtOptions.map((district: string) => (
+                                                    <option key={district} value={district}>
+                                                        {district}
+                                                    </option>
+                                                ))}
+                                            </Select>
+                                            {isLoadingDistrictsSchools && (
+                                                <p className="text-muted-foreground text-xs">
+                                                    Fetching districts from {formData.assessments.join(', ')} table(s)...
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="mb-2 flex items-center space-x-2">
+                                                <Checkbox
+                                                    id="districtOnly"
+                                                    checked={formData.districtOnly}
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked
+                                                        setFormData((prev) => ({
+                                                            ...prev,
+                                                            districtOnly: checked,
+                                                            schools: checked ? [] : prev.schools // Clear schools when enabling district only
+                                                        }))
+                                                    }}
+                                                    disabled={!formData.districtName || isLoadingDistrictsSchools}
+                                                />
+                                                <Label htmlFor="districtOnly" className="cursor-pointer text-sm font-normal">
+                                                    District Only (exclude school-level charts)
+                                                </Label>
+                                            </div>
+                                            <Label>School(s) {!formData.districtOnly && <span className="text-destructive">*</span>}</Label>
+                                            <MultiSelect
+                                                options={schoolOptions}
+                                                selected={formData.schools}
+                                                onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
+                                                placeholder={
+                                                    formData.districtOnly
+                                                        ? 'District only mode - schools disabled'
+                                                        : isLoadingDistrictsSchools
+                                                          ? 'Loading schools...'
+                                                          : !formData.districtName
+                                                            ? 'Select district first...'
+                                                            : 'Select school(s)...'
+                                                }
+                                                disabled={isLoadingDistrictsSchools || !formData.partnerName || !formData.districtName || formData.districtOnly}
+                                            />
+                                            {isLoadingDistrictsSchools && (
+                                                <p className="text-muted-foreground text-xs">
+                                                    Fetching schools from {formData.assessments.join(', ')} table(s)...
+                                                </p>
+                                            )}
+                                            {formData.districtOnly && (
+                                                <p className="text-muted-foreground text-xs">
+                                                    District only mode enabled - only district-level charts will be generated
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Filters - Dynamic based on selected assessments */}
                             {formData.assessments.length > 0 && (
                                 <div className="space-y-4 border-b pb-4">
@@ -527,6 +551,7 @@ export default function CreateSlide() {
                                                     onChange={(selected) => setFormData((prev) => ({ ...prev, grades: selected }))}
                                                     placeholder="Select grade(s)..."
                                                     disabled={isLoadingFilters}
+                                                    getDisplayLabel={getGradeDisplayLabel}
                                                 />
                                             </div>
                                         )}

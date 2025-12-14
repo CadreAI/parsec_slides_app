@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
             const fallbackYears = [currentYear, currentYear + 1, currentYear + 2, currentYear + 3].map((y) => y.toString())
             return NextResponse.json({
                 success: true,
-                grades: ['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
+                grades: ['-1', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
                 years: fallbackYears
             })
         }
@@ -127,12 +127,13 @@ export async function GET(req: NextRequest) {
                     if (row.grade !== null && row.grade !== undefined) {
                         const gradeStr = String(row.grade).trim()
                         if (gradeStr) {
-                            // Normalize grade (K, 0, or number)
+                            // Normalize grade (K, 0, or number, -1 for pre-k)
                             if (gradeStr.toUpperCase() === 'K' || gradeStr === '0' || gradeStr === 'KINDERGARTEN') {
                                 allGrades.add('K')
                             } else {
                                 const numGrade = parseInt(gradeStr)
-                                if (!isNaN(numGrade) && numGrade >= 0 && numGrade <= 12) {
+                                // Allow -1 (pre-k) through 12
+                                if (!isNaN(numGrade) && numGrade >= -1 && numGrade <= 12) {
                                     allGrades.add(numGrade.toString())
                                 }
                             }
@@ -193,6 +194,10 @@ export async function GET(req: NextRequest) {
 
         // Sort and format results
         const grades = Array.from(allGrades).sort((a, b) => {
+            // Handle -1 (pre-k) first
+            if (a === '-1') return -1
+            if (b === '-1') return 1
+            // Then K (kindergarten)
             if (a === 'K') return -1
             if (b === 'K') return 1
             return parseInt(a) - parseInt(b)
@@ -202,7 +207,7 @@ export async function GET(req: NextRequest) {
 
         // Fallback to defaults if nothing found
         if (grades.length === 0) {
-            grades.push(...['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'])
+            grades.push(...['-1', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'])
         }
         if (years.length === 0) {
             const currentYear = new Date().getFullYear()
@@ -225,7 +230,7 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json({
             success: true, // Return success with fallback data
-            grades: ['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
+            grades: ['-1', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
             years: fallbackYears
         })
     }

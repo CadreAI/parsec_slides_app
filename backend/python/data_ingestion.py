@@ -538,20 +538,92 @@ def ingest_star(
     if isinstance(star_source, dict) and 'exclude_cols' in star_source:
         exclude_cols = star_source.get('exclude_cols')
 
-    # Build SQL query with year filters
-    sql_filters = {'years': years}
-    sql = sql_star(table_id, exclude_cols, filters=sql_filters)
+    # Function to query a single year
+    def query_year(year: int) -> List[Dict[str, Any]]:
+        """Query a single year with its own BigQuery client (thread-safe)"""
+        import traceback
+        try:
+            print(f"[Data Ingestion] [Year {year}] Starting query setup...")
+            # Create a new client for this thread (thread-safe)
+            credentials_path = config.get('gcp', {}).get('credentials_path')
+            client = get_bigquery_client(project_id, credentials_path)
 
-    print(f"[Data Ingestion] Executing STAR query...")
+            # Build SQL query for this specific year
+            sql_filters = {'years': [year]}
+            sql = sql_star(table_id, exclude_cols, filters=sql_filters)
+
+            print(f"[Data Ingestion] [Year {year}] Executing query...")
+            rows = run_query(sql, client, None)
+            print(f"[Data Ingestion] [Year {year}] Retrieved {len(rows):,} rows")
+            return rows
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[Data Ingestion] [Year {year}] Error: {error_msg}")
+            print(f"[Data Ingestion] [Year {year}] Traceback:")
+            traceback.print_exc()
+            return []
+
+    # Execute queries in parallel
+    print(f"[Data Ingestion] Executing {len(years)} year queries in parallel...")
     print(f"[Data Ingestion] Table: {table_id}")
 
-    # Get BigQuery client
-    credentials_path = config.get('gcp', {}).get('credentials_path')
-    client = get_bigquery_client(project_id, credentials_path)
+    all_rows = []
 
-    # Execute query
-    rows = run_query(sql, client, None)
-    print(f"[Data Ingestion] Retrieved {len(rows):,} rows")
+    # Use ThreadPoolExecutor to run queries in parallel
+    # Limit to max 5 concurrent queries to avoid overwhelming BigQuery
+    max_workers = min(len(years), 5)
+
+    print(f"[Data Ingestion] Using ThreadPoolExecutor with {max_workers} workers for {len(years)} years")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all year queries
+        future_to_year = {executor.submit(query_year, year): year for year in years}
+        print(f"[Data Ingestion] Submitted {len(future_to_year)} queries")
+
+        # Collect results as they complete with timeout
+        import time
+        start_time = time.time()
+        query_timeout = 300  # 5 minute timeout per query
+
+        completed_years = set()
+
+        try:
+            # Wait for all futures with a reasonable timeout
+            total_timeout = query_timeout * len(years) + 60  # Extra buffer
+            for future in concurrent.futures.as_completed(future_to_year, timeout=total_timeout):
+                year = future_to_year[future]
+                elapsed = time.time() - start_time
+                try:
+                    rows = future.result(timeout=30)  # 30 second timeout for result retrieval
+                    all_rows.extend(rows)
+                    completed_years.add(year)
+                    print(f"[Data Ingestion] [Year {year}] Completed: {len(rows):,} rows (Total: {len(all_rows):,}) in {elapsed:.1f}s")
+                except concurrent.futures.TimeoutError:
+                    print(f"[Data Ingestion] [Year {year}] TIMEOUT: Result retrieval took longer than 30s")
+                except Exception as e:
+                    print(f"[Data Ingestion] [Year {year}] Failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+        except concurrent.futures.TimeoutError:
+            print(f"[Data Ingestion] TIMEOUT: Some queries exceeded {total_timeout}s total timeout")
+            # Check which queries are still pending
+            for future, year in future_to_year.items():
+                if year not in completed_years:
+                    if future.running():
+                        print(f"[Data Ingestion] [Year {year}] Still running...")
+                    elif future.done():
+                        try:
+                            rows = future.result(timeout=1)
+                            all_rows.extend(rows)
+                            completed_years.add(year)
+                            print(f"[Data Ingestion] [Year {year}] Completed after timeout: {len(rows):,} rows")
+                        except:
+                            print(f"[Data Ingestion] [Year {year}] Failed to retrieve result")
+                    else:
+                        print(f"[Data Ingestion] [Year {year}] Not started")
+
+    rows = all_rows
+    print(f"[Data Ingestion] Retrieved {len(rows):,} total rows from {len(completed_years)}/{len(years)} years")
 
     if not rows:
         print("[Data Ingestion] Warning: No rows returned from STAR query")

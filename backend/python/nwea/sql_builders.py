@@ -204,7 +204,7 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None) -> str:
 
         `{table_id}`
 
-    WHERE Year >= (
+    WHERE COALESCE(Year, AcademicYear) >= (
 
         CASE
 

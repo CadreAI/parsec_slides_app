@@ -72,14 +72,14 @@ def format_analysis_for_speaker_notes(insight: Optional[Dict[str, Any]]) -> str:
             if isinstance(insight_item, dict):
                 finding = insight_item.get('finding', '')
                 implication = insight_item.get('implication', '')
-                recommendation = insight_item.get('recommendation', '')
+                question = insight_item.get('question', '') or insight_item.get('recommendation', '')  # Support both for backward compatibility
                 
                 if finding:
                     notes_parts.append(f"\n• **Finding:** {finding}")
                 if implication:
                     notes_parts.append(f"  **Implication:** {implication}")
-                if recommendation:
-                    notes_parts.append(f"  **Recommendation:** {recommendation}")
+                if question:
+                    notes_parts.append(f"  **Question:** {question}")
             elif isinstance(insight_item, str):
                 notes_parts.append(f"• {insight_item}")
     
@@ -479,9 +479,23 @@ def create_slides_presentation(
     from ..google_slides_client import create_presentation_via_drive
     presentation_id = create_presentation_via_drive(title, folder_id)
     
+    # Upload logo to Drive if it exists
+    logo_path = Path(__file__).parent.parent / 'Parsec_Primary-Logo_Blue-6.png'
+    logo_url = None
+    if logo_path.exists():
+        print(f"[Slides] Uploading logo: {logo_path}")
+        from ..google_drive_upload import upload_image_to_drive
+        logo_url = upload_image_to_drive(str(logo_path), folder_id=folder_id, make_public=True)
+        if logo_url:
+            print(f"[Slides] ✓ Logo uploaded: {logo_url}")
+        else:
+            print(f"[Slides] Warning: Failed to upload logo, using fallback text")
+    else:
+        print(f"[Slides] Logo not found at {logo_path}, using fallback text")
+    
     # Create cover slide
     cover_slide_id = 'cover_slide_001'
-    create_slide_requests = create_cover_slide_requests(cover_slide_id)
+    create_slide_requests = create_cover_slide_requests(cover_slide_id, logo_url=logo_url)
     
     # Calculate chart slides needed
     if normalized_charts:
@@ -747,7 +761,7 @@ def create_slides_presentation(
                     
                     # Grade name mapping
                     grade_names = {
-                        0: "Kindergarten", 1: "First Grade", 2: "Second Grade", 3: "Third Grade",
+                        -1: "Pre-Kindergarten", 0: "Kindergarten", 1: "First Grade", 2: "Second Grade", 3: "Third Grade",
                         4: "Fourth Grade", 5: "Fifth Grade", 6: "Sixth Grade", 7: "Seventh Grade",
                         8: "Eighth Grade", 9: "Ninth Grade", 10: "Tenth Grade",
                         11: "Eleventh Grade", 12: "Twelfth Grade"

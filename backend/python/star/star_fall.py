@@ -356,27 +356,38 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
     out_dir.mkdir(parents=True, exist_ok=True)
     out_name = f"{scope_label}_section0_pred_vs_actual.png"
     out_path = out_dir / out_name
-    hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    # Prepare chart data for saving
-    chart_data = {
-        "scope": scope_label,
-        "window_filter": "Spring",
-        "subjects": list(subj_payload.keys()),
-        "predicted_vs_actual": {
-            subj: {
-                "predicted_pct": {level: float(proj_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["proj_order"]},
-                "actual_pct": {level: float(act_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["act_order"]},
-                "predicted_met_exceed": float(subj_payload[subj]["metrics"]["proj_met"]),
-                "actual_met_exceed": float(subj_payload[subj]["metrics"]["act_met"]),
-                "delta": float(subj_payload[subj]["metrics"]["delta"])
+    try:
+        hf._save_and_render(fig, out_path, dev_mode=preview)
+        
+        # Verify file was actually saved
+        if not out_path.exists() or out_path.stat().st_size == 0:
+            raise IOError(f"Chart file was not created or is empty: {out_path}")
+        
+        # Prepare chart data for saving
+        chart_data = {
+            "scope": scope_label,
+            "window_filter": "Fall",
+            "subjects": list(subj_payload.keys()),
+            "predicted_vs_actual": {
+                subj: {
+                    "predicted_pct": {level: float(proj_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["proj_order"]},
+                    "actual_pct": {level: float(act_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["act_order"]},
+                    "predicted_met_exceed": float(subj_payload[subj]["metrics"]["proj_met"]),
+                    "actual_met_exceed": float(subj_payload[subj]["metrics"]["act_met"]),
+                    "delta": float(subj_payload[subj]["metrics"]["delta"])
+                }
+                for subj in subj_payload.keys()
+                for proj_pct, act_pct in [(subj_payload[subj]["proj_pct"], subj_payload[subj]["act_pct"])]
             }
-            for subj in subj_payload.keys()
-            for proj_pct, act_pct in [(subj_payload[subj]["proj_pct"], subj_payload[subj]["act_pct"])]
         }
-    }
-    track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0, chart_data=chart_data)
-    print(f"Saved Section 0: {out_path}")
+        track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0, chart_data=chart_data)
+        print(f"Saved Section 0: {out_path}")
+    except Exception as e:
+        print(f"ERROR: Failed to save Section 0 chart for {scope_label}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise  # Re-raise to be caught by outer try-except
 
 # ---------------------------------------------------------------------
 # SECTION 1 - Fall Performance Trends (Dual Subject Dashboard)
