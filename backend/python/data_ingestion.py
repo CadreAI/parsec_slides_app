@@ -7,7 +7,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import concurrent.futures
 
-from python.bigquery_client import get_bigquery_client, run_query
+from python.google.bigquery_client import get_bigquery_client, run_query
 from python.nwea.sql_builders import sql_nwea
 from python.iready.sql_builders import sql_iready
 from python.star.sql_builders import sql_star
@@ -129,7 +129,16 @@ def ingest_nwea(
         if not isinstance(table_id, str):
             raise ValueError(f"table_id must be a string, got {type(table_id)}: {table_id}")
         
-        sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols)
+        # Detect which year column exists in the table
+        from python.google.bigquery_client import get_table_columns
+        table_columns = get_table_columns(client, table_id)
+        year_column = None
+        if 'year' in [col.lower() for col in table_columns]:
+            year_column = 'Year'
+        elif 'academicyear' in [col.lower() for col in table_columns]:
+            year_column = 'AcademicYear'
+        
+        sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column)
 
         print(f"[Data Ingestion] SQL Query:")
         print(f"[Data Ingestion] {sql}")
@@ -345,9 +354,18 @@ def ingest_iready(
             credentials_path = config.get('gcp', {}).get('credentials_path')
             client = get_bigquery_client(project_id, credentials_path)
 
+            # Detect which year column exists in the table
+            from python.google.bigquery_client import get_table_columns
+            table_columns = get_table_columns(client, table_id)
+            year_column = None
+            if 'academicyear' in [col.lower() for col in table_columns]:
+                year_column = 'AcademicYear'
+            elif 'year' in [col.lower() for col in table_columns]:
+                year_column = 'Year'
+            
             # Build SQL query for this specific year
             sql_filters = {'years': [year]}
-            sql = sql_iready(table_id, exclude_cols, filters=sql_filters)
+            sql = sql_iready(table_id, exclude_cols, filters=sql_filters, year_column=year_column)
 
             print(f"[Data Ingestion] [Year {year}] Executing query...")
             rows = run_query(sql, client, None)
@@ -548,9 +566,18 @@ def ingest_star(
             credentials_path = config.get('gcp', {}).get('credentials_path')
             client = get_bigquery_client(project_id, credentials_path)
 
+            # Detect which year column exists in the table
+            from python.google.bigquery_client import get_table_columns
+            table_columns = get_table_columns(client, table_id)
+            year_column = None
+            if 'academicyear' in [col.lower() for col in table_columns]:
+                year_column = 'AcademicYear'
+            elif 'year' in [col.lower() for col in table_columns]:
+                year_column = 'Year'
+            
             # Build SQL query for this specific year
             sql_filters = {'years': [year]}
-            sql = sql_star(table_id, exclude_cols, filters=sql_filters)
+            sql = sql_star(table_id, exclude_cols, filters=sql_filters, year_column=year_column)
 
             print(f"[Data Ingestion] [Year {year}] Executing query...")
             rows = run_query(sql, client, None)

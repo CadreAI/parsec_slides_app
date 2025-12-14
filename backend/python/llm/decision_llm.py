@@ -19,7 +19,7 @@ load_dotenv()
 
 # Import layout learner
 try:
-    from .layout_learner import get_layout_context
+    from ..llm.layout_learner import get_layout_context
 except ImportError:
     # Fallback if layout_learner not available
     def get_layout_context(reference_deck_dir: Optional[str] = None) -> str:

@@ -190,7 +190,7 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
     out_dir.mkdir(parents=True, exist_ok=True)
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
-    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends.png"
+    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section1_{window_filter.lower()}_trends.png"
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Chart saved to: {out_path}")
@@ -371,7 +371,7 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     out_dir.mkdir(parents=True, exist_ok=True)
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}-section0_pred_vs_actual_{folder}.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section0_pred_vs_actual_{folder}.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 0: {str(out_path.absolute())}")
@@ -569,25 +569,25 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         if metrics and metrics.get("t_prev"):
             t_prev = metrics["t_prev"]
             t_curr = metrics["t_curr"]
+            # Show current values, not deltas
+            hi_now = metrics.get("hi_now", 0)
+            lo_now = metrics.get("lo_now", 0)
+            score_now = metrics.get("score_now", 0)
             
             def _pct_for_bucket(bucket_name, tlabel):
                 return pct_df[(pct_df["time_label"] == tlabel) & (pct_df["achievementquintile"] == bucket_name)]["pct"].sum()
             
             high_now = _pct_for_bucket("High", t_curr)
-            high_prev = _pct_for_bucket("High", t_prev)
-            high_delta = high_now - high_prev
-            hi_delta = metrics["hi_delta"]
-            lo_delta = metrics["lo_delta"]
-            score_delta = metrics["score_delta"]
             
-            title_line = "Change calculations from " + f"{t_prev} to {t_curr}:\n"
-            line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-            line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-            line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
-            insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
+            insight_lines = [
+                f"Current values ({t_curr}):",
+                f"High: {high_now:.1f} ppts",
+                f"Avg+HiAvg+High: {hi_now:.1f} ppts",
+                f"Low: {lo_now:.1f} ppts",
+                f"Avg RIT: {score_now:.1f} pts",
+            ]
         else:
-            insight_lines = ["Not enough history for change insights"]
+            insight_lines = ["Not enough history for insights"]
         
         ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="medium", color="#333333",
                 ha="center", va="center", wrap=True, usetex=False,
@@ -605,7 +605,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     safe_group = group_name.replace(" ", "_").replace("/", "_")
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 2: {str(out_path.absolute())}")
@@ -654,7 +654,7 @@ def filter_fall_course_grades(df, subject):
     else:
         d = d[d["course"].astype(str).str.contains("read", case=False, na=False)]
     d["grade"] = pd.to_numeric(d["grade"], errors="coerce")
-    d = d[d["grade"].isin([3, 4, 5, 6, 7, 8, 11])]
+    # Removed grade filter - now includes all grades (previously filtered to [3, 4, 5, 6, 7, 8, 11] for CAASPP)
     d = d[d["cers_overall_performanceband"].notna()]
     d["year"] = pd.to_numeric(d["year"], errors="coerce")
     return d
@@ -1029,19 +1029,20 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
         
         high_now = _pct_for_bucket_left("High", t_curr)
         high_prev = _pct_for_bucket_left("High", t_prev)
-        high_delta = high_now - high_prev
-        hi_delta = metrics_left["hi_delta"]
-        lo_delta = metrics_left["lo_delta"]
-        score_delta = metrics_left["score_delta"]
+        # Show current values, not deltas (deltas still calculated in metrics)
+        hi_now = metrics_left.get("hi_now", 0)
+        lo_now = metrics_left.get("lo_now", 0)
+        score_now = metrics_left.get("score_now", 0)
         
-        title_line = "Change calculations from previous to current year\n"
-        line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-        line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-        line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-        line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
-        insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
+        insight_lines = [
+            f"Current values ({t_curr}):",
+            f"High: {high_now:.1f} ppts",
+            f"Avg+HiAvg+High: {hi_now:.1f} ppts",
+            f"Low: {lo_now:.1f} ppts",
+            f"Avg RIT: {score_now:.1f} pts",
+        ]
     else:
-        insight_lines = ["Not enough history for change insights"]
+        insight_lines = ["Not enough history for insights"]
     
     ax5.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
             ha="center", va="center", wrap=True, usetex=False,
@@ -1060,19 +1061,20 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             
             high_now = _pct_for_bucket_right("High", t_curr)
             high_prev = _pct_for_bucket_right("High", t_prev)
-            high_delta = high_now - high_prev
-            hi_delta = metrics_right["hi_delta"]
-            lo_delta = metrics_right["lo_delta"]
-            score_delta = metrics_right["score_delta"]
+            # Show current values, not deltas (deltas still calculated in metrics)
+            hi_now = metrics_right.get("hi_now", 0)
+            lo_now = metrics_right.get("lo_now", 0)
+            score_now = metrics_right.get("score_now", 0)
             
-            title_line = "Change calculations from previous to current year\n"
-            line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-            line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-            line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
-            insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
+            insight_lines = [
+                f"Current values ({t_curr}):",
+                f"High: {high_now:.1f} ppts",
+                f"Avg+HiAvg+High: {hi_now:.1f} ppts",
+                f"Low: {lo_now:.1f} ppts",
+                f"Avg RIT: {score_now:.1f} pts",
+            ]
         else:
-            insight_lines = ["Insufficient cohort data\n(need multiple years)"]
+            insight_lines = ["Insufficient cohort data"]
         
         ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
                 ha="center", va="center", wrap=True, usetex=False,
@@ -1087,7 +1089,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     scope = scope_label or (cfg.get("district_name", ["Districtwide"])[0] if school_raw is None else hf._safe_normalize_school_name(school_raw, cfg))
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
-    out_name = f"{prefix}{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope.replace(' ', '_')}_NWEA_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     # Print absolute path as string for reliable parsing
@@ -1300,7 +1302,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     safe_scope = scope_label.replace(" ", "_")
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if folder_name == "_district" else "SCHOOL_"
-    out_name = f"{prefix}{safe_scope}_section4_cgp_fall_to_fall_dualpanel.png"
+    out_name = f"{prefix}{safe_scope}_NWEA_section4_cgp_fall_to_fall_dualpanel.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
@@ -1377,7 +1379,7 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6A_2025_pred_vs_actual_{folder}.png"
+    out_path = out_dir / f"NWEA_section6A_2025_pred_vs_actual_{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
     
@@ -1442,7 +1444,7 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6B_2026_projection_{folder}.png"
+    out_path = out_dir / f"NWEA_section6B_2026_projection_{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
     

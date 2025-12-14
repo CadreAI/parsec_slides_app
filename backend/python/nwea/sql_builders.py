@@ -7,13 +7,14 @@ from typing import List, Optional
 EXCLUDE_COLS = {}
 
 
-def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None) -> str:
+def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_column: Optional[str] = None) -> str:
     """
     Build SQL query for NWEA data
     
     Args:
         table_id: BigQuery table ID (project.dataset.table)
         exclude_cols: Optional list of additional columns to exclude from config
+        year_column: Optional year column name ('Year' or 'AcademicYear'). If None, will use OR condition for both.
     
     Returns:
         SQL query string
@@ -23,6 +24,32 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None) -> str:
         extra_excludes = extra_excludes + exclude_cols
     
     dynamic_excludes = ",\n        ".join(extra_excludes) if extra_excludes else ""
+    
+    # Determine year column to use
+    if year_column:
+        # Use specified column
+        year_filter = f"{year_column} >= (\n        CASE\n            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7\n                THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1\n            ELSE EXTRACT(YEAR FROM CURRENT_DATE())\n        END\n    ) - 3"
+    else:
+        # Use OR condition to handle both Year and AcademicYear
+        # This will work if at least one column exists
+        year_filter = """(
+        -- Try Year column first (NWEA typically uses Year)
+        (Year >= (
+            CASE
+                WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
+                    THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1
+                ELSE EXTRACT(YEAR FROM CURRENT_DATE())
+            END
+        ) - 3)
+        -- Fallback to AcademicYear if Year doesn't exist (some tables use AcademicYear)
+        OR (AcademicYear >= (
+            CASE
+                WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
+                    THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1
+                ELSE EXTRACT(YEAR FROM CURRENT_DATE())
+            END
+        ) - 3)
+    )"""
 
     return f"""
         SELECT DISTINCT *
@@ -204,18 +231,6 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None) -> str:
 
         `{table_id}`
 
-    WHERE COALESCE(Year, AcademicYear) >= (
-
-        CASE
-
-            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
-
-                THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1
-
-            ELSE EXTRACT(YEAR FROM CURRENT_DATE())
-
-        END
-
-        ) - 3
+    WHERE {year_filter}
 
     """

@@ -9,6 +9,7 @@ matplotlib.use('Agg')
 import argparse
 import sys
 import json
+import os
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -352,15 +353,22 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_name = f"{scope_label}_section0_pred_vs_actual.png"
+    out_name = f"{scope_label}_STAR_section0_pred_vs_actual.png"
     out_path = out_dir / out_name
+    
+    # Log path construction details for debugging
+    print(f"[Section 0] Saving chart: scope_label='{scope_label}', folder='{folder}', out_name='{out_name}', full_path='{out_path}'")
     
     try:
         hf._save_and_render(fig, out_path, dev_mode=preview)
         
         # Verify file was actually saved
-        if not out_path.exists() or out_path.stat().st_size == 0:
-            raise IOError(f"Chart file was not created or is empty: {out_path}")
+        if not out_path.exists():
+            raise IOError(f"Chart file was not created: {out_path}")
+        if out_path.stat().st_size == 0:
+            raise IOError(f"Chart file is empty (0 bytes): {out_path}")
+        
+        print(f"[Section 0] ✓ Chart saved successfully: {out_path} ({out_path.stat().st_size} bytes)")
         
         # Prepare chart data for saving
         chart_data = {
@@ -379,10 +387,14 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
                 for proj_pct, act_pct in [(subj_payload[subj]["proj_pct"], subj_payload[subj]["act_pct"])]
             }
         }
-        track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0, chart_data=chart_data)
-        print(f"Saved Section 0: {out_path}")
+        track_chart(f"Section 0: Predicted vs Actual", str(out_path), scope=scope_label, section=0, chart_data=chart_data)
+        print(f"[Section 0] ✓ Chart tracked: {out_path}")
     except Exception as e:
-        print(f"ERROR: Failed to save Section 0 chart for {scope_label}: {e}")
+        error_msg = f"ERROR: Failed to save Section 0 chart for {scope_label}"
+        print(f"{error_msg}: {e}")
+        print(f"[Section 0] Details: scope_label='{scope_label}', folder='{folder}', out_path='{out_path}'")
+        print(f"[Section 0] Parent directory exists: {out_path.parent.exists()}")
+        print(f"[Section 0] Parent directory is writable: {os.access(out_path.parent, os.W_OK) if out_path.parent.exists() else 'N/A'}")
         import traceback
         traceback.print_exc()
         raise  # Re-raise to be caught by outer try-except
@@ -478,7 +490,7 @@ def plot_star_dual_subject_dashboard(
     
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
-    out_name = f"{scope_label}_section1_star_{window_filter.lower()}_trends.png"
+    out_name = f"{scope_label}_STAR_section1_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -691,25 +703,29 @@ def plot_star_subject_dashboard_by_group(
                 return curr - prev
             
             if pct_df is not None and not pct_df.empty:
-                high_delta = _bucket_delta("4 - Standard Exceeded", pct_df)
-                hi_delta = sum(
-                    _bucket_delta(b, pct_df)
-                    for b in ["4 - Standard Exceeded", "3 - Standard Met"]
-                )
-                lo_delta = _bucket_delta("1 - Standard Not Met", pct_df)
-                score_delta = metrics["score_delta"]
+                # Show current values, not deltas (deltas still calculated in metrics)
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df.loc[
+                        (pct_df["time_label"] == tlabel) &
+                        (pct_df["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = metrics.get("score_now", 0)
                 
                 insight_lines = [
-                    "Comparison of current and prior year",
-                    rf"$\Delta$ Exceed: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Meet or Exceed: $\mathbf{{{hi_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Not Met: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Unified Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    f"Current values ({t_curr}):",
+                    f"Exceed: {high_now:.1f} ppts",
+                    f"Meet or Exceed: {hi_now:.1f} ppts",
+                    f"Not Met: {lo_now:.1f} ppts",
+                    f"Avg Unified Scale Score: {score_now:.1f} pts",
                 ]
             else:
-                insight_lines = ["(No pct_df for insight calculation)"]
+                insight_lines = []
         else:
-            insight_lines = ["Not enough history for change insights"]
+            insight_lines = ["Not enough history for insights"]
         
         axes[2][i].text(
             0.5, 0.5, "\n".join(insight_lines),
@@ -728,7 +744,7 @@ def plot_star_subject_dashboard_by_group(
     order_map = cfg.get("student_group_order", {}) if cfg else {}
     group_order_val = order_map.get(group_name, 99)
     safe_group = group_name.replace(" ", "_").replace("/", "_")
-    out_name = f"{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
+    out_name = f"{scope_label.replace(' ', '_')}_STAR_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -996,7 +1012,7 @@ def plot_star_blended_dashboard(
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
     
     safe_subj = subject_str.replace(" ", "_").lower()
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_grade{current_grade}_{safe_subj}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section3_grade{current_grade}_{safe_subj}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -1115,7 +1131,7 @@ def plot_star_growth_by_site(
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
     
     safe_subj = subject_str.replace(" ", "_").lower()
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section4_{safe_subj}_{window_filter.lower()}_growth_by_site.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section4_{safe_subj}_{window_filter.lower()}_growth_by_site.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -1313,11 +1329,15 @@ def plot_star_sgp_growth(
     
     ax4 = fig.add_subplot(gs[1, 1])
     ax4.axis("off")
-    if metrics_cohort and metrics_cohort.get("hi_delta") is not None:
+    if metrics_cohort and metrics_cohort.get("hi_now") is not None:
+        # Show current values, not deltas (deltas still calculated in metrics)
+        hi_now = metrics_cohort.get("hi_now", 0)
+        score_now = metrics_cohort.get("score_now", 0)
+        t_curr = metrics_cohort.get("t_curr", "Current")
         lines = [
-            "Cohort Insights:",
-            rf"$\Delta$ Meet/Exceed: $\mathbf{{{metrics_cohort['hi_delta']:+.1f}}}$ ppts",
-            rf"$\Delta$ Avg Score: $\mathbf{{{metrics_cohort['score_delta']:+.1f}}}$ pts",
+            f"Cohort Insights ({t_curr}):",
+            f"Meet/Exceed: {hi_now:.1f} ppts",
+            f"Avg Score: {score_now:.1f} pts",
         ]
         ax4.text(0.5, 0.5, "\n".join(lines), ha="center", va="center", fontsize=11,
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc"))
@@ -1333,7 +1353,7 @@ def plot_star_sgp_growth(
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
     
     safe_subj = subject_str.replace(" ", "_").lower()
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section5_grade{current_grade}_{safe_subj}_{window_filter.lower()}_sgp_growth.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section5_grade{current_grade}_{safe_subj}_{window_filter.lower()}_sgp_growth.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -1369,7 +1389,16 @@ def plot_star_consolidated_cohort_all_grades(
 ):
     """Consolidated cohort chart showing 3 grades per chart"""
     if selected_grades is None:
-        selected_grades = list(range(3, 9))
+        # Query all available grades from data (no hardcoded limit)
+        grade_col = "grade" if "grade" in df.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in df.columns else "studentgrade")
+        if grade_col in df.columns:
+            df_temp = df.copy()
+            df_temp["__grade_int"] = pd.to_numeric(df_temp[grade_col], errors="coerce")
+            available_grades = sorted([int(g) for g in df_temp["__grade_int"].dropna().unique() if not pd.isna(g)])
+            selected_grades = available_grades
+        else:
+            # Fallback: use all grades from Pre-K to 12
+            selected_grades = list(range(-1, 13))
     
     # Prepare data for each grade
     grade_data = {}
@@ -1435,7 +1464,7 @@ def plot_star_consolidated_cohort_all_grades(
         prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
         
         safe_subj = subject_str.replace(" ", "_").lower()
-        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_grade_{grade}_{safe_subj}_{window_filter.lower()}_cohort.png"
+        out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section3_grade_{grade}_{safe_subj}_{window_filter.lower()}_cohort.png"
         out_path = out_dir / out_name
         
         hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -1468,7 +1497,16 @@ def plot_star_consolidated_sgp_all_grades(
 ):
     """Consolidated SGP chart showing 3 grades per chart"""
     if selected_grades is None:
-        selected_grades = list(range(3, 9))
+        # Query all available grades from data (no hardcoded limit)
+        grade_col = "grade" if "grade" in df.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in df.columns else "studentgrade")
+        if grade_col in df.columns:
+            df_temp = df.copy()
+            df_temp["__grade_int"] = pd.to_numeric(df_temp[grade_col], errors="coerce")
+            available_grades = sorted([int(g) for g in df_temp["__grade_int"].dropna().unique() if not pd.isna(g)])
+            selected_grades = available_grades
+        else:
+            # Fallback: use all grades from Pre-K to 12
+            selected_grades = list(range(-1, 13))
     
     # Prepare SGP data for each grade
     grade_data = {}
@@ -1548,7 +1586,7 @@ def plot_star_consolidated_sgp_all_grades(
         prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
         
         safe_subj = subject_str.replace(" ", "_").lower()
-        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section5_grade_{grade}_{safe_subj}_{window_filter.lower()}_sgp.png"
+        out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section5_grade_{grade}_{safe_subj}_{window_filter.lower()}_sgp.png"
         out_path = out_dir / out_name
         
         hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -1727,8 +1765,16 @@ def main(star_data=None):
     print("\n[Section 3] Generating Overall + Cohort Trends...")
     selected_grades = chart_filters.get("grades", [])
     if not selected_grades:
-        # Default: grades 3-8
-        selected_grades = list(range(3, 9))
+        # Query all available grades from data (no hardcoded limit)
+        grade_col = "grade" if "grade" in star_base.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in star_base.columns else "studentgrade")
+        if grade_col in star_base.columns:
+            star_base["__grade_int"] = pd.to_numeric(star_base[grade_col], errors="coerce")
+            available_grades = sorted([int(g) for g in star_base["__grade_int"].dropna().unique() if not pd.isna(g)])
+            selected_grades = available_grades
+            star_base = star_base.drop(columns=["__grade_int"], errors="ignore")
+        else:
+            # Fallback: use all grades from Pre-K to 12
+            selected_grades = list(range(-1, 13))
     
     anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
     

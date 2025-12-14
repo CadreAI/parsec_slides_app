@@ -680,25 +680,30 @@ def plot_star_subject_dashboard_by_group(
                 return curr - prev
             
             if pct_df is not None and not pct_df.empty:
-                high_delta = _bucket_delta("4 - Standard Exceeded", pct_df)
-                hi_delta = sum(
-                    _bucket_delta(b, pct_df)
-                    for b in ["4 - Standard Exceeded", "3 - Standard Met"]
-                )
-                lo_delta = _bucket_delta("1 - Standard Not Met", pct_df)
-                score_delta = metrics["score_delta"]
+                # Show current values, not deltas (deltas still calculated in metrics)
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df.loc[
+                        (pct_df["time_label"] == tlabel) &
+                        (pct_df["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                t_curr = metrics["t_curr"]
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = metrics.get("score_now", 0)
                 
                 insight_lines = [
-                    "Comparison of current and prior year",
-                    rf"$\Delta$ Exceed: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Meet or Exceed: $\mathbf{{{hi_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Not Met: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Unified Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    f"Current values ({t_curr}):",
+                    f"Exceed: {high_now:.1f} ppts",
+                    f"Meet or Exceed: {hi_now:.1f} ppts",
+                    f"Not Met: {lo_now:.1f} ppts",
+                    f"Avg Unified Scale Score: {score_now:.1f} pts",
                 ]
             else:
-                insight_lines = ["(No pct_df for insight calculation)"]
+                insight_lines = []
         else:
-            insight_lines = ["Not enough history for change insights"]
+            insight_lines = ["Not enough history for insights"]
         
         axes[2][i].text(
             0.5, 0.5, "\n".join(insight_lines),
@@ -1302,11 +1307,15 @@ def plot_star_sgp_growth(
     
     ax4 = fig.add_subplot(gs[1, 1])
     ax4.axis("off")
-    if metrics_cohort and metrics_cohort.get("hi_delta") is not None:
+    if metrics_cohort and metrics_cohort.get("hi_now") is not None:
+        # Show current values, not deltas (deltas still calculated in metrics)
+        hi_now = metrics_cohort.get("hi_now", 0)
+        score_now = metrics_cohort.get("score_now", 0)
+        t_curr = metrics_cohort.get("t_curr", "Current")
         lines = [
-            "Cohort Insights:",
-            rf"$\Delta$ Meet/Exceed: $\mathbf{{{metrics_cohort['hi_delta']:+.1f}}}$ ppts",
-            rf"$\Delta$ Avg Score: $\mathbf{{{metrics_cohort['score_delta']:+.1f}}}$ pts",
+            f"Cohort Insights ({t_curr}):",
+            f"Meet/Exceed: {hi_now:.1f} ppts",
+            f"Avg Score: {score_now:.1f} pts",
         ]
         ax4.text(0.5, 0.5, "\n".join(lines), ha="center", va="center", fontsize=11,
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc"))

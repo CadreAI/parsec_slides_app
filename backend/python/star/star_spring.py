@@ -357,7 +357,7 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_name = f"{scope_label}_section0_pred_vs_actual_spring.png"
+    out_name = f"{scope_label}_STAR_section0_pred_vs_actual_spring.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -472,7 +472,7 @@ def plot_star_dual_subject_dashboard_spring(
     
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
-    out_name = f"{scope_label}_section1_star_{window_filter.lower()}_trends.png"
+    out_name = f"{scope_label}_STAR_section1_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -489,7 +489,7 @@ def plot_star_dual_subject_dashboard_spring(
 # ---------------------------------------------------------------------
 
 def _prep_star_winter_spring(df, subj):
-    """Filter to Winter/Spring 2026 for one subject. Deduplicate to latest test per student per window."""
+    """Filter to Winter/Spring for most recent academic year. Deduplicate to latest test per student per window."""
     d = df.copy()
     
     # restrict to academic year 2026 and Winter/Spring
@@ -655,13 +655,30 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
         ax3 = axes[2][i]
         ax3.axis("off")
         if metrics.get("t_prev"):
-            lines = [
-                "Comparison based on Winter vs Spring:\n",
-                rf"$\Delta$ Exceeded: $\mathbf{{{metrics['delta_exceed']:+.1f}}}$ ppts",
-                rf"$\Delta$ Meet/Exceed: $\mathbf{{{metrics['delta_meet_exceed']:+.1f}}}$ ppts",
-                rf"$\Delta$ Not Met: $\mathbf{{{metrics['delta_not_met']:+.1f}}}$ ppts",
-                rf"$\Delta$ Avg Score: $\mathbf{{{metrics['delta_score']:+.1f}}}$ pts",
-            ]
+            t_curr = metrics.get("t_curr", "Current")
+            pct_df_metrics = metrics.get("pct_df")
+            # Show current values, not deltas (deltas still calculated in metrics)
+            if pct_df_metrics is not None and not pct_df_metrics.empty:
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df_metrics.loc[
+                        (pct_df_metrics["time_label"] == tlabel) &
+                        (pct_df_metrics["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
+                
+                lines = [
+                    f"Current values ({t_curr}):",
+                    f"Exceeded: {high_now:.1f} ppts",
+                    f"Meet/Exceed: {hi_now:.1f} ppts",
+                    f"Not Met: {lo_now:.1f} ppts",
+                    f"Avg Score: {score_now:.1f} pts",
+                ]
+            else:
+                lines = ["Not enough data for insights"]
         else:
             lines = ["Not enough data for insights"]
         ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
@@ -677,7 +694,7 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")
-    out_name = f"{safe_scope}_section1_1_winter_spring_progression.png"
+    out_name = f"{safe_scope}_STAR_section1_1_winter_spring_progression.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -765,13 +782,30 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
         ax3 = axes[2][i]
         ax3.axis("off")
         if metrics.get("t_prev"):
-            lines = [
-                "Comparison based on Winter vs Spring:\n",
-                rf"$\Delta$ Exceeded: $\mathbf{{{metrics['delta_exceed']:+.1f}}}$ ppts",
-                rf"$\Delta$ Meet/Exceed: $\mathbf{{{metrics['delta_meet_exceed']:+.1f}}}$ ppts",
-                rf"$\Delta$ Not Met: $\mathbf{{{metrics['delta_not_met']:+.1f}}}$ ppts",
-                rf"$\Delta$ Avg Score: $\mathbf{{{metrics['delta_score']:+.1f}}}$ pts",
-            ]
+            t_curr = metrics.get("t_curr", "Current")
+            pct_df_metrics = metrics.get("pct_df")
+            # Show current values, not deltas (deltas still calculated in metrics)
+            if pct_df_metrics is not None and not pct_df_metrics.empty:
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df_metrics.loc[
+                        (pct_df_metrics["time_label"] == tlabel) &
+                        (pct_df_metrics["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
+                
+                lines = [
+                    f"Current values ({t_curr}):",
+                    f"Exceeded: {high_now:.1f} ppts",
+                    f"Meet/Exceed: {hi_now:.1f} ppts",
+                    f"Not Met: {lo_now:.1f} ppts",
+                    f"Avg Score: {score_now:.1f} pts",
+                ]
+            else:
+                lines = ["Not enough data for insights"]
         else:
             lines = ["Not enough data for insights"]
         ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
@@ -793,7 +827,7 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")
-    out_name = f"{safe_scope}_grade{grade}_section1_2_winter_spring_progression.png"
+    out_name = f"{safe_scope}_STAR_grade{grade}_section1_2_winter_spring_progression.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -940,13 +974,31 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
         ax3.axis("off")
         metrics = metrics_list[i]
         if metrics.get("t_prev"):
-            lines = [
-                "Comparison based on Winter vs Spring:\n",
-                rf"$\Delta$ Exceeded: $\mathbf{{{metrics['delta_exceed']:+.1f}}}$ ppts",
-                rf"$\Delta$ Meet/Exceed: $\mathbf{{{metrics['delta_meet_exceed']:+.1f}}}$ ppts",
-                rf"$\Delta$ Not Met: $\mathbf{{{metrics['delta_not_met']:+.1f}}}$ ppts",
-                rf"$\Delta$ Avg Score: $\mathbf{{{metrics['delta_score']:+.1f}}}$ pts",
-            ]
+            t_curr = metrics.get("t_curr", "Current")
+            pct_df_metrics = metrics.get("pct_df")
+            score_df_metrics = score_dfs[i] if i < len(score_dfs) else None
+            # Show current values, not deltas (deltas still calculated in metrics)
+            if pct_df_metrics is not None and not pct_df_metrics.empty:
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df_metrics.loc[
+                        (pct_df_metrics["time_label"] == tlabel) &
+                        (pct_df_metrics["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = float(score_df_metrics.loc[score_df_metrics["time_label"] == t_curr, "avg_score"].iloc[0]) if score_df_metrics is not None and not score_df_metrics.empty and len(score_df_metrics[score_df_metrics["time_label"] == t_curr]) > 0 else 0.0
+                
+                lines = [
+                    f"Current values ({t_curr}):",
+                    f"Exceeded: {high_now:.1f} ppts",
+                    f"Meet/Exceed: {hi_now:.1f} ppts",
+                    f"Not Met: {lo_now:.1f} ppts",
+                    f"Avg Score: {score_now:.1f} pts",
+                ]
+            else:
+                lines = ["Not enough data for insights"]
         else:
             lines = ["Not enough data for insights"]
         ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
@@ -960,7 +1012,7 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
     out_dir_path.mkdir(parents=True, exist_ok=True)
     safe_group = group_name.replace(" ", "_").replace("/", "_")
     safe_scope = scope_label.replace(" ", "_")
-    out_name = f"{safe_scope}_section1_3_{safe_group}_winter_spring_progression.png"
+    out_name = f"{safe_scope}_STAR_section1_3_{safe_group}_winter_spring_progression.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -1134,22 +1186,29 @@ def plot_star_subject_dashboard_by_group_spring(
                 return curr - prev
             
             if pct_df is not None and not pct_df.empty:
-                high_delta = _bucket_delta("4 - Standard Exceeded", pct_df)
-                hi_delta = sum(_bucket_delta(b, pct_df) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
-                lo_delta = _bucket_delta("1 - Standard Not Met", pct_df)
-                score_delta = metrics["score_delta"]
+                # Show current values, not deltas (deltas still calculated in metrics)
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df.loc[
+                        (pct_df["time_label"] == tlabel) &
+                        (pct_df["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = metrics.get("score_now", 0)
                 
                 insight_lines = [
-                    "Comparison of current and prior year",
-                    rf"$\Delta$ Exceed: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Meet or Exceed: $\mathbf{{{hi_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Not Met: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Unified Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    f"Current values ({t_curr}):",
+                    f"Exceed: {high_now:.1f} ppts",
+                    f"Meet or Exceed: {hi_now:.1f} ppts",
+                    f"Not Met: {lo_now:.1f} ppts",
+                    f"Avg Unified Scale Score: {score_now:.1f} pts",
                 ]
             else:
-                insight_lines = ["(No pct_df for insight calculation)"]
+                insight_lines = []
         else:
-            insight_lines = ["Not enough history for change insights"]
+            insight_lines = ["Not enough history for insights"]
         
         axes[2][i].text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="normal", color="#434343",
                       ha="center", va="center", wrap=True, usetex=False,
@@ -1163,7 +1222,7 @@ def plot_star_subject_dashboard_by_group_spring(
     order_map = cfg.get("student_group_order", {}) if cfg else {}
     group_order_val = order_map.get(group_name, 99)
     safe_group = group_name.replace(" ", "_").replace("/", "_")
-    out_name = f"{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
+    out_name = f"{scope_label.replace(' ', '_')}_STAR_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
@@ -1410,7 +1469,7 @@ def plot_star_blended_dashboard_spring(
     prefix = "DISTRICT_" if folder == "_district" else ""
     
     safe_subj = subject_str.replace(" ", "_").lower()
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_grade{current_grade}_{safe_subj}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section3_grade{current_grade}_{safe_subj}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -1515,7 +1574,7 @@ def plot_star_growth_by_site_spring(
     prefix = "DISTRICT_" if folder == "_district" else ""
     
     safe_subj = subject_str.replace(" ", "_").lower()
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section4_{safe_subj}_{window_filter.lower()}_growth_by_site.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section4_{safe_subj}_{window_filter.lower()}_growth_by_site.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -1848,7 +1907,7 @@ def plot_star_sgp_growth_spring(
     prefix = "DISTRICT_" if folder == "_district" else ""
     
     safe_subj = subject_str.replace(" ", "_").lower()
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section5_grade{current_grade}_{safe_subj}_{window_filter.lower()}_sgp_growth.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_STAR_section5_grade{current_grade}_{safe_subj}_{window_filter.lower()}_sgp_growth.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -2072,8 +2131,16 @@ def main(star_data=None):
     print("\n[Section 3] Generating Overall + Cohort Trends (Spring)...")
     selected_grades = chart_filters.get("grades", [])
     if not selected_grades:
-        # Default: grades 3-8
-        selected_grades = list(range(3, 9))
+        # Query all available grades from data (no hardcoded limit)
+        grade_col = "grade" if "grade" in star_base.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in star_base.columns else "studentgrade")
+        if grade_col in star_base.columns:
+            star_base["__grade_int"] = pd.to_numeric(star_base[grade_col], errors="coerce")
+            available_grades = sorted([int(g) for g in star_base["__grade_int"].dropna().unique() if not pd.isna(g)])
+            selected_grades = available_grades
+            star_base = star_base.drop(columns=["__grade_int"], errors="ignore")
+        else:
+            # Fallback: use all grades from Pre-K to 12
+            selected_grades = list(range(-1, 13))
     
     anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
     

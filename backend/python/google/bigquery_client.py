@@ -2,6 +2,7 @@
 BigQuery client utilities for Python backend
 """
 import os
+from typing import List
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from pathlib import Path
@@ -84,6 +85,34 @@ def get_bigquery_client(project_id: str, credentials_path: str = None):
         client = bigquery.Client(project=project_id)
     
     return client
+
+
+def get_table_columns(client: bigquery.Client, table_id: str) -> List[str]:
+    """
+    Get list of column names from a BigQuery table
+    
+    Args:
+        client: BigQuery client instance
+        table_id: Fully qualified table ID (project.dataset.table)
+    
+    Returns:
+        List of column names (lowercase)
+    """
+    try:
+        # Parse table_id
+        parts = table_id.split('.')
+        if len(parts) != 3:
+            raise ValueError(f"Invalid table_id format: {table_id}. Expected: project.dataset.table")
+        
+        project_id, dataset_id, table_name = parts
+        table_ref = client.dataset(dataset_id, project=project_id).table(table_name)
+        table = client.get_table(table_ref)
+        
+        # Return column names as lowercase list
+        return [field.name.lower() for field in table.schema]
+    except Exception as e:
+        print(f"[BigQuery] Warning: Could not get table schema for {table_id}: {e}")
+        return []
 
 
 def run_query(sql: str, client: bigquery.Client, params: dict = None):

@@ -170,23 +170,21 @@ def draw_insight_card(ax, metrics, title):
     ax.axis("off")
     if metrics and metrics.get("t_prev"):
         t_prev, t_curr = metrics["t_prev"], metrics["t_curr"]
-        # Prioritize high_delta if available (for "Standard Exceeded" only)
-        high_delta = metrics.get("high_delta")
-        if high_delta is None:
-            high_delta = metrics.get("hi_delta", 0)
-        hi_delta = metrics.get("hi_delta", 0)  # Meet or Exceed
-        lo_delta = metrics.get("lo_delta", 0)
-        score_delta = metrics.get("score_delta", 0)
+        # Show current values, not deltas
+        high_now = metrics.get("high_now", 0)
+        hi_now = metrics.get("hi_now", 0)
+        lo_now = metrics.get("lo_now", 0)
+        score_now = metrics.get("score_now", 0)
         
         insight_lines = [
-            f"Comparison of current and prior year",
-            rf"$\Delta$ Exceed: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-            rf"$\Delta$ Meet or Exceed: $\mathbf{{{hi_delta:+.1f}}}$ ppts",
-            rf"$\Delta$ Not Met: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-            rf"$\Delta$ Avg Unified Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+            f"Current values ({t_curr}):",
+            f"Exceed: {high_now:.1f} ppts",
+            f"Meet or Exceed: {hi_now:.1f} ppts",
+            f"Not Met: {lo_now:.1f} ppts",
+            f"Avg Unified Scale Score: {score_now:.1f} pts",
         ]
     else:
-        insight_lines = ["Not enough history for change insights"]
+        insight_lines = ["Not enough history for insights"]
     
     ax.text(
         0.5,

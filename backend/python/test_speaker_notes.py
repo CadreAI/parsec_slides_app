@@ -9,7 +9,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from python.google_slides_client import get_slides_client
+from python.google.google_slides_client import get_slides_client
 from python.slides.slide_creator import create_speaker_notes_requests, format_analysis_for_speaker_notes
 
 def test_formatting_only():
