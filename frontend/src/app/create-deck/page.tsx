@@ -67,11 +67,12 @@ export default function CreateSlide() {
         formData.projectId,
         formData.location
     )
-    const { availableAssessments, assessmentTables, isLoadingAssessmentTables } = useAssessmentTables(
+    const { availableAssessments, assessmentTables, variants, isLoadingAssessmentTables } = useAssessmentTables(
         formData.partnerName,
         formData.projectId,
         formData.location,
-        setFormData
+        setFormData,
+        true
     )
     const { availableSubjects, availableQuarters, supportsGrades, supportsStudentGroups, supportsRace, isLoadingFilters } = useAssessmentFilters(
         formData.assessments,
@@ -487,12 +488,60 @@ export default function CreateSlide() {
                                                             </Label>
                                                         </div>
                                                         {isSelected && (
-                                                            <Input
-                                                                value={customTable || defaultTable}
-                                                                onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
-                                                                placeholder={defaultTable}
-                                                                className="ml-6 mt-1 h-8 font-mono text-xs"
-                                                            />
+                                                            <div className="ml-6 mt-2">
+                                                                {/* Case 1: Multiple variants - show radio buttons */}
+                                                                {variants[source.id] && variants[source.id].length > 1 && (
+                                                                    <div className="space-y-1.5">
+                                                                        {variants[source.id].map((variant, idx) => (
+                                                                            <div key={variant.table_name} className="flex items-center space-x-2">
+                                                                                <input
+                                                                                    type="radio"
+                                                                                    id={`${source.id}-variant-${idx}`}
+                                                                                    name={`${source.id}-variant`}
+                                                                                    value={variant.full_path}
+                                                                                    checked={formData.customDataSources[source.id] === variant.full_path}
+                                                                                    onChange={() => handleCustomDataSourceChange(source.id, variant.full_path)}
+                                                                                    className="h-3.5 w-3.5 cursor-pointer"
+                                                                                />
+                                                                                <label htmlFor={`${source.id}-variant-${idx}`} className="flex-1 cursor-pointer font-mono text-xs text-gray-700">
+                                                                                    {variant.full_path}
+                                                                                    {variant.is_default && (
+                                                                                        <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                                                                                            Default
+                                                                                        </span>
+                                                                                    )}
+                                                                                </label>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Case 2: Single variant - show as read-only */}
+                                                                {variants[source.id] && variants[source.id].length === 1 && (
+                                                                    <Input
+                                                                        value={variants[source.id][0].full_path}
+                                                                        readOnly
+                                                                        className="h-8 cursor-not-allowed bg-gray-50 font-mono text-xs"
+                                                                    />
+                                                                )}
+
+                                                                {/* Case 3: No variants (fallback to manual input) */}
+                                                                {(!variants[source.id] || variants[source.id].length === 0) && (
+                                                                    <>
+                                                                        <Input
+                                                                            value={customTable || defaultTable}
+                                                                            onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
+                                                                            placeholder={defaultTable}
+                                                                            className="h-8 font-mono text-xs"
+                                                                        />
+                                                                        {variants[source.id] && variants[source.id].length === 0 && (
+                                                                            <p className="text-destructive mt-1 text-xs">
+                                                                                ⚠️ No table variants found. Please contact the Dev Team.
+                                                                            </p>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         )}
                                                     </div>
                                                 )
