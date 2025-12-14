@@ -20,8 +20,6 @@ from matplotlib.gridspec import GridSpec
 import matplotlib as mpl
 from matplotlib import transforms as mtransforms
 from matplotlib import lines as mlines
-import sys
-from pathlib import Path
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf

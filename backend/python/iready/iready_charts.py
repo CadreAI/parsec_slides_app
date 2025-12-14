@@ -17,8 +17,6 @@ from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-import sys
-from pathlib import Path
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf

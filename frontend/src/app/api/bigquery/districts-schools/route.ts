@@ -72,7 +72,6 @@ export async function GET(req: NextRequest) {
                     const [exists] = await table.exists()
                     if (exists) {
                         nweaTableId = `${projectId}.${datasetId}.${testTableName}`
-                        console.log(`Found NWEA table: ${nweaTableId}`)
                         break
                     }
                 } catch {
@@ -101,7 +100,6 @@ export async function GET(req: NextRequest) {
                     const [exists] = await table.exists()
                     if (exists) {
                         starTableId = `${projectId}.${datasetId}.${testTableName}`
-                        console.log(`Found STAR table: ${starTableId}`)
                         break
                     }
                 } catch {
@@ -129,7 +127,6 @@ export async function GET(req: NextRequest) {
                     const [exists] = await table.exists()
                     if (exists) {
                         ireadyTableId = `${projectId}.${datasetId}.${testTableName}`
-                        console.log(`Found iReady table: ${ireadyTableId}`)
                         break
                     }
                 } catch {
@@ -149,7 +146,6 @@ export async function GET(req: NextRequest) {
                     const [exists] = await table.exists()
                     if (exists) {
                         cersIabTableId = `${projectId}.${datasetId}.${testTableName}`
-                        console.log(`Found cers_iab table: ${cersIabTableId}`)
                         break
                     }
                 } catch {
@@ -234,8 +230,6 @@ export async function GET(req: NextRequest) {
                         field.name?.toLowerCase() === 'district_name' ||
                         field.name?.toLowerCase() === 'district'
                 )
-                console.log(`NWEA table has learning_center column: ${hasLearningCenter}`)
-                console.log(`NWEA table has district name column: ${hasDistrictName}`)
             } catch (error) {
                 console.warn(`Could not check table schema: ${error}`)
             }
@@ -300,7 +294,6 @@ export async function GET(req: NextRequest) {
                         schoolSet.add(schoolName.trim())
                     }
                 }
-                console.log(`Found ${nweaRows.length} rows from NWEA table (using ${hasLearningCenter ? 'learning_center' : 'SchoolName'} for schools)`)
             } catch (error) {
                 console.warn(`Error querying NWEA table: ${error}`)
             }
@@ -327,8 +320,6 @@ export async function GET(req: NextRequest) {
                 const hasLearningCenter = fields.some(
                     (field: { name?: string }) => field.name?.toLowerCase() === 'learning_center' || field.name?.toLowerCase() === 'learningcenter'
                 )
-
-                console.log(`iReady table columns - district_name: ${hasDistrictName}, school: ${hasSchool}, learning_center: ${hasLearningCenter}`)
 
                 // Build SQL based on available columns
                 let districtColumn: string
@@ -410,7 +401,6 @@ export async function GET(req: NextRequest) {
                         }
                     }
                 }
-                console.log(`Found ${ireadyRows.length} rows from iReady table (using ${hasDistrictName ? 'DistrictName' : 'School'} as district identifier)`)
             } catch (error) {
                 console.warn(`Error querying iReady table: ${error}`)
             }
@@ -466,7 +456,6 @@ export async function GET(req: NextRequest) {
                         }
                     }
                 }
-                console.log(`Found ${starRows.length} rows from STAR table`)
             } catch (error) {
                 console.warn(`Error querying STAR table: ${error}`)
             }
@@ -522,7 +511,6 @@ export async function GET(req: NextRequest) {
                         }
                     }
                 }
-                console.log(`Found ${cersIabRows.length} rows from cers_iab table`)
             } catch (error) {
                 console.warn(`Error querying cers_iab table: ${error}`)
             }
@@ -536,7 +524,6 @@ export async function GET(req: NextRequest) {
         if (starTableId) sourceTables.push('STAR')
         if (ireadyTableId) sourceTables.push('iReady')
         if (cersIabTableId) sourceTables.push('cers_iab')
-        console.log(`Found ${districts.length} districts and ${schools.length} schools total (from ${sourceTables.join(', ')} tables)`)
 
         return NextResponse.json({
             success: true,

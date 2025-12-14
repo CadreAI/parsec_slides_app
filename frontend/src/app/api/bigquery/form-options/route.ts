@@ -41,10 +41,9 @@ export async function GET(req: NextRequest) {
             const serviceAccountPath = resolveServiceAccountCredentialsPath()
             if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
                 process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
-                console.log(`[Form Options] Using service account credentials: ${serviceAccountPath}`)
             }
-        } catch (_credError) {
-            console.warn('[Form Options] Could not resolve credentials, will try Application Default Credentials')
+        } catch {
+            // Credentials will use ADC if not found
         }
 
         const client = new BigQuery({
@@ -73,7 +72,6 @@ export async function GET(req: NextRequest) {
                 const [exists] = await table.exists()
                 if (exists) {
                     foundTable = tableName
-                    console.log(`[Form Options] Found table: ${foundTable}`)
                     break
                 }
             } catch {
@@ -213,8 +211,6 @@ export async function GET(req: NextRequest) {
             const currentYear = new Date().getFullYear()
             years.push(...[currentYear, currentYear + 1, currentYear + 2, currentYear + 3].map((y) => y.toString()))
         }
-
-        console.log(`[Form Options] Found ${grades.length} grades and ${years.length} years from ${foundTable}`)
 
         return NextResponse.json({
             success: true,
