@@ -1,4 +1,5 @@
 import { listDatasets } from '@/lib/bigquery'
+import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -16,6 +17,11 @@ import { NextRequest, NextResponse } from 'next/server'
  */
 export async function GET(req: NextRequest) {
     try {
+        const { userId } = await auth()
+        if (!userId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+        }
+
         const projectId = req.nextUrl.searchParams.get('projectId')
         const location = req.nextUrl.searchParams.get('location') || 'US'
 

@@ -1,3 +1,4 @@
+import { auth } from '@clerk/nextjs/server'
 import { BigQuery } from '@google-cloud/bigquery'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -20,6 +21,11 @@ import { NextRequest, NextResponse } from 'next/server'
  */
 export async function GET(req: NextRequest) {
     try {
+        const { userId } = await auth()
+        if (!userId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+        }
+
         const projectId = req.nextUrl.searchParams.get('projectId')
         const datasetId = req.nextUrl.searchParams.get('datasetId')
         const location = req.nextUrl.searchParams.get('location') || 'US'
@@ -83,11 +89,9 @@ export async function GET(req: NextRequest) {
             // Check each assessment for all matching variants
             for (const [assessmentId, tableNames] of Object.entries(assessmentTablePatterns)) {
                 const baseTableName = tableNames[0]
-                
+
                 // filter the table ids that start with the base table name
-                const matchingTables = allTableIds.filter((tableId) =>
-                    tableId.toLowerCase().startsWith(baseTableName.toLowerCase())
-                )
+                const matchingTables = allTableIds.filter((tableId) => tableId.toLowerCase().startsWith(baseTableName.toLowerCase()))
 
                 if (matchingTables.length > 0) {
                     // Sort to ensure base table is first
