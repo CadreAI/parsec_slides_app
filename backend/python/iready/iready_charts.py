@@ -248,7 +248,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
         # Bar panel: i-Ready Mid/Above vs CERS Met/Exceed
         ax_mid = fig.add_subplot(gs[1, i])
         bars = ax_mid.bar(
-            ["i-Ready Mid/Above", "CERS Met/Exceed"],
+            ["i-Ready Mid/Above", "CAASPP Met/Exceed"],
             [metrics["iready_mid_above"], metrics["cers_met_exceed"]],
             color=["#00baeb", "#0381a2"],
             edgecolor="white",
@@ -277,7 +277,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
         ax_bot = fig.add_subplot(gs[2, i])
         ax_bot.axis("off")
         insight_text = (
-            f"i-Ready Mid/Above vs CERS Met/Exceed:\n"
+            f"i-Ready Mid/Above vs CAASPP Met/Exceed:\n"
             rf"${metrics['iready_mid_above']:.1f}\% - {metrics['cers_met_exceed']:.1f}\% = "
             rf"\mathbf{{{metrics['delta']:+.1f}}}$ pts"
         )
@@ -296,7 +296,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
     
     year = next(iter(data_dict.values()))[1].get("year", "")
     fig.suptitle(
-        f"{scope_label} • Spring {year} • i-Ready Placement vs CERS Performance",
+        f"{scope_label} • Spring {year} • i-Ready Placement vs CAASPP Performance",
         fontsize=20,
         fontweight="bold",
         y=1.02,
@@ -1128,7 +1128,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder, output_dir, c
         )
     
     fig.suptitle(
-        f"{scope_label} \n Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)",
+        f"{scope_label} \n Spring i-Ready Mid/Above → % CAASPP Met/Exceeded (≤2025)",
         fontsize=20,
         fontweight="bold",
         y=1.02,

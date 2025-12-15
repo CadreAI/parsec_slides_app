@@ -58,7 +58,16 @@ chart_links = []
 _chart_tracking_set = set()
 
 def track_chart(chart_name, file_path, scope="district", section=None, chart_data=None):
-    """Track chart for CSV generation and save chart data if provided"""
+    """
+    Track chart for CSV generation and save chart data if provided
+    
+    Args:
+        chart_name: Name of the chart
+        file_path: Path to the chart image file
+        scope: Scope of the chart (district, school, etc.)
+        section: Section number
+        chart_data: Optional dictionary containing chart metrics/data to save as JSON
+    """
     global _chart_tracking_set
     
     chart_path = Path(file_path)
@@ -79,6 +88,42 @@ def track_chart(chart_name, file_path, scope="district", section=None, chart_dat
         "file_path": str(file_path),
         "file_link": f"file://{chart_path.absolute()}"
     }
+    
+    # Save chart data as JSON if provided
+    if chart_data is not None:
+        data_path = chart_path.parent / f"{chart_path.stem}_data.json"
+        try:
+            import json
+            import numpy as np
+            import pandas as pd
+            
+            # Convert any numpy/pandas types to native Python types for JSON serialization
+            def convert_to_json_serializable(obj):
+                if isinstance(obj, (np.integer, np.floating)):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, pd.DataFrame):
+                    return obj.to_dict('records')
+                elif isinstance(obj, pd.Series):
+                    return obj.to_dict()
+                elif isinstance(obj, dict):
+                    return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_to_json_serializable(item) for item in obj]
+                elif pd.isna(obj):
+                    return None
+                return obj
+            
+            serializable_data = convert_to_json_serializable(chart_data)
+            
+            with open(data_path, 'w') as f:
+                json.dump(serializable_data, f, indent=2, default=str)
+            
+            chart_info["data_path"] = str(data_path)
+            print(f"  Chart data saved to: {data_path}")
+        except Exception as e:
+            print(f"  Warning: Failed to save chart data: {e}")
     
     chart_links.append(chart_info)
 

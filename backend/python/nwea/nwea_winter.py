@@ -3145,7 +3145,9 @@ def main(nwea_data=None):
                 payload[subj] = {"proj_pct": proj, "act_pct": act, "metrics": metrics}
             if payload:
                 _plot_section0_dual(scope_label, folder, args.output_dir, payload, preview=hf.DEV_MODE)
-                chart_paths.append(str(Path(args.output_dir) / folder / f"{scope_label.replace(' ', '_')}_NWEA_section0_pred_vs_actual_{folder}.png"))
+                # Match the filename format used in _plot_section0_dual (with DISTRICT_/SCHOOL_ prefix)
+                prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
+                chart_paths.append(str(Path(args.output_dir) / folder / f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section0_pred_vs_actual{folder}.png"))
         except Exception as e:
             print(f"Error generating Section 0 chart for {scope_label}: {e}")
             if hf.DEV_MODE:

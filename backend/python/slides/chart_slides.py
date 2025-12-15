@@ -31,10 +31,10 @@ def create_single_chart_slide_requests(
     if not chart_url:
         return requests
     
-    # Reduced margins and spacing to maximize chart size
-    margin_emu = 150000  # Further reduced to maximize chart size
-    title_height_emu = 700000  # Further reduced to give more space to chart
-    top_bar_height_emu = 150000  # Reduced from 200000
+    # Further reduced margins and spacing to maximize chart size
+    margin_emu = 100000  # Reduced from 150000 for larger chart
+    title_height_emu = 600000  # Reduced from 700000 to give more space to chart
+    top_bar_height_emu = 150000
     
     # Top bar
     top_bar_object_id = f'TopBar_{start_index}'
@@ -63,7 +63,7 @@ def create_single_chart_slide_requests(
     title_object_id = f'Title_{start_index}'
     title_width = 9000000
     title_x = (slide_width_emu - title_width) / 2
-    title_y = top_bar_height_emu + 3000  # Reduced from 100000
+    title_y = top_bar_height_emu + 3000
     
     requests.extend([
         {
@@ -98,22 +98,23 @@ def create_single_chart_slide_requests(
         }
     ])
     
-    # Chart - maximize size and move higher, ensure it fits within slide bounds
+    # Chart - maximize size and keep centered
     available_width = slide_width_emu - margin_emu * 2
     
-    # Calculate chart position (move it higher)
-    chart_y = top_bar_height_emu + title_height_emu + 30000  # Minimal spacing after title
+    # Calculate chart position
+    chart_y = top_bar_height_emu + title_height_emu + 20000  # Minimal spacing after title
     
-    # Calculate available height based on chart position to prevent overflow
-    bottom_margin_emu = 50000  # Reduced bottom margin to maximize chart height
+    # Calculate available height - reduced bottom margin for larger chart
+    bottom_margin_emu = 30000  # Reduced from 50000 for even larger chart
     available_height = slide_height_emu - chart_y - bottom_margin_emu
     
-    # Use almost full available width and height (maximize chart size)
-    chart_width = available_width  # Use full available width (margins already subtracted)
-    chart_height = available_height * 0.99  # Use 99% of available height to maximize size while ensuring it fits
+    # Use maximum available width and height
+    chart_width = available_width * 0.98  # Use 98% of available width
+    chart_height = available_height * 0.99  # Use 99% of available height
     
     chart_object_id = f'Chart_{start_index}'
-    chart_x = margin_emu  # Start at margin
+    # Center the chart horizontally
+    chart_x = (slide_width_emu - chart_width) / 2  # Center horizontally
     
     requests.append({
         'createImage': {

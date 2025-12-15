@@ -15,7 +15,7 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_colum
         table_id: BigQuery table ID (project.dataset.table)
         exclude_cols: Optional list of additional columns to exclude from config
         year_column: Optional year column name ('Year' or 'AcademicYear'). If None, will use OR condition for both.
-        filters: Optional filters dict with years (other filters applied in Python)
+        filters: Optional filters dict with years and quarters (other filters applied in Python)
     
     Returns:
         SQL query string
@@ -25,6 +25,100 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_colum
     extra_excludes = EXCLUDE_COLS.get("nwea", [])
     if exclude_cols:
         extra_excludes = extra_excludes + exclude_cols
+    
+    # Determine which Growth columns to include based on selected quarters
+    quarters = filters.get('quarters', [])
+    if not isinstance(quarters, list):
+        quarters = []
+    
+    # Map quarters to their Growth column prefixes (columns to INCLUDE, not exclude)
+    # Note: Winter needs FallToWinter for Section 5 (Fall→Winter growth charts)
+    growth_column_prefixes = {
+        'Fall': ['FallToFall', 'FallToWinter', 'FallToSpring'],
+        'Winter': ['FallToWinter', 'WinterToWinter', 'WinterToSpring'],
+        'Spring': ['SpringToSpring']
+    }
+    
+    # Growth column suffixes for each type
+    growth_suffixes = [
+        'ProjectedGrowth',
+        'ObservedGrowth',
+        'ObservedGrowthSE',
+        'MetProjectedGrowth',
+        'ConditionalGrowthIndex',
+        'ConditionalGrowthPercentile',
+        'GrowthQuintile'
+    ]
+    
+    # Build all possible growth columns for selected quarters
+    columns_to_include = []
+    for quarter in quarters:
+        quarter_normalized = str(quarter).strip().capitalize()
+        if quarter_normalized in growth_column_prefixes:
+            prefixes = growth_column_prefixes[quarter_normalized]
+            for prefix in prefixes:
+                for suffix in growth_suffixes:
+                    columns_to_include.append(f"{prefix}{suffix}")
+    
+    # Map quarters to their Typical Growth columns (columns to INCLUDE, not exclude)
+    # Note: Winter needs TypicalFallToWinterGrowth for Section 5 (Fall→Winter growth charts)
+    typical_growth_columns = {
+        'Fall': ['TypicalFallToFallGrowth', 'TypicalFallToWinterGrowth', 'TypicalFallToSpringGrowth'],
+        'Winter': ['TypicalFallToWinterGrowth', 'TypicalWinterToWinterGrowth', 'TypicalWinterToSpringGrowth'],
+        'Spring': ['TypicalSpringToSpringGrowth']
+    }
+    
+    # Collect all Typical Growth columns that should be INCLUDED (not excluded)
+    typical_columns_to_include = []
+    for quarter in quarters:
+        quarter_normalized = str(quarter).strip().capitalize()
+        if quarter_normalized in typical_growth_columns:
+            typical_columns_to_include.extend(typical_growth_columns[quarter_normalized])
+    
+    # All possible Typical Growth columns
+    all_typical_growth = [
+        'TypicalFallToFallGrowth',
+        'TypicalFallToWinterGrowth',
+        'TypicalFallToSpringGrowth',
+        'TypicalWinterToWinterGrowth',
+        'TypicalWinterToSpringGrowth',
+        'TypicalSpringToSpringGrowth'
+    ]
+    
+    # All possible Growth columns (ProjectedGrowth, ObservedGrowth, etc.)
+    all_growth_columns = []
+    all_growth_prefixes = ['FallToFall', 'FallToWinter', 'FallToSpring', 'WinterToWinter', 'WinterToSpring', 'SpringToSpring']
+    for prefix in all_growth_prefixes:
+        for suffix in growth_suffixes:
+            all_growth_columns.append(f"{prefix}{suffix}")
+    
+    # Build the Growth exclusion list (exclude all except the ones we want to include)
+    growth_excludes = []
+    if columns_to_include:
+        # Exclude all growth columns EXCEPT the ones we want
+        growth_excludes = [col for col in all_growth_columns if col not in columns_to_include]
+    else:
+        # If no quarters selected, exclude all growth columns
+        growth_excludes = all_growth_columns
+    
+    # Build the Typical Growth exclusion list (exclude all except the ones we want to include)
+    typical_growth_excludes = []
+    if typical_columns_to_include:
+        # Exclude all typical growth columns EXCEPT the ones we want
+        typical_growth_excludes = [col for col in all_typical_growth if col not in typical_columns_to_include]
+    else:
+        # If no quarters selected, exclude all typical growth columns
+        typical_growth_excludes = all_typical_growth
+    
+    # Format growth excludes for SQL
+    growth_excludes_sql = ""
+    if growth_excludes:
+        growth_excludes_sql = ",\n        ".join(growth_excludes)
+    
+    # Format typical growth excludes for SQL
+    typical_growth_excludes_sql = ""
+    if typical_growth_excludes:
+        typical_growth_excludes_sql = ",\n        ".join(typical_growth_excludes)
     
     dynamic_excludes = ",\n        ".join(extra_excludes) if extra_excludes else ""
     
@@ -162,19 +256,11 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_colum
 
     
 
-        --Typical Growth by Window. Uncomment to keep relavant window
+        --Growth columns by Window. Dynamically included based on selected quarters
+{f'{chr(10)}        {growth_excludes_sql},' if growth_excludes_sql else ''}
 
-        --TypicalFallToFallGrowth,
-
-        --TypicalFallToWinterGrowth,
-
-        --TypicalFallToSpringGrowth,
-
-        --TypicalWinterToWinterGrowth,
-
-        --TypicalWinterToSpringGrowth,
-
-        --TypicalSpringToSpringGrowth,
+        --Typical Growth by Window. Dynamically included based on selected quarters
+{f'{chr(10)}        {typical_growth_excludes_sql},' if typical_growth_excludes_sql else ''}
 
         
 

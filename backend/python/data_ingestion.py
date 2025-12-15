@@ -152,7 +152,10 @@ def ingest_nwea(
             year_column = 'AcademicYear'
         
         # Build SQL query with selected years
+        # Pass both years and quarters to SQL builder
         sql_filters = {'years': years}
+        if chart_filters.get('quarters'):
+            sql_filters['quarters'] = chart_filters['quarters']
         sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column, filters=sql_filters)
 
         print(f"[Data Ingestion] SQL Query:")
