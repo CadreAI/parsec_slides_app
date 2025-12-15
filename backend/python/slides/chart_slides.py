@@ -32,8 +32,8 @@ def create_single_chart_slide_requests(
         return requests
     
     # Reduced margins and spacing to maximize chart size
-    margin_emu = 200000  # Reduced from 500000
-    title_height_emu = 800000  # Reduced from 1200000
+    margin_emu = 150000  # Further reduced to maximize chart size
+    title_height_emu = 700000  # Further reduced to give more space to chart
     top_bar_height_emu = 150000  # Reduced from 200000
     
     # Top bar
@@ -98,16 +98,22 @@ def create_single_chart_slide_requests(
         }
     ])
     
-    # Chart - maximize size and move higher
+    # Chart - maximize size and move higher, ensure it fits within slide bounds
     available_width = slide_width_emu - margin_emu * 2
-    available_height = slide_height_emu - margin_emu - title_height_emu - top_bar_height_emu - 50000  # Minimal bottom margin
-    # Use almost full available width and height
-    chart_width = available_width - margin_emu  # Use most of width
-    chart_height = available_height*1.10  # Use full available height
+    
+    # Calculate chart position (move it higher)
+    chart_y = top_bar_height_emu + title_height_emu + 30000  # Minimal spacing after title
+    
+    # Calculate available height based on chart position to prevent overflow
+    bottom_margin_emu = 50000  # Reduced bottom margin to maximize chart height
+    available_height = slide_height_emu - chart_y - bottom_margin_emu
+    
+    # Use almost full available width and height (maximize chart size)
+    chart_width = available_width  # Use full available width (margins already subtracted)
+    chart_height = available_height * 0.99  # Use 99% of available height to maximize size while ensuring it fits
     
     chart_object_id = f'Chart_{start_index}'
     chart_x = margin_emu  # Start at margin
-    chart_y = top_bar_height_emu + title_height_emu + 2000  # Move higher - minimal spacing after title
     
     requests.append({
         'createImage': {
