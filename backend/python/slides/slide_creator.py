@@ -59,6 +59,21 @@ def shorten_title(title: str, test_type: Optional[str] = None) -> str:
     title = title.replace('Performance', 'Perf')
     title = title.replace(' at ', ' • ')
     
+    # Remove section references (e.g., "section3", "section 3", "NWEA section3")
+    title = re.sub(r'\s*section\s*\d+\s*', ' ', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*nwea\s+section\s*\d+', ' ', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*iready\s+section\s*\d+', ' ', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*star\s+section\s*\d+', ' ', title, flags=re.IGNORECASE)
+    
+    # Remove test type names that appear in the middle of titles
+    title = re.sub(r'\s*nwea\s+', ' ', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*iready\s+', ' ', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*star\s+', ' ', title, flags=re.IGNORECASE)
+    
+    # Remove DISTRICT and SCHOOL prefixes
+    title = re.sub(r'^\s*district\s+', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^\s*school\s+', '', title, flags=re.IGNORECASE)
+    
     # Shorten grade names (e.g., "Third Grade" -> "Grade 3", "First Grade" -> "Grade 1")
     grade_replacements = {
         'Pre-Kindergarten': 'Pre-K',
@@ -892,12 +907,18 @@ def create_slides_presentation(
                     # If no school name found, try to extract from chart filename
                     if not school_name:
                         chart_name = Path(current_charts[0]).name
+                        # Remove DISTRICT_/SCHOOL_ prefix
+                        chart_name_clean = re.sub(r'^(DISTRICT_|SCHOOL_)', '', chart_name, flags=re.IGNORECASE)
+                        # Remove test type from filename for cleaner extraction
+                        chart_name_clean = re.sub(r'_NWEA_|_IREADY_|_STAR_', '_', chart_name_clean, flags=re.IGNORECASE)
                         # Look for school name patterns (usually before "section" or "grade")
-                        parts = chart_name.replace('_', ' ').split()
-                        # School name is usually the first part before "section" or "grade"
+                        parts = chart_name_clean.replace('_', ' ').split()
+                        # School name is usually the first part before "section", "grade", or test type
                         school_parts = []
+                        skip_words = {'section', 'grade', 'math', 'reading', 'fall', 'winter', 'spring', 'trends', 'nwea', 'iready', 'star', 'district', 'school'}
                         for part in parts:
-                            if part.lower() in ['section', 'grade', 'math', 'reading', 'fall', 'trends']:
+                            part_lower = part.lower()
+                            if part_lower in skip_words or re.match(r'^section\d+$', part_lower) or re.match(r'^grade\d+$', part_lower):
                                 break
                             school_parts.append(part)
                         if school_parts:
