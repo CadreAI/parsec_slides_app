@@ -10,7 +10,7 @@ const DEFAULT_FILTERS = {
 
 interface FormData {
     subjects: string[]
-    quarters: string[]
+    quarters: string | string[]
     [key: string]: unknown
 }
 
@@ -64,13 +64,18 @@ export function useAssessmentFilters(
                             if (setFormData) {
                                 setFormData((prev: FormData) => {
                                     const filteredSubjects = (prev.subjects || []).filter((s: string) => newSubjects.includes(s))
-                                    const filteredQuarters = (prev.quarters || []).filter((q: string) => newQuarters.includes(q))
+                                    // Handle both string and string[] for quarters
+                                    const prevQuarters = Array.isArray(prev.quarters) ? prev.quarters : prev.quarters ? [prev.quarters] : []
+                                    const filteredQuarters = prevQuarters.filter((q: string) => newQuarters.includes(q))
+                                    const filteredQuartersValue =
+                                        filteredQuarters.length > 0 ? (filteredQuarters.length === 1 ? filteredQuarters[0] : filteredQuarters) : ''
 
-                                    if (filteredSubjects.length !== (prev.subjects || []).length || filteredQuarters.length !== (prev.quarters || []).length) {
+                                    const prevQuartersArray = Array.isArray(prev.quarters) ? prev.quarters : prev.quarters ? [prev.quarters] : []
+                                    if (filteredSubjects.length !== (prev.subjects || []).length || filteredQuarters.length !== prevQuartersArray.length) {
                                         return {
                                             ...prev,
                                             subjects: filteredSubjects,
-                                            quarters: filteredQuarters
+                                            quarters: filteredQuartersValue
                                         }
                                     }
                                     return prev

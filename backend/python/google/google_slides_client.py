@@ -31,7 +31,7 @@ def _get_service_account_credentials():
         FileNotFoundError: If service account file not found
     """
     try:
-        from python.bigquery_client import _find_credentials_path
+        from .bigquery_client import _find_credentials_path
         creds_path = _find_credentials_path()
         if creds_path:
             print(f"[Google Slides] Loading service account credentials from: {creds_path}")
