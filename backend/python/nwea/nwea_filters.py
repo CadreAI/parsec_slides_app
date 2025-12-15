@@ -6,37 +6,27 @@ import pandas as pd
 
 
 def apply_chart_filters(df, filters):
-    """Apply chart generation filters to dataframe"""
+    """Apply chart generation filters to dataframe
+    
+    For NWEA: Only filter by years. Grade and quarter filtering happens during chart generation.
+    """
     if not filters:
         return df
     
     d = df.copy()
     
-    # Filter by grades
-    if filters.get("grades") is not None and len(filters["grades"]) > 0:
-        # Convert grade column to numeric, handling "K" as 0
-        def normalize_grade(grade_val):
-            if pd.isna(grade_val):
-                return None
-            grade_str = str(grade_val).strip().upper()
-            if grade_str == "K" or grade_str == "KINDERGARTEN":
-                return 0
-            try:
-                return int(float(grade_str))
-            except:
-                return None
-        
-        d["grade_normalized"] = d["grade"].apply(normalize_grade)
-        d = d[d["grade_normalized"].isin(filters["grades"])].copy()
-        d = d.drop(columns=["grade_normalized"], errors="ignore")
+    # NWEA: Do NOT filter by grades during data collection
+    # Grade filtering happens during chart generation (e.g., in Section 3 grade-specific charts)
+    # This allows us to collect all grade data and filter later as needed
     
-    # Filter by years
+    # Filter by years only
     if filters.get("years") is not None and len(filters["years"]) > 0:
         d["year"] = pd.to_numeric(d["year"].astype(str).str[:4], errors="coerce")
         d = d[d["year"].isin(filters["years"])].copy()
     
     # Note: Quarters filtering is NOT done here because we need to iterate over quarters
     # during chart generation. The quarters filter is applied per-chart via window_filter parameter.
+    # Note: Grade filtering is NOT done here - it happens during chart generation when needed.
     
     # Filter by race/ethnicity (if provided as separate filter)
     if filters.get("race") is not None and len(filters["race"]) > 0:

@@ -12,9 +12,19 @@ interface MultiSelectProps {
     placeholder?: string
     className?: string
     disabled?: boolean
+    getDisplayLabel?: (option: string) => string
 }
 
-export function MultiSelect({ options, selected, onChange, placeholder = 'Select options...', className, disabled = false }: MultiSelectProps) {
+export function MultiSelect({
+    options,
+    selected,
+    onChange,
+    placeholder = 'Select options...',
+    className,
+    disabled = false,
+    getDisplayLabel
+}: MultiSelectProps) {
+    const displayLabel = getDisplayLabel || ((option: string) => option)
     const [isOpen, setIsOpen] = React.useState(false)
     const containerRef = React.useRef<HTMLDivElement>(null)
 
@@ -62,7 +72,9 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
                     selected.length === 0 && 'text-muted-foreground'
                 )}
             >
-                <span className="truncate">{selected.length === 0 ? placeholder : selected.length === 1 ? selected[0] : `${selected.length} selected`}</span>
+                <span className="truncate">
+                    {selected.length === 0 ? placeholder : selected.length === 1 ? displayLabel(selected[0]) : `${selected.length} selected`}
+                </span>
                 <svg className={cn('h-4 w-4 transition-transform', isOpen && 'rotate-180')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
@@ -87,7 +99,7 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
                             <div key={option} className="hover:bg-accent flex items-center space-x-2 rounded-sm px-2 py-1.5">
                                 <Checkbox id={`multi-select-${option}`} checked={selected.includes(option)} onChange={() => handleToggle(option)} />
                                 <Label htmlFor={`multi-select-${option}`} className="flex-1 cursor-pointer font-normal">
-                                    {option}
+                                    {displayLabel(option)}
                                 </Label>
                             </div>
                         ))}
@@ -99,7 +111,7 @@ export function MultiSelect({ options, selected, onChange, placeholder = 'Select
                 <div className="mt-2 flex flex-wrap gap-2">
                     {selected.map((item) => (
                         <span key={item} className="bg-primary/10 text-primary inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium">
-                            {item}
+                            {displayLabel(item)}
                             <button type="button" onClick={() => handleToggle(item)} className="hover:bg-primary/20 rounded-full">
                                 <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

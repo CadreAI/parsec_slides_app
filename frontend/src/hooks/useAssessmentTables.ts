@@ -1,21 +1,16 @@
 import { useEffect, useState } from 'react'
 
-interface FormData {
-    customDataSources: Record<string, string>
-    [key: string]: unknown
-}
-
 interface TableVariant {
     table_name: string
     full_path: string
     is_default: boolean
 }
 
-export function useAssessmentTables(
+export function useAssessmentTables<T extends { customDataSources?: Record<string, string> }>(
     partnerName: string,
     projectId: string,
     location: string,
-    setFormData: React.Dispatch<React.SetStateAction<FormData>>,
+    setFormData: React.Dispatch<React.SetStateAction<T>>,
     includeVariants: boolean = true
 ) {
     const [availableAssessments, setAvailableAssessments] = useState<string[]>([])
@@ -48,7 +43,7 @@ export function useAssessmentTables(
                     setVariants(fetchedVariants)
 
                     // Auto-update customDataSources with found tables
-                    setFormData((prev: FormData) => {
+                    setFormData((prev: T) => {
                         const updatedCustomDataSources = { ...(prev.customDataSources || {}) }
                         for (const [assessmentId, tableId] of Object.entries(tables)) {
                             if (typeof tableId === 'string') {
@@ -58,7 +53,7 @@ export function useAssessmentTables(
                         return {
                             ...prev,
                             customDataSources: updatedCustomDataSources
-                        }
+                        } as T
                     })
 
                     console.log(`[Assessment Tables] Available assessments: ${assessments.join(', ')}`)

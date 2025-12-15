@@ -14,7 +14,7 @@ def apply_chart_filters(df, filters):
     
     # Filter by grades
     if filters.get("grades") is not None and len(filters["grades"]) > 0:
-        # Convert grade column to numeric, handling "K" as 0
+        # Convert grade column to numeric, handling "K" as 0 and -1 as pre-k
         def normalize_grade(grade_val):
             if pd.isna(grade_val):
                 return None
@@ -22,7 +22,9 @@ def apply_chart_filters(df, filters):
             if grade_str == "K" or grade_str == "KINDERGARTEN":
                 return 0
             try:
-                return int(float(grade_str))
+                grade_num = int(float(grade_str))
+                # -1 represents pre-k
+                return grade_num
             except:
                 return None
         
@@ -128,7 +130,7 @@ def should_generate_grade(grade, filters):
     if not filters or filters.get("grades") is None or len(filters.get("grades", [])) == 0:
         return True  # Generate all if no filter
     
-    # Normalize grade value (handle "K" as 0)
+    # Normalize grade value (handle "K" as 0, -1 as pre-k)
     try:
         if pd.isna(grade):
             return False
@@ -137,6 +139,7 @@ def should_generate_grade(grade, filters):
             grade_val = 0
         else:
             grade_val = int(float(grade_str))
+            # -1 represents pre-k
         return grade_val in filters["grades"]
     except:
         return False

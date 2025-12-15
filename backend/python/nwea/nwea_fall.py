@@ -1,11 +1,11 @@
 """
-NWEA chart generation script - generates charts from ingested NWEA data
+NWEA Fall chart generation module
+Generates charts specifically for Fall (BOY) test window
 """
 
 # Set matplotlib backend to non-interactive before any imports
-# This is required when running in Flask/threaded environments
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend (no GUI required)
+matplotlib.use('Agg')
 
 import argparse
 import sys
@@ -20,6 +20,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib as mpl
 from matplotlib import transforms as mtransforms
 from matplotlib import lines as mlines
+
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
@@ -47,19 +48,10 @@ from .nwea_chart_utils import (
 
 # Chart tracking for CSV generation
 chart_links = []
-_chart_tracking_set = set()  # Track by file path to prevent duplicates
+_chart_tracking_set = set()
 
 def track_chart(chart_name, file_path, scope="district", section=None, chart_data=None):
-    """
-    Track chart for CSV generation and save chart data if provided
-    
-    Args:
-        chart_name: Name of the chart
-        file_path: Path to the chart image file
-        scope: Scope of the chart (district, school, etc.)
-        section: Section number
-        chart_data: Optional dictionary containing chart metrics/data to save as JSON
-    """
+    """Track chart for CSV generation and save chart data if provided"""
     global _chart_tracking_set
     
     chart_path = Path(file_path)
@@ -116,8 +108,47 @@ def track_chart(chart_name, file_path, scope="district", section=None, chart_dat
     chart_links.append(chart_info)
 
 # ---------------------------------------------------------------------
-# Unified Dashboard Plotter
+# Chart Generation Functions (moved from nwea_charts.py to match STAR structure)
 # ---------------------------------------------------------------------
+
+# Constants
+_CASP_BAND_ORDER = ["Level 1 - Standard Not Met", "Level 2 - Standard Nearly Met", 
+                     "Level 3 - Standard Met", "Level 4 - Standard Exceeded"]
+
+# Helper functions
+def _pct(arr, labels):
+    """Calculate percentage distribution"""
+    arr = np.asarray(arr).astype(str)
+    raw = np.array([(arr == lab).mean() * 100 if len(arr) else 0 for lab in labels])
+    total = raw.sum()
+    if total > 0:
+        raw = raw * (100 / total)
+    return raw
+
+def filter_fall_course_grades(df, subject):
+    """Filter for fall tests and valid CAASPP data (all grades included)"""
+    d = df.copy()
+    d = d[d["testwindow"].astype(str).str.upper() == "FALL"]
+    if "math" in subject.lower():
+        d = d[d["course"].astype(str).str.contains("math", case=False, na=False)]
+    else:
+        d = d[d["course"].astype(str).str.contains("read", case=False, na=False)]
+    d["grade"] = pd.to_numeric(d["grade"], errors="coerce")
+    # No grade filter - includes all grades that have CAASPP data
+    d = d[d["cers_overall_performanceband"].notna()]
+    d["year"] = pd.to_numeric(d["year"], errors="coerce")
+    return d
+
+def _apply_student_group_mask(df_in, group_name, group_def):
+    """Returns boolean mask for student group selection"""
+    if group_def.get("type") == "all":
+        return pd.Series(True, index=df_in.index)
+    col = group_def["column"]
+    allowed_vals = group_def["in"]
+    vals = df_in[col].astype(str).str.strip().str.lower()
+    allowed_norm = {str(v).strip().lower() for v in allowed_vals}
+    return vals.isin(allowed_norm)
+
 
 def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filter="Fall", preview=False):
     """Unified function to plot dual subject dashboard"""
@@ -229,6 +260,8 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
 # SECTION 0 — Predicted vs Actual CAASPP (Spring)
 # ---------------------------------------------------------------------
 
+
+
 def _prep_section0(df, subject):
     """Prepare data for Section 0: Predicted vs Actual CAASPP"""
     d = df.copy()
@@ -282,6 +315,8 @@ def _prep_section0(df, subject):
         "proj_order": proj_order, "act_order": act_order, "proj_pct": proj_pct, "act_pct": act_pct,
     }
     return proj_pct, act_pct, metrics, target_year
+
+
 
 def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=False):
     """Render Section 0: Predicted vs Actual CAASPP dual-panel chart"""
@@ -371,7 +406,7 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     out_dir.mkdir(parents=True, exist_ok=True)
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section0_pred_vs_actual_{folder}.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section0_pred_vs_actual{folder}.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 0: {str(out_path.absolute())}")
@@ -412,6 +447,8 @@ def _apply_student_group_mask(df_in, group_name, group_def):
     vals = df_in[col].astype(str).str.strip().str.lower()
     allowed_norm = {str(v).strip().lower() for v in allowed_vals}
     return vals.isin(allowed_norm)
+
+
 
 def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_name, group_def,
                                          output_dir, cfg, figsize=(16, 9), school_raw=None, scope_label=None, preview=False):
@@ -569,15 +606,15 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         if metrics and metrics.get("t_prev"):
             t_prev = metrics["t_prev"]
             t_curr = metrics["t_curr"]
-            # Show current values, not deltas
-            hi_now = metrics.get("hi_now", 0)
-            lo_now = metrics.get("lo_now", 0)
-            score_now = metrics.get("score_now", 0)
             
             def _pct_for_bucket(bucket_name, tlabel):
                 return pct_df[(pct_df["time_label"] == tlabel) & (pct_df["achievementquintile"] == bucket_name)]["pct"].sum()
             
             high_now = _pct_for_bucket("High", t_curr)
+            # Show current values, not deltas (deltas still calculated in metrics)
+            hi_now = metrics.get("hi_now", 0)
+            lo_now = metrics.get("lo_now", 0)
+            score_now = metrics.get("score_now", 0)
             
             insight_lines = [
                 f"Current values ({t_curr}):",
@@ -646,7 +683,7 @@ _CASP_BAND_ORDER = ["Level 1 - Standard Not Met", "Level 2 - Standard Nearly Met
                      "Level 3 - Standard Met", "Level 4 - Standard Exceeded"]
 
 def filter_fall_course_grades(df, subject):
-    """Filter for fall tests, specific grades, and valid CAASPP data"""
+    """Filter for fall tests and valid CAASPP data (all grades included)"""
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == "FALL"]
     if "math" in subject.lower():
@@ -654,63 +691,12 @@ def filter_fall_course_grades(df, subject):
     else:
         d = d[d["course"].astype(str).str.contains("read", case=False, na=False)]
     d["grade"] = pd.to_numeric(d["grade"], errors="coerce")
-    # Removed grade filter - now includes all grades (previously filtered to [3, 4, 5, 6, 7, 8, 11] for CAASPP)
+    # No grade filter - includes all grades that have CAASPP data
     d = d[d["cers_overall_performanceband"].notna()]
     d["year"] = pd.to_numeric(d["year"], errors="coerce")
     return d
 
-def train_model(df, subject):
-    """Train RandomForest model for CAASPP prediction"""
-    try:
-        from sklearn.ensemble import RandomForestClassifier
-    except ImportError:
-        print("Warning: sklearn not available, skipping model training")
-        return None
-    
-    d0 = filter_fall_course_grades(df, subject)
-    train = d0[d0["year"] <= 2024].copy()
-    if train.empty:
-        return None
-    
-    clf = RandomForestClassifier(n_estimators=400, min_samples_leaf=2, n_jobs=-1, random_state=42)
-    clf.fit(train[["testritscore"]], train["cers_overall_performanceband"].astype(str))
-    return clf
 
-def predict_2025(df, subject, clf):
-    """Predict 2025 CAASPP performance"""
-    d0 = filter_fall_course_grades(df, subject)
-    val = d0[d0["year"] == 2025].copy()
-    if val.empty:
-        return None, None, None
-    
-    y_true = val["cers_overall_performanceband"].astype(str)
-    y_pred = clf.predict(val[["testritscore"]])
-    labs = [l for l in _CASP_BAND_ORDER if l in y_true.values or l in y_pred]
-    return y_true, y_pred, labs
-
-def predict_2026(df, subject, clf):
-    """Predict 2026 CAASPP performance"""
-    d0 = filter_fall_course_grades(df, subject)
-    fut = d0[d0["year"] == 2026].copy()
-    if fut.empty:
-        return None, None
-    
-    y_pred = clf.predict(fut[["testritscore"]])
-    labs = [l for l in _CASP_BAND_ORDER if l in y_pred]
-    return y_pred, labs
-
-def _pct(arr, labels):
-    """Calculate percentage distribution"""
-    arr = np.asarray(arr).astype(str)
-    raw = np.array([(arr == lab).mean() * 100 if len(arr) else 0 for lab in labels])
-    total = raw.sum()
-    if total > 0:
-        raw = raw * (100 / total)
-    return raw
-
-# ---------------------------------------------------------------------
-# SECTION 3 — Overall + Cohort Trends (Blended Dashboard)
-# ---------------------------------------------------------------------
 
 def _prep_nwea_matched_cohort_by_grade(df, course_str, current_grade, window_filter, cohort_year):
     """Prepare matched cohort data for Section 3"""
@@ -838,6 +824,8 @@ def _prep_nwea_matched_cohort_by_grade(df, course_str, current_grade, window_fil
     
     return pct_df, score_df, metrics, labels_order
 
+
+
 def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, cohort_year,
                                 output_dir, cfg, figsize=(16, 9), school_raw=None, scope_label=None, preview=False):
     """Produce blended dashboard: Overall Trends (left) + Cohort Trends (right)"""
@@ -904,13 +892,18 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     gs = fig.add_gridspec(nrows=3, ncols=ncols, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
-    def draw_stacked_bar(ax, stack_df, pct_df, time_labels):
+    def draw_stacked_bar(ax, stack_df, pct_df, time_labels, is_cohort=False):
+        """Draw stacked bar chart with optional hatched pattern for cohort trends"""
         x = np.arange(len(stack_df))
         cumulative = np.zeros(len(stack_df))
+        hatch_pattern = "///" if is_cohort else None  # Add hatched pattern for cohort trends
+        edge_color = "#666666" if is_cohort else "white"  # Darker edge for cohort trends
+        edge_width = 1.5 if is_cohort else 1.2
+        
         for cat in hf.NWEA_ORDER:
             band_vals = stack_df[cat].to_numpy()
             bars = ax.bar(x, band_vals, bottom=cumulative, color=hf.NWEA_COLORS[cat],
-                         edgecolor="white", linewidth=1.2)
+                         edgecolor=edge_color, linewidth=edge_width, hatch=hatch_pattern)
             for idx, rect in enumerate(bars):
                 h = band_vals[idx]
                 if h >= LABEL_MIN_PCT:
@@ -930,7 +923,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     stack_df_left = (pct_df_left.pivot(index="time_label", columns="achievementquintile", values="pct")
                     .reindex(columns=hf.NWEA_ORDER).fillna(0))
     ax1 = fig.add_subplot(gs[0, 0])
-    draw_stacked_bar(ax1, stack_df_left, pct_df_left, time_order_left)
+    draw_stacked_bar(ax1, stack_df_left, pct_df_left, time_order_left, is_cohort=False)
     ax1.set_title("Overall Trends", fontsize=14, fontweight="bold", pad=30)
     
     legend_handles = [Patch(facecolor=hf.NWEA_COLORS[q], edgecolor="none", label=q) for q in hf.NWEA_ORDER]
@@ -947,7 +940,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             stack_df_right = (cohort_df_for_pivot.pivot(index="time_label", columns="achievementquintile", values="pct")
                              .reindex(columns=hf.NWEA_ORDER).fillna(0))
             x_labels_cohort = stack_df_right.index.tolist()
-            draw_stacked_bar(ax2, stack_df_right, cohort_df_for_pivot, x_labels_cohort)
+            draw_stacked_bar(ax2, stack_df_right, cohort_df_for_pivot, x_labels_cohort, is_cohort=True)
             ax2.set_title("Cohort Trends", fontsize=14, fontweight="bold", pad=30)
     
     ax3 = fig.add_subplot(gs[1, 0])
@@ -1028,7 +1021,6 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             return pct_df_left[(pct_df_left["time_label"] == tlabel) & (pct_df_left["achievementquintile"] == bucket_name)]["pct"].sum()
         
         high_now = _pct_for_bucket_left("High", t_curr)
-        high_prev = _pct_for_bucket_left("High", t_prev)
         # Show current values, not deltas (deltas still calculated in metrics)
         hi_now = metrics_left.get("hi_now", 0)
         lo_now = metrics_left.get("lo_now", 0)
@@ -1060,7 +1052,6 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                 return pct_df_right[(pct_df_right["time_label"] == tlabel) & (pct_df_right["achievementquintile"] == bucket_name)]["pct"].sum()
             
             high_now = _pct_for_bucket_right("High", t_curr)
-            high_prev = _pct_for_bucket_right("High", t_prev)
             # Show current values, not deltas (deltas still calculated in metrics)
             hi_now = metrics_right.get("hi_now", 0)
             lo_now = metrics_right.get("lo_now", 0)
@@ -1126,6 +1117,8 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
 # SECTION 4 — Overall Growth Trends by Site (CGP + CGI)
 # ---------------------------------------------------------------------
 
+
+
 def _prep_cgp_trend(df, subject_str, cfg):
     """Prepare CGP trend data"""
     d = df.copy()
@@ -1178,6 +1171,8 @@ def _prep_cgp_trend(df, subject_str, cfg):
     out_recent = pd.concat(keep_list, ignore_index=True)
     out_recent["subject"] = subject_str
     return out_recent.rename(columns={"site_display": "scope_label"})
+
+
 
 def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     """Plot CGP trend bars with CGI line"""
@@ -1323,6 +1318,268 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     plt.close()
 
 # ---------------------------------------------------------------------
+# SECTION 5 — CGP/CGI Growth: Grade Trend + Backward Cohort (Fall→Fall)
+# ---------------------------------------------------------------------
+
+def _prep_cgp_by_grade(df, subject, grade):
+    """Prepare CGP data for a specific grade - Fall→Fall"""
+    d = df.copy()
+    d["testwindow"] = d["testwindow"].astype(str)
+    d = d[d["testwindow"].str.upper() == "FALL"]
+    d["grade"] = pd.to_numeric(d["grade"], errors="coerce")
+    d = d[d["grade"] == grade]
+    
+    subj = subject.lower()
+    d["course"] = d["course"].astype(str)
+    if "math" in subj:
+        d = d[d["course"].str.contains("math", case=False, na=False)]
+    else:
+        d = d[d["course"].str.contains("read", case=False, na=False)]
+    
+    d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
+    d = d.dropna(subset=["teststartdate"])
+    d = d.sort_values("teststartdate").drop_duplicates("uniqueidentifier", keep="last")
+    
+    d = d.dropna(subset=["falltofallconditionalgrowthpercentile", "falltofallconditionalgrowthindex"])
+    
+    if d.empty:
+        return pd.DataFrame(columns=["time_label", "median_cgp", "mean_cgi"])
+    
+    d["year_short"] = d["year"].apply(_short_year)
+    d["time_label"] = "Gr " + d["grade"].astype(int).astype(str) + " • Fall " + d["year_short"]
+    
+    out = d.groupby("time_label").agg(
+        median_cgp=("falltofallconditionalgrowthpercentile", "median"),
+        mean_cgi=("falltofallconditionalgrowthindex", "mean"),
+    ).reset_index()
+    
+    def _extract_year_short(label):
+        try:
+            return label.split("Fall")[-1].strip()
+        except:
+            return ""
+    
+    out["year_short"] = out["time_label"].apply(_extract_year_short)
+    out = out.sort_values("year_short").tail(4)
+    out["time_label"] = pd.Categorical(out["time_label"], categories=out["time_label"], ordered=True)
+    return out
+
+
+def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label, output_dir, cfg, preview=False):
+    """Plot dual-facet CGP/CGI chart for Section 5 - Fall→Fall"""
+    fig, axs = plt.subplots(1, 2, figsize=(16, 8), sharey=True)
+    fig.subplots_adjust(wspace=0.28)
+    
+    def draw_panel(df, ax, title):
+        if df.empty:
+            return
+        df = df.copy().sort_values("time_label")
+        x_vals = np.arange(len(df))
+        y_cgp = df["median_cgp"].to_numpy(dtype=float)
+        y_cgi = df["mean_cgi"].to_numpy(dtype=float)
+        
+        for y_start, y_end, color in [(0, 20, "#808080"), (20, 40, "#c5c5c5"), (40, 60, "#78daf4"),
+                                      (60, 80, "#00baeb"), (80, 100, "#0381a2")]:
+            ax.axhspan(y_start, y_end, facecolor=color, alpha=0.5, zorder=0)
+        for yref in [42, 50, 58]:
+            ax.axhline(yref, linestyle="--", color="#6B7280", linewidth=1.2, zorder=0)
+        
+        bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
+        for rect, yv in zip(bars, y_cgp):
+            ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
+                   ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+        
+        labels_with_n = df["time_label"].astype(str).tolist()
+        ax.set_ylabel("Median Fall→Fall CGP")
+        ax.set_xticks(x_vals)
+        ax.set_xticklabels(labels_with_n, ha="center", fontsize=8)
+        ax.tick_params(axis="x", pad=10)
+        ax.set_ylim(0, 100)
+        
+        ax2 = ax.twinx()
+        ax2.set_ylim(-2.5, 2.5)
+        ax2.set_ylabel("Avg Fall→Fall CGI")
+        ax2.set_yticks([-2, -1, 0, 1, 2])
+        ax2.set_zorder(ax.get_zorder() - 1)
+        ax2.patch.set_alpha(0)
+        
+        ax.set_xlim(-0.5, len(x_vals) - 0.5)
+        x0, x1 = ax.get_xlim()
+        blend = mtransforms.BlendedGenericTransform(ax.transData, ax2.transData)
+        
+        band = mpl.patches.Rectangle((x0, -0.2), x1 - x0, 0.4, transform=blend,
+                                     facecolor="#facc15", alpha=0.35, zorder=1.5)
+        ax.add_patch(band)
+        for yref in [-0.2, 0.2]:
+            ax.add_line(mlines.Line2D([x0, x1], [yref, yref], transform=blend, linestyle="--",
+                                     color="#eab308", linewidth=1.2, zorder=1.6))
+        
+        cgi_line = mlines.Line2D(x_vals, y_cgi, transform=blend, marker="o", linewidth=2,
+                                markersize=6, color="#ffa800", zorder=3)
+        ax.add_line(cgi_line)
+        
+        for xv, yv in zip(x_vals, y_cgi):
+            if pd.isna(yv):
+                continue
+            ax.text(xv, yv + (0.12 if yv >= 0 else -0.12), f"{yv:.2f}", transform=blend,
+                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=8,
+                   fontweight="bold", color="#ffa800", zorder=3.1)
+        
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.grid(axis="y", linestyle=":", alpha=0.6)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["left"].set_visible(False)
+    
+    draw_panel(overall_df, axs[0], "Overall Growth Trends")
+    draw_panel(cohort_df, axs[1], "Cohort Growth Trends")
+    
+    legend_handles = [
+        Patch(facecolor="#0381a2", edgecolor="white", label="Median CGP"),
+        mlines.Line2D([0], [0], color="#ffa800", marker="o", linewidth=2, markersize=6, label="Mean CGI"),
+    ]
+    fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
+              bbox_to_anchor=(0.5, 0.96), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
+    
+    fig.suptitle(f"{scope_label} • {subject_str} • Grade {grade} • Fall→Fall Growth",
+                fontsize=20, fontweight="bold", y=1)
+    
+    # Save chart
+    charts_dir = Path(output_dir)
+    folder_name = "_district" if scope_label == cfg.get("district_name", ["District (All Students)"])[0] else scope_label.replace(" ", "_")
+    out_dir = charts_dir / folder_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = scope_label.replace(" ", "_")
+    prefix = "DISTRICT_" if folder_name == "_district" else "SCHOOL_"
+    out_name = f"{prefix}{safe_scope}_NWEA_section5_cgp_cgi_grade_trends_grade{grade}_{subject_str.lower().replace(' ', '_')}.png"
+    out_path = out_dir / out_name
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "subject": subject_str,
+        "grade": grade,
+        "overall_data": overall_df.to_dict('records') if not overall_df.empty else [],
+        "cohort_data": cohort_df.to_dict('records') if not cohort_df.empty else []
+    }
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    track_chart(out_name, out_path, scope=folder_name, section=5, chart_data=chart_data)
+    print(f"Saved: {str(out_path.absolute())}")
+    if preview:
+        plt.show()
+    plt.close()
+    return str(out_path)
+
+
+def _run_section5_fall(nwea_base, cfg, output_dir, scopes):
+    """Run Section 5 for all scopes - Fall→Fall"""
+    chart_paths = []
+    d0 = nwea_base.copy()
+    d0["year"] = pd.to_numeric(d0["year"], errors="coerce")
+    d0["grade"] = pd.to_numeric(d0["grade"], errors="coerce")
+    grades = sorted(d0["grade"].dropna().unique())
+    subjects = ["Reading", "Mathematics"]
+    print(f"[Section 5] Processing {len(grades)} grades: {grades}")
+    
+    # District-level
+    district_display = cfg.get("district_name", ["Districtwide"])[0]
+    for grade in grades:
+        for subject in subjects:
+            overall_df = _prep_cgp_by_grade(d0, subject, grade)
+            if overall_df.empty:
+                continue
+            anchor_year = int(d0[d0["grade"] == grade]["year"].max())
+            cohort_rows = []
+            for offset in range(3, -1, -1):
+                yr = anchor_year - offset
+                gr = grade - offset
+                if gr < 0:
+                    continue
+                d = d0.copy()
+                d["testwindow"] = d["testwindow"].astype(str)
+                d = d[(d["year"] == yr) & (d["grade"] == gr) & (d["testwindow"].str.upper() == "FALL")]
+                if "teststartdate" in d.columns:
+                    d = d.sort_values("teststartdate").drop_duplicates(
+                        subset=["uniqueidentifier", "year", "grade", "course"], keep="last")
+                if subject.lower() == "mathematics":
+                    d = d[d["course"] == "Math K-12"]
+                else:
+                    d = d[d["course"].str.contains("read", case=False, na=False)]
+                d = d.dropna(subset=["falltofallconditionalgrowthpercentile", "falltofallconditionalgrowthindex"])
+                if d.empty:
+                    continue
+                cohort_rows.append({
+                    "gr": gr, "yr": yr,
+                    "time_label": f"Gr {int(gr)} • Fall {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                    "median_cgp": d["falltofallconditionalgrowthpercentile"].median(),
+                    "mean_cgi": d["falltofallconditionalgrowthindex"].mean(),
+                })
+            if not cohort_rows:
+                continue
+            cohort_df = pd.DataFrame(cohort_rows)
+            cohort_df = cohort_df.sort_values(["gr", "yr"])
+            ordered_labels = cohort_df["time_label"].tolist()
+            cohort_df["time_label"] = pd.Categorical(cohort_df["time_label"], categories=ordered_labels, ordered=True)
+            path = _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject, district_display, output_dir, cfg)
+            if path:
+                chart_paths.append(path)
+    
+    # School-level
+    for scope_df, scope_label, folder in scopes:
+        if folder == "_district":
+            continue
+        d0_school = scope_df.copy()
+        d0_school["year"] = pd.to_numeric(d0_school["year"], errors="coerce")
+        d0_school["grade"] = pd.to_numeric(d0_school["grade"], errors="coerce")
+        for grade in grades:
+            for subject in subjects:
+                overall_df = _prep_cgp_by_grade(d0_school, subject, grade)
+                if overall_df.empty:
+                    continue
+                anchor_year = d0_school.loc[d0_school["grade"] == grade, "year"].max()
+                if pd.isna(anchor_year):
+                    continue
+                anchor_year = int(anchor_year)
+                cohort_rows = []
+                for offset in range(3, -1, -1):
+                    yr = anchor_year - offset
+                    gr = grade - offset
+                    if gr < 0:
+                        continue
+                    d = d0_school.copy()
+                    d["testwindow"] = d["testwindow"].astype(str)
+                    d = d[(d["year"] == yr) & (d["grade"] == gr) & (d["testwindow"].str.upper() == "FALL")]
+                    if "teststartdate" in d.columns:
+                        d = d.sort_values("teststartdate").drop_duplicates(
+                            subset=["uniqueidentifier", "year", "grade", "course"], keep="last")
+                    if subject.lower() == "mathematics":
+                        d = d[d["course"] == "Math K-12"]
+                    else:
+                        d = d[d["course"].str.contains("read", case=False, na=False)]
+                    d = d.dropna(subset=["falltofallconditionalgrowthpercentile", "falltofallconditionalgrowthindex"])
+                    if d.empty:
+                        continue
+                    cohort_rows.append({
+                        "gr": gr, "yr": yr,
+                        "time_label": f"Gr {int(gr)} • Fall {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                        "median_cgp": d["falltofallconditionalgrowthpercentile"].median(),
+                        "mean_cgi": d["falltofallconditionalgrowthindex"].mean(),
+                    })
+                if not cohort_rows:
+                    continue
+                cohort_df = pd.DataFrame(cohort_rows)
+                cohort_df = cohort_df.sort_values(["gr", "yr"])
+                ordered_labels = cohort_df["time_label"].tolist()
+                cohort_df["time_label"] = pd.Categorical(cohort_df["time_label"], categories=ordered_labels, ordered=True)
+                path = _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject, scope_label, output_dir, cfg)
+                if path:
+                    chart_paths.append(path)
+    
+    return chart_paths
+
+# ---------------------------------------------------------------------
 # SECTION 6 — Plotting Functions for Model Predictions
 # ---------------------------------------------------------------------
 
@@ -1379,7 +1636,7 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"NWEA_section6A_2025_pred_vs_actual_{folder}.png"
+    out_path = out_dir / f"NWEA_section6A_2025_pred_vs_actual{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
     
@@ -1444,7 +1701,7 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"NWEA_section6B_2026_projection_{folder}.png"
+    out_path = out_dir / f"NWEA_section6B_2026_projection{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
     
@@ -1571,7 +1828,8 @@ def main(nwea_data=None):
                 payload[subj] = {"proj_pct": proj, "act_pct": act, "metrics": metrics}
             if payload:
                 _plot_section0_dual(scope_label, folder, args.output_dir, payload, preview=hf.DEV_MODE)
-                chart_paths.append(str(Path(args.output_dir) / folder / f"{scope_label.replace(' ', '_')}-section0_pred_vs_actual_{folder}.png"))
+                # Chart path is already tracked by _plot_section0_dual via track_chart(), so we don't need to append manually
+                # The path will be included when chart_paths is built from chart_links at the end
         except Exception as e:
             import traceback
             error_msg = str(e)
@@ -1793,6 +2051,25 @@ def main(nwea_data=None):
                     print(f"Traceback:\n{tb_str}")
                 continue
     
+    # Section 5: CGP/CGI Growth: Grade Trend + Backward Cohort (Fall→Fall only, requires Fall quarter)
+    print(f"\n[Section 5] Checking condition - selected_quarters: {selected_quarters}, 'Fall' in selected_quarters: {'Fall' in selected_quarters}")
+    if "Fall" in selected_quarters:
+        print("\n[Section 5] Generating CGP/CGI Growth: Grade Trend + Backward Cohort (Fall→Fall)...")
+        try:
+            section5_paths = _run_section5_fall(nwea_base.copy(), cfg, args.output_dir, scopes)
+            print(f"[Section 5] Generated {len(section5_paths)} charts")
+            if section5_paths:
+                print(f"[Section 5] Chart paths: {section5_paths[:3]}...")  # Show first 3
+            chart_paths.extend(section5_paths)
+        except Exception as e:
+            import traceback
+            error_msg = str(e)
+            tb_str = traceback.format_exc()
+            print(f"[Section 5] ERROR generating Section 5 charts: {error_msg}")
+            print(f"[Section 5] Traceback:\n{tb_str}")
+    else:
+        print(f"\n[Section 5] Skipped - Fall not in selected_quarters: {selected_quarters}")
+    
     # Section 6: Model Predictions
     print("\n[Section 6] Generating Model Predictions...")
     for scope_df, scope_label, folder in scopes:
@@ -1997,4 +2274,498 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+
+def train_model(df, subject):
+    """Train RandomForest model for CAASPP prediction"""
+    try:
+        from sklearn.ensemble import RandomForestClassifier
+    except ImportError:
+        print("Warning: sklearn not available, skipping model training")
+        return None
+    
+    d0 = filter_fall_course_grades(df, subject)
+    train = d0[d0["year"] <= 2024].copy()
+    if train.empty:
+        return None
+    
+    clf = RandomForestClassifier(n_estimators=400, min_samples_leaf=2, n_jobs=-1, random_state=42)
+    clf.fit(train[["testritscore"]], train["cers_overall_performanceband"].astype(str))
+    return clf
+
+
+
+def predict_2025(df, subject, clf):
+    """Predict 2025 CAASPP performance"""
+    d0 = filter_fall_course_grades(df, subject)
+    val = d0[d0["year"] == 2025].copy()
+    if val.empty:
+        return None, None, None
+    
+    y_true = val["cers_overall_performanceband"].astype(str)
+    y_pred = clf.predict(val[["testritscore"]])
+    labs = [l for l in _CASP_BAND_ORDER if l in y_true.values or l in y_pred]
+    return y_true, y_pred, labs
+
+
+
+def predict_2026(df, subject, clf):
+    """Predict 2026 CAASPP performance (predicted only, for projection charts)"""
+    d0 = filter_fall_course_grades(df, subject)
+    fut = d0[d0["year"] == 2026].copy()
+    if fut.empty:
+        return None, None
+    
+    y_pred = clf.predict(fut[["testritscore"]])
+    labs = [l for l in _CASP_BAND_ORDER if l in y_pred]
+    return y_pred, labs
+
+def predict_2026_with_actuals(df, subject, clf):
+    """Predict 2026 CAASPP performance and return both predicted and actual"""
+    d0 = filter_fall_course_grades(df, subject)
+    fut = d0[d0["year"] == 2026].copy()
+    if fut.empty:
+        return None, None, None
+    
+    # Check if we have actual CAASPP data for 2026
+    if fut["cers_overall_performanceband"].notna().sum() == 0:
+        return None, None, None
+    
+    y_true = fut["cers_overall_performanceband"].astype(str)
+    y_pred = clf.predict(fut[["testritscore"]])
+    labs = [l for l in _CASP_BAND_ORDER if l in y_true.values or l in y_pred]
+    return y_true, y_pred, labs
+
+def _pct(arr, labels):
+    """Calculate percentage distribution"""
+    arr = np.asarray(arr).astype(str)
+    raw = np.array([(arr == lab).mean() * 100 if len(arr) else 0 for lab in labels])
+    total = raw.sum()
+    if total > 0:
+        raw = raw * (100 / total)
+    return raw
+
+# ---------------------------------------------------------------------
+# SECTION 3 — Overall + Cohort Trends (Blended Dashboard)
+# ---------------------------------------------------------------------
+
+
+
+
+# ---------------------------------------------------------------------
+# Main Execution for Fall Charts
+# ---------------------------------------------------------------------
+
+def main(nwea_data=None):
+    """
+    Main function to generate NWEA Fall charts
+    
+    Args:
+        nwea_data: Optional list of dicts or DataFrame with NWEA data.
+                   If None, will load from CSV using args.data_dir
+    """
+    global chart_links, _chart_tracking_set
+    chart_links = []
+    _chart_tracking_set = set()
+    
+    parser = argparse.ArgumentParser(description='Generate NWEA Fall charts')
+    parser.add_argument('--partner', required=True, help='Partner name')
+    parser.add_argument('--data-dir', required=False, help='Data directory path')
+    parser.add_argument('--output-dir', required=True, help='Output directory path')
+    parser.add_argument('--dev-mode', default='false', help='Development mode')
+    parser.add_argument('--config', default='{}', help='Config JSON string')
+    
+    args = parser.parse_args()
+    
+    cfg = load_config_from_args(args.config)
+    hf.DEV_MODE = args.dev_mode.lower() in ('true', '1', 'yes', 'on')
+    
+    chart_filters = cfg.get("chart_filters", {})
+    
+    if chart_filters:
+        print(f"\n[Filters] Applying chart generation filters:")
+        if chart_filters.get("grades"):
+            print(f"  - Grades: {chart_filters['grades']}")
+        if chart_filters.get("years"):
+            print(f"  - Years: {chart_filters['years']}")
+        if chart_filters.get("subjects"):
+            print(f"  - Subjects: {chart_filters['subjects']}")
+        if chart_filters.get("student_groups"):
+            print(f"  - Student Groups: {chart_filters['student_groups']}")
+        if chart_filters.get("race"):
+            print(f"  - Race/Ethnicity: {chart_filters['race']}")
+    
+    # Check if NWEA charts should be generated based on subject filter
+    should_generate_nwea = True
+    if chart_filters and chart_filters.get("subjects") and len(chart_filters["subjects"]) > 0:
+        selected_subjects = [str(s).strip().lower() for s in chart_filters["subjects"]]
+        nwea_subjects = ["math", "mathematics", "reading"]
+        should_generate_nwea = any(s in nwea_subjects for s in selected_subjects)
+        if not should_generate_nwea:
+            print("\n[Skip] NWEA charts skipped - selected subjects don't include Math or Reading")
+            return []
+    
+    # Load data
+    if nwea_data is not None:
+        nwea_base = load_nwea_data(nwea_data=nwea_data)
+    else:
+        if not args.data_dir:
+            raise ValueError("Either nwea_data must be provided or --data-dir must be specified")
+        nwea_base = load_nwea_data(data_dir=args.data_dir)
+    
+    # Apply filters to base data
+    if chart_filters:
+        nwea_base = apply_chart_filters(nwea_base, chart_filters)
+        print(f"Data after filtering: {nwea_base.shape[0]:,} rows")
+    
+    # Always use Fall for this module
+    # Get selected quarters (default to Fall if not specified)
+    selected_quarters = ["Fall"]
+    if chart_filters and chart_filters.get("quarters") and len(chart_filters["quarters"]) > 0:
+        selected_quarters = chart_filters["quarters"]
+        print(f"Generating charts for quarters: {selected_quarters}")
+    else:
+        print("No quarters specified, defaulting to Fall")
+    
+    # Get scopes
+    scopes = get_scopes(nwea_base, cfg)
+    
+    chart_paths = []
+    
+    # Section 0: Predicted vs Actual CAASPP (Spring)
+    print("\n[Section 0] Generating Predicted vs Actual CAASPP...")
+    for scope_df, scope_label, folder in scopes:
+        try:
+            payload = {}
+            for subj in ["Reading", "Mathematics"]:
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                proj, act, metrics, _ = _prep_section0(scope_df, subj)
+                if proj is None:
+                    continue
+                payload[subj] = {"proj_pct": proj, "act_pct": act, "metrics": metrics}
+            if payload:
+                _plot_section0_dual(scope_label, folder, args.output_dir, payload, preview=hf.DEV_MODE)
+                # Chart path is already tracked by _plot_section0_dual via track_chart(), so we don't need to append manually
+                # The path will be included when chart_paths is built from chart_links at the end
+        except Exception as e:
+            print(f"Error generating Section 0 chart for {scope_label}: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            continue
+    
+    # Section 1: Fall Performance Trends
+    print("\n[Section 1] Generating Fall Performance Trends...")
+    should_generate_section1 = True
+    if chart_filters and chart_filters.get("subjects") and len(chart_filters["subjects"]) > 0:
+        selected_subjects = [str(s).strip().lower() for s in chart_filters["subjects"]]
+        should_generate_section1 = any(s in ["reading", "math", "mathematics"] for s in selected_subjects)
+    
+    if chart_filters and chart_filters.get("student_groups") and len(chart_filters["student_groups"]) > 0:
+        if "All Students" not in chart_filters["student_groups"]:
+            should_generate_section1 = False
+            print("  Skipping Section 1 (only specific student groups selected, not 'All Students')")
+    
+    if should_generate_section1:
+        for quarter in selected_quarters:
+            for scope_df, scope_label, folder in scopes:
+                try:
+                    chart_path = plot_dual_subject_dashboard(
+                        scope_df,
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        window_filter=quarter,
+                        preview=hf.DEV_MODE
+                    )
+                    chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating chart for {scope_label} ({quarter}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
+    else:
+        print("  Skipping Section 1 (no matching subjects selected)")
+    
+    # Section 2: Student Group Performance Trends
+    print("\n[Section 2] Generating Student Group Performance Trends...")
+    student_groups_cfg = cfg.get("student_groups", {})
+    race_ethnicity_cfg = cfg.get("race_ethnicity", {})
+    group_order = cfg.get("student_group_order", {})
+    max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
+    sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99))
+    groups_to_plot = sorted_groups[:max_groups]
+    
+    for scope_df, scope_label, folder in scopes:
+        for group_name, group_def in groups_to_plot:
+            if group_def.get("type") == "all":
+                continue
+            if not should_generate_student_group(group_name, chart_filters):
+                continue
+            for quarter in selected_quarters:
+                try:
+                    plot_nwea_subject_dashboard_by_group(
+                        scope_df.copy(), None, quarter, group_name, group_def,
+                        args.output_dir, cfg, figsize=(16, 9),
+                        school_raw=None if folder == "_district" else scope_df["schoolname"].iloc[0] if "schoolname" in scope_df.columns else None,
+                        scope_label=scope_label, preview=hf.DEV_MODE)
+                except Exception as e:
+                    print(f"Error generating Section 2 chart for {scope_label} - {group_name} ({quarter}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
+        
+        # Process race/ethnicity groups if race filter is specified
+        race_filters = chart_filters.get("race", []) if chart_filters else []
+        if race_filters and race_ethnicity_cfg:
+            for race_name in race_filters:
+                race_def = race_ethnicity_cfg.get(race_name)
+                if not race_def:
+                    continue
+                
+                combined_group_def = {
+                    "column": race_def.get("column"),
+                    "values": race_def.get("values"),
+                    "type": "race"
+                }
+                
+                for quarter in selected_quarters:
+                    try:
+                        plot_nwea_subject_dashboard_by_group(
+                            scope_df.copy(), None, quarter, race_name, combined_group_def,
+                            args.output_dir, cfg, figsize=(16, 9),
+                            school_raw=None if folder == "_district" else scope_df["schoolname"].iloc[0] if "schoolname" in scope_df.columns else None,
+                            scope_label=scope_label, preview=hf.DEV_MODE)
+                    except Exception as e:
+                        print(f"Error generating Section 2 chart for {scope_label} - {race_name} ({quarter}): {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
+    
+    # Section 3: Overall + Cohort Trends
+    print("\n[Section 3] Generating Overall + Cohort Trends...")
+    
+    def _run_scope_section3_fall(scope_df, scope_label, school_raw):
+        scope_df = scope_df.copy()
+        scope_df["year"] = pd.to_numeric(scope_df["year"], errors="coerce")
+        
+        # Normalize grades (K -> 0, -1 -> pre-k)
+        def normalize_grade_val(grade_val):
+            if pd.isna(grade_val):
+                return None
+            grade_str = str(grade_val).strip().upper()
+            if grade_str == "K" or grade_str == "KINDERGARTEN":
+                return 0
+            try:
+                grade_num = int(float(grade_str))
+                # -1 represents pre-k
+                return grade_num
+            except:
+                return None
+        
+        scope_df["grade_normalized"] = scope_df["grade"].apply(normalize_grade_val)
+        
+        if scope_df["year"].notna().any():
+            anchor_year = int(scope_df["year"].max())
+        else:
+            anchor_year = None
+        
+        selected_grades = chart_filters.get("grades", [])
+        unique_grades = sorted([g for g in scope_df["grade_normalized"].dropna().unique() if g is not None])
+        if selected_grades:
+            unique_grades = [g for g in unique_grades if g in selected_grades]
+        
+        for g in unique_grades:
+            grade_df = scope_df[scope_df["grade_normalized"] == g].copy()
+            if grade_df.empty:
+                continue
+            
+            courses_in_data = set(grade_df["course"].dropna().unique())
+            for course_str in ["Math K-12", "Reading"]:
+                subject_name = "Mathematics" if course_str == "Math K-12" else "Reading"
+                if not should_generate_subject(subject_name, chart_filters):
+                    continue
+                
+                if (course_str == "Math K-12" and "Math K-12" in courses_in_data) or \
+                   (course_str == "Reading" and any(str(c).startswith("Reading") for c in courses_in_data)):
+                    for quarter in selected_quarters:
+                        try:
+                            plot_nwea_blended_dashboard(
+                                grade_df.copy(), course_str=course_str, current_grade=int(g),
+                                window_filter=quarter, cohort_year=anchor_year, output_dir=args.output_dir, cfg=cfg,
+                                figsize=(16, 9), school_raw=school_raw, preview=hf.DEV_MODE, scope_label=scope_label)
+                        except Exception as e:
+                            print(f"Error generating Section 3 chart for {scope_label} - Grade {g} - {course_str} ({quarter}): {e}")
+                            if hf.DEV_MODE:
+                                import traceback
+                                traceback.print_exc()
+                            continue
+    
+    for scope_df, scope_label, folder in scopes:
+        _run_scope_section3_fall(scope_df.copy(), scope_label, None if folder == "_district" else scope_df["schoolname"].iloc[0] if "schoolname" in scope_df.columns else None)
+    
+    # Section 4: CGP/CGI Growth Trends (Fall→Fall only, requires Fall quarter)
+    print("\n[Section 4] Generating CGP/CGI Growth Trends (Fall→Fall)...")
+    for scope_df, scope_label, folder in scopes:
+        try:
+            subjects_to_generate = ["Reading", "Mathematics"]
+            if chart_filters and chart_filters.get("subjects"):
+                subjects_to_generate = [s for s in subjects_to_generate if should_generate_subject(s, chart_filters)]
+            
+            if subjects_to_generate:
+                _run_cgp_dual_trend(scope_df.copy(), scope_label, args.output_dir, cfg, preview=hf.DEV_MODE, subjects=subjects_to_generate)
+        except Exception as e:
+            print(f"Error generating Section 4 chart for {scope_label}: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            continue
+    
+    # Section 5: CGP/CGI Growth: Grade Trend + Backward Cohort (Fall→Fall only, requires Fall quarter)
+    print(f"\n[Section 5] Checking condition - selected_quarters: {selected_quarters}, 'Fall' in selected_quarters: {'Fall' in selected_quarters}")
+    if "Fall" in selected_quarters:
+        print("\n[Section 5] Generating CGP/CGI Growth: Grade Trend + Backward Cohort (Fall→Fall)...")
+        try:
+            section5_paths = _run_section5_fall(nwea_base.copy(), cfg, args.output_dir, scopes)
+            print(f"[Section 5] Generated {len(section5_paths)} charts")
+            if section5_paths:
+                print(f"[Section 5] Chart paths: {section5_paths[:3]}...")  # Show first 3
+            chart_paths.extend(section5_paths)
+        except Exception as e:
+            import traceback
+            error_msg = str(e)
+            tb_str = traceback.format_exc()
+            print(f"[Section 5] ERROR generating Section 5 charts: {error_msg}")
+            print(f"[Section 5] Traceback:\n{tb_str}")
+    else:
+        print(f"\n[Section 5] Skipped - Fall not in selected_quarters: {selected_quarters}")
+    
+    # Section 6: Model Predictions
+    print("\n[Section 6] Generating Model Predictions...")
+    for scope_df, scope_label, folder in scopes:
+        results_2025, results_2026 = {}, {}
+        for subj in ["Reading", "Mathematics"]:
+            if not should_generate_subject(subj, chart_filters):
+                continue
+            try:
+                clf = train_model(scope_df, subj)
+                if clf is None:
+                    continue
+                y_true25, y_pred25, labs25 = predict_2025(scope_df, subj, clf)
+                if y_true25 is not None:
+                    results_2025[subj] = (y_true25, y_pred25, labs25)
+                y_pred26, labs26 = predict_2026(scope_df, subj, clf)
+                if y_pred26 is not None:
+                    results_2026[subj] = (y_pred26, labs26)
+            except Exception as e:
+                if hf.DEV_MODE:
+                    print(f"  Error generating predictions for {scope_label} - {subj}: {e}")
+                continue
+        
+        if results_2025:
+            try:
+                _plot_pred_vs_actual(scope_label, folder, args.output_dir, results_2025, preview=hf.DEV_MODE)
+            except Exception as e:
+                if hf.DEV_MODE:
+                    print(f"  Error plotting 2025 predictions for {scope_label}: {e}")
+        
+        if results_2026:
+            try:
+                _plot_projection_2026(scope_label, folder, args.output_dir, results_2026, preview=hf.DEV_MODE)
+            except Exception as e:
+                if hf.DEV_MODE:
+                    print(f"  Error plotting 2026 projections for {scope_label}: {e}")
+    
+    # Build chart_paths from tracked charts (merge both sources)
+    # Some sections manually append to chart_paths, others use track_chart() which adds to chart_links
+    chart_paths_from_links = [str(Path(chart['file_path']).absolute()) for chart in chart_links]
+    
+    print(f"\n[Chart Tracking] Manual chart_paths: {len(chart_paths)}, track_chart() chart_links: {len(chart_links)}")
+    
+    # Merge both sources
+    all_chart_paths = chart_paths + chart_paths_from_links
+    
+    # Remove duplicates
+    seen = set()
+    unique_chart_paths = []
+    for chart_path in all_chart_paths:
+        normalized_path = str(Path(chart_path).resolve())
+        if normalized_path not in seen:
+            seen.add(normalized_path)
+            unique_chart_paths.append(chart_path)
+    
+    print(f"\n✅ Generated {len(unique_chart_paths)} unique NWEA Fall charts")
+    if len(unique_chart_paths) == 0:
+        print(f"⚠️  WARNING: No charts were generated!")
+        print(f"   - Data rows after filtering: {nwea_base.shape[0]:,}")
+        print(f"   - Scopes found: {len(scopes)}")
+        print(f"   - Selected quarters: {selected_quarters}")
+        print(f"   - Chart filters: {chart_filters}")
+    
+    return unique_chart_paths
+
+def generate_nwea_fall_charts(
+    partner_name: str,
+    output_dir: str,
+    config: dict = None,
+    chart_filters: dict = None,
+    data_dir: str = './data',
+    nwea_data: list = None
+) -> list:
+    """
+    Generate NWEA Fall charts (wrapper function for Flask backend)
+    
+    Args:
+        partner_name: Partner name
+        output_dir: Output directory for charts
+        config: Partner configuration dict
+        chart_filters: Chart filters dict
+        data_dir: Data directory path (used only if nwea_data is None)
+        nwea_data: Optional list of dicts with NWEA data (preferred over CSV loading)
+    
+    Returns:
+        List of chart file paths
+    """
+    global chart_links, _chart_tracking_set
+    chart_links = []
+    _chart_tracking_set = set()
+    
+    cfg = config or {}
+    if chart_filters:
+        cfg['chart_filters'] = chart_filters
+    
+    hf.DEV_MODE = cfg.get('dev_mode', False)
+    
+    class Args:
+        def __init__(self):
+            self.partner = partner_name
+            self.data_dir = data_dir if nwea_data is None else None
+            self.output_dir = output_dir
+            self.dev_mode = 'true' if hf.DEV_MODE else 'false'
+            self.config = json.dumps(cfg) if cfg else '{}'
+    
+    args = Args()
+    
+    old_argv = sys.argv
+    try:
+        sys.argv = [
+            'nwea_fall.py',
+            '--partner', args.partner,
+            '--output-dir', args.output_dir,
+            '--dev-mode', args.dev_mode,
+            '--config', args.config
+        ]
+        if args.data_dir:
+            sys.argv.extend(['--data-dir', args.data_dir])
+        
+        chart_paths = main(nwea_data=nwea_data)
+    finally:
+        sys.argv = old_argv
+    
+    return chart_paths
 

@@ -39,7 +39,7 @@ from python.data_ingestion import ingest_nwea, ingest_iready, ingest_star
 from python.nwea.nwea_charts import generate_nwea_charts
 from python.iready.iready_charts import generate_iready_charts
 from python.star.star_charts import generate_star_charts
-from python.chart_analyzer import analyze_charts_from_index, analyze_charts_batch_paths
+from python.llm.chart_analyzer import analyze_charts_from_index, analyze_charts_batch_paths
 from python.slides import create_slides_presentation
 from celery_app import celery_app
 from python.tasks.slides import create_deck_with_slides_task
