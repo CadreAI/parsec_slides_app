@@ -1,6 +1,7 @@
+import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000'
+const BACKEND_BASE = process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || process.env.BACKEND_URL || 'http://localhost:5000'
 
 export async function GET(_: Request, { params }: { params: Promise<{ taskId: string }> }) {
     const { taskId } = await params
@@ -9,7 +10,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ taskId: st
     }
 
     try {
-        const res = await fetch(`${BACKEND_URL}/tasks/status/${taskId}`)
+        const { userId, getToken } = await auth()
+        if (!userId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+        }
+
+        const token = await getToken()
+
+        const res = await fetch(`${BACKEND_BASE}/tasks/status/${taskId}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        })
         const data = await res.json().catch(() => ({}))
         return NextResponse.json(data, { status: res.status })
     } catch (err) {
