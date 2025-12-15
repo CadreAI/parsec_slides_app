@@ -180,7 +180,19 @@ def prep_nwea_for_charts(df, subject_str, window_filter="Fall"):
     # helper_functions already imported at top
     
     d = df.copy()
+    
+    # Debug: Check available testwindow values before filtering
+    if "testwindow" in d.columns:
+        available_windows = d["testwindow"].astype(str).str.upper().unique()
+        print(f"[prep_nwea_for_charts] Filtering for window: {window_filter.upper()}")
+        print(f"[prep_nwea_for_charts] Available testwindow values: {sorted(available_windows)}")
+        print(f"[prep_nwea_for_charts] Rows before window filter: {len(d)}")
+    
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()].copy()
+    
+    # Debug: Check rows after filtering
+    if "testwindow" in df.columns:
+        print(f"[prep_nwea_for_charts] Rows after window filter: {len(d)}")
     
     subj_norm = subject_str.strip().casefold()
     if "math" in subj_norm:
