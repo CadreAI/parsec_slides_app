@@ -62,12 +62,19 @@ export default function CreateSlide() {
         studentGroups: [] as string[],
         race: [] as string[],
         assessments: [] as string[],
-        slidePrompt: ''
+        slidePrompt: '',
+        enableAIInsights: true // Toggle for AI analytics/insights
     })
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
-    const { grades: GRADES, years: YEARS } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
+    const { grades: GRADES, years: YEARS } = useFormOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
+    )
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
     const { availableDistricts, availableSchools, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
@@ -286,7 +293,7 @@ export default function CreateSlide() {
                     chartFilters: chartFilters,
                     title: presentationTitle,
                     driveFolderUrl: driveFolderUrl,
-                    enableAIInsights: true,
+                    enableAIInsights: formData.enableAIInsights,
                     userPrompt: formData.slidePrompt || undefined,
                     description: `Deck for ${formData.districtName || 'Parsec Academy'}`
                 })
@@ -458,7 +465,10 @@ export default function CreateSlide() {
                                                                                     onChange={() => handleCustomDataSourceChange(source.id, variant.full_path)}
                                                                                     className="h-3.5 w-3.5 cursor-pointer"
                                                                                 />
-                                                                                <label htmlFor={`${source.id}-variant-${idx}`} className="flex-1 cursor-pointer font-mono text-xs text-gray-700">
+                                                                                <label
+                                                                                    htmlFor={`${source.id}-variant-${idx}`}
+                                                                                    className="flex-1 cursor-pointer font-mono text-xs text-gray-700"
+                                                                                >
                                                                                     {variant.full_path}
                                                                                     {variant.is_default && (
                                                                                         <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
@@ -748,15 +758,37 @@ export default function CreateSlide() {
                             {/* Slide Content */}
                             <div className="space-y-4">
                                 <h3 className="text-lg font-semibold">Slide Content</h3>
-                                <div className="space-y-2">
-                                    <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
-                                    <Textarea
-                                        id="slidePrompt"
-                                        value={formData.slidePrompt}
-                                        onChange={handleTextareaChange}
-                                        placeholder="Enter any additional information for the slides..."
-                                        rows={4}
-                                    />
+                                <div className="space-y-4">
+                                    <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id="enableAIInsights"
+                                            checked={formData.enableAIInsights}
+                                            onChange={(e) => {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    enableAIInsights: e.target.checked
+                                                }))
+                                            }}
+                                        />
+                                        <Label htmlFor="enableAIInsights" className="cursor-pointer text-sm font-normal">
+                                            Enable AI Analytics & Insights
+                                        </Label>
+                                    </div>
+                                    {!formData.enableAIInsights && (
+                                        <p className="text-muted-foreground text-xs">
+                                            ⚡ AI analytics disabled - charts will be generated faster without AI analysis
+                                        </p>
+                                    )}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
+                                        <Textarea
+                                            id="slidePrompt"
+                                            value={formData.slidePrompt}
+                                            onChange={handleTextareaChange}
+                                            placeholder="Enter any additional information for the slides..."
+                                            rows={4}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </CardContent>

@@ -2550,7 +2550,7 @@ def run_section5_growth_progress_moy(
                 continue
 
             # ----------------------------
-            # Top: Median % progress (Typical vs Stretch) with 50% line
+            # Top: Median % progress (Typical vs Stretch) with 50% and 100% reference lines
             # ----------------------------
             ax_top = fig.add_subplot(gs[0, i])
             x = np.arange(2)
@@ -2575,7 +2575,10 @@ def run_section5_growth_progress_moy(
                         fontweight="bold",
                         color="#333",
                     )
-            ax_top.axhline(50, linestyle="--", linewidth=1.2, color="#666", alpha=0.8)
+            # Add 50% reference line (lighter)
+            ax_top.axhline(50, linestyle="--", linewidth=1.0, color="#999", alpha=0.6)
+            # Add 100% reference line (more prominent)
+            ax_top.axhline(100, linestyle="--", linewidth=1.5, color="#333", alpha=0.9)
             ax_top.set_ylim(0, 100)
             ax_top.set_yticks(range(0, 101, 20))
             ax_top.set_yticklabels([f"{t}%" for t in range(0, 101, 20)])
