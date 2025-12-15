@@ -1,13 +1,13 @@
 """
 SQL query builders for BigQuery
 """
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 # EXCLUDE_COLS can be imported from config if needed
 EXCLUDE_COLS = {}
 
 
-def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_column: Optional[str] = None) -> str:
+def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_column: Optional[str] = None, filters: Optional[Dict] = None) -> str:
     """
     Build SQL query for NWEA data
     
@@ -15,24 +15,43 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_colum
         table_id: BigQuery table ID (project.dataset.table)
         exclude_cols: Optional list of additional columns to exclude from config
         year_column: Optional year column name ('Year' or 'AcademicYear'). If None, will use OR condition for both.
+        filters: Optional filters dict with years (other filters applied in Python)
     
     Returns:
         SQL query string
     """
+    filters = filters or {}
+    
     extra_excludes = EXCLUDE_COLS.get("nwea", [])
     if exclude_cols:
         extra_excludes = extra_excludes + exclude_cols
     
     dynamic_excludes = ",\n        ".join(extra_excludes) if extra_excludes else ""
     
-    # Determine year column to use
-    if year_column:
-        # Use specified column
-        year_filter = f"{year_column} >= (\n        CASE\n            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7\n                THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1\n            ELSE EXTRACT(YEAR FROM CURRENT_DATE())\n        END\n    ) - 3"
+    # Build year filter based on provided years or default to last 3 years
+    if filters.get('years') and len(filters['years']) > 0:
+        # Use selected years
+        year_list = ', '.join(map(str, filters['years']))
+        if year_column:
+            # Use specified column
+            year_filter = f"{year_column} IN ({year_list})"
+        else:
+            # Use OR condition to handle both Year and AcademicYear
+            year_filter = f"""(
+        -- Try Year column first (NWEA typically uses Year)
+        (Year IN ({year_list}))
+        -- Fallback to AcademicYear if Year doesn't exist (some tables use AcademicYear)
+        OR (AcademicYear IN ({year_list}))
+    )"""
     else:
-        # Use OR condition to handle both Year and AcademicYear
-        # This will work if at least one column exists
-        year_filter = """(
+        # Default: last 3 years (matching the provided SQL pattern)
+        if year_column:
+            # Use specified column
+            year_filter = f"{year_column} >= (\n        CASE\n            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7\n                THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1\n            ELSE EXTRACT(YEAR FROM CURRENT_DATE())\n        END\n    ) - 3"
+        else:
+            # Use OR condition to handle both Year and AcademicYear
+            # This will work if at least one column exists
+            year_filter = """(
         -- Try Year column first (NWEA typically uses Year)
         (Year >= (
             CASE
