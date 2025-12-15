@@ -428,17 +428,59 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
 # SECTION 2 — Student Group Performance Trends
 # ---------------------------------------------------------------------
 
+def _find_column_fuzzy(df, target_col):
+    """
+    Find a column in dataframe using fuzzy matching.
+    Normalizes both target and actual column names by:
+    - Converting to lowercase
+    - Removing underscores, spaces, hyphens
+    - Comparing normalized versions
+    
+    Returns the actual column name if found, None otherwise.
+    """
+    if target_col in df.columns:
+        return target_col
+    
+    # Normalize target column name
+    target_norm = str(target_col).lower().replace("_", "").replace("-", "").replace(" ", "")
+    
+    # Try to find matching column
+    for actual_col in df.columns:
+        actual_norm = str(actual_col).lower().replace("_", "").replace("-", "").replace(" ", "")
+        if actual_norm == target_norm:
+            return actual_col
+    
+    return None
+
+
 def _apply_student_group_mask(df_in, group_name, group_def):
     """
     Returns boolean mask for df_in selecting the student group.
     Uses cfg['student_groups'] spec:
       type: "all"                  -> everyone True
       or {column: <col>, in: [...]} -> membership by value match (case-insensitive str compare)
+    
+    Now supports fuzzy column matching to handle variations in column names.
     """
     if group_def.get("type") == "all":
         return pd.Series(True, index=df_in.index)
     
     col = group_def["column"]
+    
+    # Try fuzzy matching if exact column not found
+    if col not in df_in.columns:
+        col_found = _find_column_fuzzy(df_in, col)
+        if col_found:
+            print(f"[Section 2]     Found column '{col_found}' using fuzzy match for '{col}'")
+            col = col_found
+        else:
+            # Log available columns for debugging
+            available_cols = sorted(df_in.columns.tolist())
+            print(f"[Section 2]     ❌ ERROR: Column '{col}' not found (even with fuzzy matching)")
+            print(f"[Section 2]     Available columns: {available_cols[:30]}...")
+            # Return all False mask if column not found
+            return pd.Series(False, index=df_in.index)
+    
     allowed_vals = group_def["in"]
     
     # normalize both sides as lowercase strings
@@ -457,21 +499,53 @@ def plot_iready_subject_dashboard_by_group(
     """
     d0 = df.copy()
     
-    # Apply group mask first
-    mask = _apply_student_group_mask(d0, group_name, group_def)
-    d0 = d0[mask].copy()
+    print(f"[Section 2] [plot_iready_subject_dashboard_by_group] Starting for group '{group_name}' in scope '{scope_label}'")
+    print(f"[Section 2]   Input data rows: {len(d0):,}")
+    print(f"[Section 2]   Window filter: {window_filter}")
+    print(f"[Section 2]   Group definition: {group_def}")
     
-    if d0.empty:
-        print(f"[group {group_name}] no rows after group mask ({scope_label})")
+    # Apply group mask first
+    try:
+        mask = _apply_student_group_mask(d0, group_name, group_def)
+        rows_before_mask = len(d0)
+        d0 = d0[mask].copy()
+        rows_after_mask = len(d0)
+        print(f"[Section 2]   Rows before group mask: {rows_before_mask:,}")
+        print(f"[Section 2]   Rows after group mask: {rows_after_mask:,} (removed {rows_before_mask - rows_after_mask:,})")
+        
+        if d0.empty:
+            print(f"[Section 2]   ❌ ERROR: No rows after group mask for '{group_name}' in '{scope_label}'")
+            print(f"[Section 2]   This could mean:")
+            print(f"[Section 2]     - Group column '{group_def.get('column')}' doesn't exist in data")
+            print(f"[Section 2]     - No rows match the group criteria: {group_def.get('in', [])}")
+            print(f"[Section 2]     - Data was already filtered out before reaching this function")
+            return None
+    except Exception as e:
+        print(f"[Section 2]   ❌ ERROR applying group mask: {e}")
+        print(f"[Section 2]   Error type: {type(e).__name__}")
+        if hf.DEV_MODE:
+            import traceback
+            traceback.print_exc()
         return None
     
     subjects = ["ELA", "Math"]
     subject_titles = ["ELA", "Math"]
     
+    # Check for Winter data
+    if "testwindow" in d0.columns:
+        winter_data = d0[d0["testwindow"].astype(str).str.upper() == window_filter.upper()]
+        print(f"[Section 2]   Rows with {window_filter} testwindow: {len(winter_data):,}")
+        if len(winter_data) == 0:
+            available_windows = d0["testwindow"].astype(str).str.upper().unique()
+            print(f"[Section 2]   ⚠️  WARNING: No {window_filter} data found!")
+            print(f"[Section 2]   Available testwindow values: {sorted(available_windows)}")
+    
     # Aggregate for each subject
     pct_dfs, score_dfs, metrics_list, time_orders, min_ns, n_maps = [], [], [], [], [], []
     
-    for subj in subjects:
+    for subj_idx, subj in enumerate(subjects, 1):
+        print(f"[Section 2]   Processing subject {subj_idx}/2: {subj}")
+        
         # Filter for subject
         if subj == "ELA":
             subj_df = d0[d0["subject"].astype(str).str.contains("ela", case=False, na=False)].copy()
@@ -480,7 +554,10 @@ def plot_iready_subject_dashboard_by_group(
         else:
             subj_df = d0.copy()
         
+        print(f"[Section 2]     Rows for {subj}: {len(subj_df):,}")
+        
         if subj_df.empty:
+            print(f"[Section 2]     ⚠️  No {subj} data found after subject filter")
             pct_dfs.append(None)
             score_dfs.append(None)
             metrics_list.append(None)
@@ -489,49 +566,86 @@ def plot_iready_subject_dashboard_by_group(
             n_maps.append({})
             continue
         
-        pct_df, score_df, metrics, time_order = prep_iready_for_charts(
-            subj_df, subject_str=subj, window_filter=window_filter
-        )
-        
-        # Restrict to most recent 4 timepoints
-        if len(time_order) > 4:
-            time_order = time_order[-4:]
-            pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
-            score_df = score_df[score_df["time_label"].isin(time_order)].copy()
-        
-        pct_dfs.append(pct_df)
-        score_dfs.append(score_df)
-        metrics_list.append(metrics)
-        time_orders.append(time_order)
-        
-        # Minimum n >= 12 check
-        if pct_df is not None and not pct_df.empty and time_order:
-            latest_label = time_order[-1]
-            latest_slice = pct_df[pct_df["time_label"] == latest_label]
-            if "N_total" in latest_slice.columns:
-                latest_n = latest_slice["N_total"].max()
+        try:
+            pct_df, score_df, metrics, time_order = prep_iready_for_charts(
+                subj_df, subject_str=subj, window_filter=window_filter
+            )
+            
+            print(f"[Section 2]     prep_iready_for_charts returned:")
+            print(f"[Section 2]       pct_df: {len(pct_df) if pct_df is not None and not pct_df.empty else 0} rows")
+            print(f"[Section 2]       score_df: {len(score_df) if score_df is not None and not score_df.empty else 0} rows")
+            print(f"[Section 2]       time_order: {len(time_order)} timepoints - {time_order}")
+            
+            # Restrict to most recent 4 timepoints
+            if len(time_order) > 4:
+                print(f"[Section 2]     Restricting to most recent 4 timepoints (from {len(time_order)} total)")
+                time_order = time_order[-4:]
+                pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
+                score_df = score_df[score_df["time_label"].isin(time_order)].copy()
+                print(f"[Section 2]     After restriction: {len(pct_df)} rows in pct_df, {len(score_df)} rows in score_df")
+            
+            pct_dfs.append(pct_df)
+            score_dfs.append(score_df)
+            metrics_list.append(metrics)
+            time_orders.append(time_order)
+            
+            # Minimum n >= 12 check
+            if pct_df is not None and not pct_df.empty and time_order:
+                latest_label = time_order[-1]
+                latest_slice = pct_df[pct_df["time_label"] == latest_label]
+                if "N_total" in latest_slice.columns:
+                    latest_n = latest_slice["N_total"].max()
+                else:
+                    latest_n = latest_slice["n"].sum()
+                min_ns.append(latest_n if not pd.isna(latest_n) else 0)
+                print(f"[Section 2]     Latest timepoint '{latest_label}' has {latest_n:.0f} students")
             else:
-                latest_n = latest_slice["n"].sum()
-            min_ns.append(latest_n if not pd.isna(latest_n) else 0)
-        else:
+                min_ns.append(0)
+                print(f"[Section 2]     ⚠️  Could not determine student count (pct_df empty or no time_order)")
+            
+            # n_map for xticklabels in score panel
+            if pct_df is not None and not pct_df.empty:
+                n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
+                n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
+                print(f"[Section 2]     n_map: {n_map}")
+            else:
+                n_map = {}
+                print(f"[Section 2]     n_map: empty (no data)")
+            n_maps.append(n_map)
+            
+        except Exception as e:
+            print(f"[Section 2]     ❌ ERROR in prep_iready_for_charts for {subj}: {e}")
+            print(f"[Section 2]     Error type: {type(e).__name__}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            pct_dfs.append(None)
+            score_dfs.append(None)
+            metrics_list.append(None)
+            time_orders.append([])
             min_ns.append(0)
-        
-        # n_map for xticklabels in score panel
-        if pct_df is not None and not pct_df.empty:
-            n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
-            n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
-        else:
-            n_map = {}
-        n_maps.append(n_map)
+            n_maps.append({})
+            continue
+    
+    # Check min_n requirements
+    print(f"[Section 2]   Minimum student counts: ELA={min_ns[0] if len(min_ns) > 0 else 'N/A'}, Math={min_ns[1] if len(min_ns) > 1 else 'N/A'}")
     
     # If either panel fails min_n, skip
     if any((n is None or n < 12) for n in min_ns):
-        print(f"[group {group_name}] skipped (<12 students in one or both subjects) in {scope_label}")
+        failed_subjects = [subjects[i] for i, n in enumerate(min_ns) if n is None or n < 12]
+        print(f"[Section 2]   ❌ SKIPPED: <12 students in one or both subjects for '{group_name}' in '{scope_label}'")
+        print(f"[Section 2]   Failed subjects: {failed_subjects}")
+        print(f"[Section 2]   Student counts: {dict(zip(subjects, min_ns))}")
         return None
     
     # If either panel has no data, skip
-    if any((df is None or df.empty) for df in pct_dfs) or any((df is None or df.empty) for df in score_dfs):
-        print(f"[group {group_name}] skipped (empty data in one or both subjects) in {scope_label}")
+    empty_pct = [i for i, df in enumerate(pct_dfs) if df is None or df.empty]
+    empty_score = [i for i, df in enumerate(score_dfs) if df is None or df.empty]
+    
+    if empty_pct or empty_score:
+        print(f"[Section 2]   ❌ SKIPPED: Empty data in one or both subjects for '{group_name}' in '{scope_label}'")
+        print(f"[Section 2]   Empty pct_dfs indices: {empty_pct}")
+        print(f"[Section 2]   Empty score_dfs indices: {empty_score}")
         return None
     
     # Setup subplots: 3 rows x 2 columns (ELA left, Math right)
@@ -594,8 +708,17 @@ def plot_iready_subject_dashboard_by_group(
     out_name = f"{prefix}{scope_label.replace(' ', '_')}_IREADY_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     
-    hf._save_and_render(fig, out_path, dev_mode=preview)
-    print(f"Saved Section 2: {out_path}")
+    try:
+        hf._save_and_render(fig, out_path, dev_mode=preview)
+        print(f"[Section 2]   ✅ Successfully saved chart: {out_path}")
+    except Exception as e:
+        print(f"[Section 2]   ❌ ERROR saving chart: {e}")
+        print(f"[Section 2]   Error type: {type(e).__name__}")
+        if hf.DEV_MODE:
+            import traceback
+            traceback.print_exc()
+        plt.close(fig)
+        return None
     
     # Prepare chart data for saving
     chart_data = {
@@ -1739,7 +1862,7 @@ def generate_iready_charts(
     iready_data: list = None
 ) -> list:
     """
-    Generate iReady charts (wrapper function for Flask backend)
+    Generate iReady charts (router function - directs to Fall, Winter, or Spring modules based on quarter selection)
     
     Args:
         partner_name: Partner name
@@ -1758,37 +1881,116 @@ def generate_iready_charts(
     
     cfg = config or {}
     if chart_filters:
+        # Ensure chart_filters is a dict, not a string
+        if isinstance(chart_filters, str):
+            try:
+                chart_filters = json.loads(chart_filters)
+            except:
+                print(f"[Warning] Could not parse chart_filters as JSON: {chart_filters}")
+                chart_filters = {}
         cfg['chart_filters'] = chart_filters
     
     hf.DEV_MODE = cfg.get('dev_mode', False)
     
-    class Args:
-        def __init__(self):
-            self.partner = partner_name
-            self.data_dir = data_dir if iready_data is None else None
-            self.output_dir = output_dir
-            self.dev_mode = 'true' if hf.DEV_MODE else 'false'
-            self.config = json.dumps(cfg) if cfg else '{}'
+    chart_filters_check = cfg.get('chart_filters', {})
+    selected_quarters = chart_filters_check.get("quarters", [])
+    all_chart_paths = []
     
-    args = Args()
+    # Normalize selected_quarters to handle both list and single value
+    if isinstance(selected_quarters, str):
+        selected_quarters = [selected_quarters]
+    elif not isinstance(selected_quarters, list):
+        selected_quarters = []
     
-    old_argv = sys.argv
-    try:
-        sys.argv = [
-            'iready_charts.py',
-            '--partner', args.partner,
-            '--output-dir', args.output_dir,
-            '--dev-mode', args.dev_mode,
-            '--config', args.config
-        ]
-        if args.data_dir:
-            sys.argv.extend(['--data-dir', args.data_dir])
+    # If no quarters are explicitly selected, default to Fall for backward compatibility
+    if not selected_quarters:
+        selected_quarters = ["Fall"]
+        print("\n[iReady Router] No quarters specified in chart_filters - defaulting to Fall")
+    
+    normalized_quarters = [str(q).lower() for q in selected_quarters]
+    has_winter = "winter" in normalized_quarters
+    has_fall = "fall" in normalized_quarters
+    has_spring = "spring" in normalized_quarters
+    
+    print(f"\n[iReady Router] Selected quarters from chart_filters: {selected_quarters}")
+    print(f"[iReady Router] Normalized quarters: {normalized_quarters}")
+    print(f"[iReady Router] has_winter={has_winter}, has_fall={has_fall}, has_spring={has_spring}")
+    
+    # Route to Winter module if Winter is selected
+    if has_winter:
+        from .iready_winter import generate_iready_winter_charts
+        print("\n[iReady Router] Winter detected - routing to iready_winter.py...")
+        try:
+            winter_charts = generate_iready_winter_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                iready_data=iready_data
+            )
+            if winter_charts:
+                all_chart_paths.extend(winter_charts)
+                print(f"[iReady Router] Generated {len(winter_charts)} Winter charts")
+        except Exception as e:
+            print(f"[iReady Router] Error generating Winter charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
         
-        chart_paths = main(iready_data=iready_data)
-    finally:
-        sys.argv = old_argv
+        # If ONLY Winter is selected (no Fall, no Spring), return early
+        if has_winter and not has_fall and not has_spring:
+            print("\n[iReady Router] Only Winter selected - returning early, skipping Fall/Spring chart generation.")
+            return all_chart_paths
     
-    return chart_paths
+    # Route to Spring module if Spring is selected
+    if has_spring:
+        from .iready_spring import generate_iready_spring_charts
+        print("\n[iReady Router] Spring detected - routing to iready_spring.py...")
+        try:
+            spring_charts = generate_iready_spring_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                iready_data=iready_data
+            )
+            if spring_charts:
+                all_chart_paths.extend(spring_charts)
+                print(f"[iReady Router] Generated {len(spring_charts)} Spring charts")
+        except Exception as e:
+            print(f"[iReady Router] Error generating Spring charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    
+    # Route to Fall module if Fall is selected
+    if has_fall:
+        from .iready_fall import generate_iready_fall_charts
+        print("\n[iReady Router] Fall detected - routing to iready_fall.py...")
+        try:
+            fall_charts = generate_iready_fall_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                iready_data=iready_data
+            )
+            if fall_charts:
+                all_chart_paths.extend(fall_charts)
+                print(f"[iReady Router] Generated {len(fall_charts)} Fall charts")
+        except Exception as e:
+            print(f"[iReady Router] Error generating Fall charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    else:
+        if not has_winter and not has_spring:
+            print("\n[iReady Router] No Fall, Spring, or Winter selected - skipping chart generation.")
+    
+    return all_chart_paths
 
 
 if __name__ == "__main__":

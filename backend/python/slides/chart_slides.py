@@ -63,7 +63,7 @@ def create_single_chart_slide_requests(
     title_object_id = f'Title_{start_index}'
     title_width = 9000000
     title_x = (slide_width_emu - title_width) / 2
-    title_y = top_bar_height_emu + 50000  # Reduced from 100000
+    title_y = top_bar_height_emu + 3000  # Reduced from 100000
     
     requests.extend([
         {
@@ -83,7 +83,7 @@ def create_single_chart_slide_requests(
         {
             'updateTextStyle': {
                 'objectId': title_object_id,
-                'style': {'fontSize': {'magnitude': 20, 'unit': 'PT'}, 'bold': True},
+                'style': {'fontSize': {'magnitude': 19, 'unit': 'PT'}, 'bold': True},
                 'fields': 'fontSize,bold',
                 'textRange': {'type': 'ALL'}
             }
@@ -103,11 +103,11 @@ def create_single_chart_slide_requests(
     available_height = slide_height_emu - margin_emu - title_height_emu - top_bar_height_emu - 50000  # Minimal bottom margin
     # Use almost full available width and height
     chart_width = available_width - margin_emu  # Use most of width
-    chart_height = available_height  # Use full available height
+    chart_height = available_height*1.10  # Use full available height
     
     chart_object_id = f'Chart_{start_index}'
     chart_x = margin_emu  # Start at margin
-    chart_y = top_bar_height_emu + title_height_emu + 30000  # Move higher - minimal spacing after title
+    chart_y = top_bar_height_emu + title_height_emu + 2000  # Move higher - minimal spacing after title
     
     requests.append({
         'createImage': {
@@ -194,7 +194,7 @@ def create_dual_chart_slide_requests(
         {
             'updateTextStyle': {
                 'objectId': title_object_id,
-                'style': {'fontSize': {'magnitude': 20, 'unit': 'PT'}, 'bold': True},
+                'style': {'fontSize': {'magnitude': 19, 'unit': 'PT'}, 'bold': True},
                 'fields': 'fontSize,bold',
                 'textRange': {'type': 'ALL'}
             }
@@ -218,11 +218,11 @@ def create_dual_chart_slide_requests(
     # Move charts higher - minimal spacing after title
     chart1_object_id = f'Chart_{start_index}'
     chart1_x = margin_emu
-    chart1_y = top_bar_height_emu + title_height_emu + 30000  # Move higher - minimal spacing
+    chart1_y = top_bar_height_emu + title_height_emu + 10000  # Move higher - minimal spacing
     
     chart2_object_id = f'Chart_{start_index + 1}'
     chart2_x = margin_emu + chart_width + chart_spacing_emu
-    chart2_y = top_bar_height_emu + title_height_emu + 30000  # Move higher - minimal spacing
+    chart2_y = top_bar_height_emu + title_height_emu + 10000  # Move higher - minimal spacing
     
     requests.extend([
         {

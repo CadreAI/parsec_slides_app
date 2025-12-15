@@ -2502,6 +2502,13 @@ def main(nwea_data=None):
     
     # Extract chart filters
     chart_filters = cfg.get("chart_filters", {})
+    # Ensure chart_filters is a dict, not a string
+    if isinstance(chart_filters, str):
+        try:
+            chart_filters = json.loads(chart_filters)
+        except:
+            print(f"[Warning] Could not parse chart_filters from config as JSON: {chart_filters}")
+            chart_filters = {}
     if chart_filters:
         print(f"\n[Filters] Applying chart generation filters:")
         if chart_filters.get("grades"):
@@ -3089,6 +3096,13 @@ def main(nwea_data=None):
     hf.DEV_MODE = args.dev_mode.lower() in ('true', '1', 'yes', 'on')
     
     chart_filters = cfg.get("chart_filters", {})
+    # Ensure chart_filters is a dict, not a string
+    if isinstance(chart_filters, str):
+        try:
+            chart_filters = json.loads(chart_filters)
+        except:
+            print(f"[Warning] Could not parse chart_filters from config as JSON: {chart_filters}")
+            chart_filters = {}
     
     # Load data
     if nwea_data is not None:
@@ -3316,6 +3330,13 @@ def generate_nwea_spring_charts(
     
     cfg = config or {}
     if chart_filters:
+        # Ensure chart_filters is a dict, not a string
+        if isinstance(chart_filters, str):
+            try:
+                chart_filters = json.loads(chart_filters)
+            except:
+                print(f"[Warning] Could not parse chart_filters as JSON: {chart_filters}")
+                chart_filters = {}
         cfg['chart_filters'] = chart_filters
     
     hf.DEV_MODE = cfg.get('dev_mode', False)

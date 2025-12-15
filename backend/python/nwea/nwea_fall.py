@@ -924,7 +924,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                     .reindex(columns=hf.NWEA_ORDER).fillna(0))
     ax1 = fig.add_subplot(gs[0, 0])
     draw_stacked_bar(ax1, stack_df_left, pct_df_left, time_order_left, is_cohort=False)
-    ax1.set_title("Overall Trends", fontsize=14, fontweight="bold", pad=30)
+    ax1.set_title("Overall Trends", fontsize=14, fontweight="bold", pad=45)
     
     legend_handles = [Patch(facecolor=hf.NWEA_COLORS[q], edgecolor="none", label=q) for q in hf.NWEA_ORDER]
     fig.legend(handles=legend_handles, labels=hf.NWEA_ORDER, loc="upper center",
@@ -1454,7 +1454,7 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
         bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
         for rect, yv in zip(bars, y_cgp):
             ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
-                   ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+                   ha="center", va="center", fontsize=15, fontweight="bold", color="white")
         
         labels_with_n = df["time_label"].astype(str).tolist()
         ax.set_ylabel("Median Fall→Fall CGP")
@@ -1481,15 +1481,15 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
             ax.add_line(mlines.Line2D([x0, x1], [yref, yref], transform=blend, linestyle="--",
                                      color="#eab308", linewidth=1.2, zorder=1.6))
         
-        cgi_line = mlines.Line2D(x_vals, y_cgi, transform=blend, marker="o", linewidth=2,
-                                markersize=6, color="#ffa800", zorder=3)
+        cgi_line = mlines.Line2D(x_vals, y_cgi, transform=blend, marker="o", linewidth=4,
+                                markersize=10, color="#ffa800", zorder=3)
         ax.add_line(cgi_line)
         
         for xv, yv in zip(x_vals, y_cgi):
             if pd.isna(yv):
                 continue
             ax.text(xv, yv + (0.12 if yv >= 0 else -0.12), f"{yv:.2f}", transform=blend,
-                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=8,
+                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=20,
                    fontweight="bold", color="#ffa800", zorder=3.1)
         
         ax.set_title(title, fontsize=14, fontweight="bold")
@@ -1504,10 +1504,10 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
     
     legend_handles = [
         Patch(facecolor="#0381a2", edgecolor="white", label="Median CGP"),
-        mlines.Line2D([0], [0], color="#ffa800", marker="o", linewidth=2, markersize=6, label="Mean CGI"),
+        mlines.Line2D([0], [0], color="#ffa800", marker="o", linewidth=4, markersize=6, label="Mean CGI"),
     ]
     fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
-              bbox_to_anchor=(0.5, 0.96), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
+              bbox_to_anchor=(0.5, 0.96), ncol=2, frameon=False, handlelength=4, handletextpad=0.5, columnspacing=1.2)
     
     fig.suptitle(f"{scope_label} • {subject_str} • Grade {grade} • Fall→Fall Growth",
                 fontsize=20, fontweight="bold", y=0.98)
@@ -1897,6 +1897,13 @@ def main(nwea_data=None):
     
     # Extract chart filters
     chart_filters = cfg.get("chart_filters", {})
+    # Ensure chart_filters is a dict, not a string
+    if isinstance(chart_filters, str):
+        try:
+            chart_filters = json.loads(chart_filters)
+        except:
+            print(f"[Warning] Could not parse chart_filters from config as JSON: {chart_filters}")
+            chart_filters = {}
     if chart_filters:
         print(f"\n[Filters] Applying chart generation filters:")
         if chart_filters.get("grades"):
@@ -2521,6 +2528,13 @@ def main(nwea_data=None):
     hf.DEV_MODE = args.dev_mode.lower() in ('true', '1', 'yes', 'on')
     
     chart_filters = cfg.get("chart_filters", {})
+    # Ensure chart_filters is a dict, not a string
+    if isinstance(chart_filters, str):
+        try:
+            chart_filters = json.loads(chart_filters)
+        except:
+            print(f"[Warning] Could not parse chart_filters from config as JSON: {chart_filters}")
+            chart_filters = {}
     
     if chart_filters:
         print(f"\n[Filters] Applying chart generation filters:")
@@ -2876,6 +2890,13 @@ def generate_nwea_fall_charts(
     
     cfg = config or {}
     if chart_filters:
+        # Ensure chart_filters is a dict, not a string
+        if isinstance(chart_filters, str):
+            try:
+                chart_filters = json.loads(chart_filters)
+            except:
+                print(f"[Warning] Could not parse chart_filters as JSON: {chart_filters}")
+                chart_filters = {}
         cfg['chart_filters'] = chart_filters
     
     hf.DEV_MODE = cfg.get('dev_mode', False)
