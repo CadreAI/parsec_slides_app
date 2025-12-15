@@ -23,6 +23,10 @@ export async function GET(req: NextRequest) {
         const datasetId = req.nextUrl.searchParams.get('datasetId')
         const assessments = req.nextUrl.searchParams.get('assessments') || ''
         const location = req.nextUrl.searchParams.get('location') || 'US'
+        const tablePathsParam = req.nextUrl.searchParams.get('tablePaths')
+
+        // Parse specific table paths if provided
+        const specificTablePaths = tablePathsParam ? tablePathsParam.split(',').map(t => t.trim()) : null
 
         if (!projectId || !datasetId) {
             return NextResponse.json(
@@ -77,7 +81,19 @@ export async function GET(req: NextRequest) {
 
         // Query each requested assessment
         for (const assessmentId of requestedAssessments) {
-            const tablePatterns = assessmentTableMap[assessmentId] || []
+            let tablePatterns = assessmentTableMap[assessmentId] || []
+            
+            // If specific table paths are provided, filter to relevant tables for this assessment
+            if (specificTablePaths) {
+                const relevantTables = specificTablePaths.filter(path => {
+                    const tableName = path.split('.').pop() || path
+                    return tableName.toLowerCase().includes(assessmentId.toLowerCase())
+                })
+                if (relevantTables.length > 0) {
+                    tablePatterns = relevantTables.map(path => path.split('.').pop() || path)
+                }
+            }
+            
             let foundTable: string | null = null
 
             // Find the table for this assessment

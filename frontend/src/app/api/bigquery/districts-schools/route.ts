@@ -25,9 +25,11 @@ export async function GET(req: NextRequest) {
         const datasetId = req.nextUrl.searchParams.get('datasetId')
         const location = req.nextUrl.searchParams.get('location') || 'US'
         const assessmentsParam = req.nextUrl.searchParams.get('assessments')
+        const tablePathsParam = req.nextUrl.searchParams.get('tablePaths')
 
-        // Parse assessments if provided
+        // Parse assessments and table path if provided
         const requestedAssessments = assessmentsParam ? assessmentsParam.split(',').map((a) => a.trim().toLowerCase()) : null
+        const specificTables = tablePathsParam ? tablePathsParam.split(',').map(t => t.trim()) : null
 
         if (!projectId || !datasetId) {
             return NextResponse.json(
@@ -64,7 +66,9 @@ export async function GET(req: NextRequest) {
         // Try to find NWEA table
         let nweaTableId: string | null = null
         if (shouldQueryNwea) {
-            const nweaTableNames = ['Nwea_production_calpads', 'Nwea_production_calpads_v4_2', 'nwea_production_calpads', 'nwea_production_calpads_v4_2']
+            const nweaTableNames = specificTables 
+                ? specificTables.filter(t => t.toLowerCase().includes('nwea'))
+                : ['Nwea_production_calpads', 'Nwea_production_calpads_v4_2', 'nwea_production_calpads', 'nwea_production_calpads_v4_2']
             for (const testTableName of nweaTableNames) {
                 try {
                     const dataset = client.dataset(datasetId)
@@ -83,16 +87,18 @@ export async function GET(req: NextRequest) {
         // Try to find STAR table
         let starTableId: string | null = null
         if (shouldQueryStar) {
-            const starTableNames = [
-                'renaissance_production_calpads_v4_2',
-                'Renaissance_production_calpads_v4_2',
-                'star_production_calpads_v4_2',
-                'star_production_calpads',
-                'star_production',
-                'star',
-                'STAR',
-                'renaissance'
-            ]
+            const starTableNames = specificTables 
+                ? specificTables.filter(t => t.toLowerCase().includes('star') || t.toLowerCase().includes('renaissance'))
+                : [
+                    'renaissance_production_calpads_v4_2',
+                    'Renaissance_production_calpads_v4_2',
+                    'star_production_calpads_v4_2',
+                    'star_production_calpads',
+                    'star_production',
+                    'star',
+                    'STAR',
+                    'renaissance'
+                ]
             for (const testTableName of starTableNames) {
                 try {
                     const dataset = client.dataset(datasetId)
@@ -111,15 +117,17 @@ export async function GET(req: NextRequest) {
         // Try to find iReady table
         let ireadyTableId: string | null = null
         if (shouldQueryIready) {
-            const ireadyTableNames = [
-                'iready_production_calpads_v4_2',
-                'iReady_production_calpads_v4_2',
-                'iready_production_calpads',
-                'iready_production',
-                'iready',
-                'iReady',
-                'IREADY'
-            ]
+            const ireadyTableNames = specificTables 
+                ? specificTables.filter(t => t.toLowerCase().includes('iready'))
+                : [
+                    'iready_production_calpads_v4_2',
+                    'iReady_production_calpads_v4_2',
+                    'iready_production_calpads',
+                    'iready_production',
+                    'iready',
+                    'iReady',
+                    'IREADY'
+                ]
             for (const testTableName of ireadyTableNames) {
                 try {
                     const dataset = client.dataset(datasetId)
@@ -138,7 +146,9 @@ export async function GET(req: NextRequest) {
         // Try to find cers_iab table
         let cersIabTableId: string | null = null
         if (shouldQueryCersIab) {
-            const cersIabTableNames = ['cers_iab', 'CERS_IAB', 'cers_iab_production']
+            const cersIabTableNames = specificTables 
+                ? specificTables.filter(t => t.toLowerCase().includes('cers'))
+                : ['cers_iab', 'CERS_IAB', 'cers_iab_production']
             for (const testTableName of cersIabTableNames) {
                 try {
                     const dataset = client.dataset(datasetId)

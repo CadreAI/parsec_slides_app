@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 const DEFAULT_GRADES = ['K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
 const DEFAULT_YEARS = ['2023', '2024', '2025', '2026']
 
-export function useFormOptions(projectId?: string, datasetId?: string, location?: string, assessments?: string[]) {
+export function useFormOptions(projectId?: string, datasetId?: string, location?: string, assessments?: string[], selectedTables?: Record<string, string>) {
     const [grades, setGrades] = useState<string[]>(DEFAULT_GRADES)
     const [years, setYears] = useState<string[]>(DEFAULT_YEARS)
     const [isLoading, setIsLoading] = useState(true)
@@ -24,6 +24,14 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
                     // Add assessments parameter if provided
                     if (assessments && assessments.length > 0) {
                         params.append('assessments', assessments.join(','))
+                    }
+
+                    // Add specific table paths if provided
+                    if (selectedTables && assessments && assessments.length > 0) {
+                        const relevantTables = assessments.map(a => selectedTables[a]).filter(Boolean)
+                        if (relevantTables.length > 0) {
+                            params.append('tablePaths', relevantTables.join(','))
+                        }
                     }
 
                     const res = await fetch(`/api/bigquery/form-options?${params.toString()}`)
@@ -55,7 +63,7 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
         }
 
         fetchFormOptions()
-    }, [projectId, datasetId, location, assessments?.join(',')])
+    }, [projectId, datasetId, location, assessments?.join(','), Object.values(selectedTables || {}).sort().join(',')])
 
     return { grades, years, isLoading }
 }

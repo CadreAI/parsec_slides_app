@@ -24,6 +24,10 @@ export async function GET(req: NextRequest) {
         const datasetId = req.nextUrl.searchParams.get('datasetId')
         const location = req.nextUrl.searchParams.get('location') || 'US'
         const assessmentsParam = req.nextUrl.searchParams.get('assessments')
+        const tablePathsParam = req.nextUrl.searchParams.get('tablePaths')
+
+        // Parse specific table paths if provided
+        const specificTablePaths = tablePathsParam ? tablePathsParam.split(',').map(t => t.trim()) : null
 
         if (!projectId || !datasetId) {
             return NextResponse.json(
@@ -75,7 +79,19 @@ export async function GET(req: NextRequest) {
             // Query only requested assessment tables
             console.log(`[Form Options] Querying specific assessment tables for: ${requestedAssessments.join(', ')}`)
             for (const assessment of requestedAssessments) {
-                const patterns = assessmentTableMap[assessment] || []
+                let patterns = assessmentTableMap[assessment] || []
+                
+                // If specific table paths are provided, use those instead
+                if (specificTablePaths) {
+                    const relevantTables = specificTablePaths.filter(path => {
+                        const tableName = path.split('.').pop() || path
+                        return tableName.toLowerCase().includes(assessment.toLowerCase())
+                    })
+                    if (relevantTables.length > 0) {
+                        patterns = relevantTables.map(path => path.split('.').pop() || path)
+                    }
+                }
+                
                 console.log(`[Form Options] Looking for ${assessment} table with patterns: ${patterns.join(', ')}`)
                 for (const pattern of patterns) {
                     try {

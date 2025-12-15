@@ -19,7 +19,8 @@ export function useAssessmentFilters(
     projectId?: string,
     datasetId?: string,
     location?: string,
-    setFormData?: React.Dispatch<React.SetStateAction<FormData>>
+    setFormData?: React.Dispatch<React.SetStateAction<FormData>>,
+    selectedTables?: Record<string, string>
 ) {
     const [availableSubjects, setAvailableSubjects] = useState<string[]>([])
     const [availableQuarters, setAvailableQuarters] = useState<string[]>([])
@@ -45,8 +46,12 @@ export function useAssessmentFilters(
 
                 // Fetch from actual data tables if we have projectId and datasetId
                 if (projectId && datasetId && assessments.length > 0) {
+                    // Add table paths to query params if provided
+                    const tablePathsParam = selectedTables && assessments.length > 0
+                        ? '&tablePaths=' + encodeURIComponent(assessments.map(a => selectedTables[a]).filter(Boolean).join(','))
+                        : ''
                     const res = await fetch(
-                        `/api/bigquery/assessment-filters?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(datasetId)}&assessments=${encodeURIComponent(assessmentsParam)}&location=${encodeURIComponent(location || 'US')}`
+                        `/api/bigquery/assessment-filters?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(datasetId)}&assessments=${encodeURIComponent(assessmentsParam)}&location=${encodeURIComponent(location || 'US')}${tablePathsParam}`
                     )
                     if (res.ok) {
                         const data = await res.json()
@@ -106,7 +111,7 @@ export function useAssessmentFilters(
         }
         fetchAssessmentFilters()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [assessments.join(','), projectId, datasetId, location])
+    }, [assessments.join(','), projectId, datasetId, location, Object.values(selectedTables || {}).sort().join(',')])
 
     return {
         availableSubjects,
