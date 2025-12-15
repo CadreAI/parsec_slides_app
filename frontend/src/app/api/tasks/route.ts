@@ -5,11 +5,13 @@ const BACKEND_BASE = process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC
 
 export async function GET(request: Request) {
     try {
-        const { userId } = await auth()
+        const { userId, getToken } = await auth()
 
         if (!userId) {
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
         }
+
+        const token = await getToken()
 
         // Get optional status and limit filters from query params
         const { searchParams } = new URL(request.url)
@@ -26,7 +28,9 @@ export async function GET(request: Request) {
         }
 
         // Fetch tasks from backend
-        const res = await fetch(`${BACKEND_BASE}/tasks?${queryString}`)
+        const res = await fetch(`${BACKEND_BASE}/tasks?${queryString}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        })
         const data = await res.json().catch(() => ({ success: false, tasks: [] }))
 
         return NextResponse.json(data, { status: res.status })

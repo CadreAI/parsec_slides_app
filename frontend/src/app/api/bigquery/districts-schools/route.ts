@@ -1,4 +1,5 @@
 import { resolveServiceAccountCredentialsPath } from '@/lib/credentials'
+import { auth } from '@clerk/nextjs/server'
 import { BigQuery } from '@google-cloud/bigquery'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -21,6 +22,11 @@ import { NextRequest, NextResponse } from 'next/server'
  */
 export async function GET(req: NextRequest) {
     try {
+        const { userId } = await auth()
+        if (!userId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+        }
+
         const projectId = req.nextUrl.searchParams.get('projectId')
         const datasetId = req.nextUrl.searchParams.get('datasetId')
         const location = req.nextUrl.searchParams.get('location') || 'US'
@@ -29,7 +35,7 @@ export async function GET(req: NextRequest) {
 
         // Parse assessments and table path if provided
         const requestedAssessments = assessmentsParam ? assessmentsParam.split(',').map((a) => a.trim().toLowerCase()) : null
-        const specificTables = tablePathsParam ? tablePathsParam.split(',').map(t => t.trim()) : null
+        const specificTables = tablePathsParam ? tablePathsParam.split(',').map((t) => t.trim()) : null
 
         if (!projectId || !datasetId) {
             return NextResponse.json(
@@ -66,8 +72,8 @@ export async function GET(req: NextRequest) {
         // Try to find NWEA table
         let nweaTableId: string | null = null
         if (shouldQueryNwea) {
-            const nweaTableNames = specificTables 
-                ? specificTables.filter(t => t.toLowerCase().includes('nwea'))
+            const nweaTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('nwea'))
                 : ['Nwea_production_calpads', 'Nwea_production_calpads_v4_2', 'nwea_production_calpads', 'nwea_production_calpads_v4_2']
             for (const testTableName of nweaTableNames) {
                 try {
@@ -87,18 +93,18 @@ export async function GET(req: NextRequest) {
         // Try to find STAR table
         let starTableId: string | null = null
         if (shouldQueryStar) {
-            const starTableNames = specificTables 
-                ? specificTables.filter(t => t.toLowerCase().includes('star') || t.toLowerCase().includes('renaissance'))
+            const starTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('star') || t.toLowerCase().includes('renaissance'))
                 : [
-                    'renaissance_production_calpads_v4_2',
-                    'Renaissance_production_calpads_v4_2',
-                    'star_production_calpads_v4_2',
-                    'star_production_calpads',
-                    'star_production',
-                    'star',
-                    'STAR',
-                    'renaissance'
-                ]
+                      'renaissance_production_calpads_v4_2',
+                      'Renaissance_production_calpads_v4_2',
+                      'star_production_calpads_v4_2',
+                      'star_production_calpads',
+                      'star_production',
+                      'star',
+                      'STAR',
+                      'renaissance'
+                  ]
             for (const testTableName of starTableNames) {
                 try {
                     const dataset = client.dataset(datasetId)
@@ -117,17 +123,17 @@ export async function GET(req: NextRequest) {
         // Try to find iReady table
         let ireadyTableId: string | null = null
         if (shouldQueryIready) {
-            const ireadyTableNames = specificTables 
-                ? specificTables.filter(t => t.toLowerCase().includes('iready'))
+            const ireadyTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('iready'))
                 : [
-                    'iready_production_calpads_v4_2',
-                    'iReady_production_calpads_v4_2',
-                    'iready_production_calpads',
-                    'iready_production',
-                    'iready',
-                    'iReady',
-                    'IREADY'
-                ]
+                      'iready_production_calpads_v4_2',
+                      'iReady_production_calpads_v4_2',
+                      'iready_production_calpads',
+                      'iready_production',
+                      'iready',
+                      'iReady',
+                      'IREADY'
+                  ]
             for (const testTableName of ireadyTableNames) {
                 try {
                     const dataset = client.dataset(datasetId)
@@ -146,8 +152,8 @@ export async function GET(req: NextRequest) {
         // Try to find cers_iab table
         let cersIabTableId: string | null = null
         if (shouldQueryCersIab) {
-            const cersIabTableNames = specificTables 
-                ? specificTables.filter(t => t.toLowerCase().includes('cers'))
+            const cersIabTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('cers'))
                 : ['cers_iab', 'CERS_IAB', 'cers_iab_production']
             for (const testTableName of cersIabTableNames) {
                 try {
