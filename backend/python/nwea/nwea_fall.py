@@ -1256,12 +1256,41 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     fig.suptitle(f"{scope_label} • Fall→Fall Growth (All Students)", fontsize=20, fontweight="bold", y=0.99)
     
     axes = []
+    comparison_data = {}  # Store comparison data for each subject
+    
     for i, subject_str in enumerate(subjects):
         ax = fig.add_subplot(gs[0, i])
         axes.append(ax)
         sub_df = cgp_trend[(cgp_trend["scope_label"] == scope_label) & (cgp_trend["subject"] == subject_str)]
         if not sub_df.empty:
             _plot_cgp_trend(sub_df, subject_str, scope_label, ax=ax)
+            
+            # Calculate comparison between most recent year and previous year
+            sub_df_sorted = sub_df.sort_values("time_label").copy()
+            if len(sub_df_sorted) >= 2:
+                recent = sub_df_sorted.iloc[-1]
+                previous = sub_df_sorted.iloc[-2]
+                
+                cgp_recent = recent["median_cgp"]
+                cgp_prev = previous["median_cgp"]
+                cgp_change = cgp_recent - cgp_prev
+                cgp_pct_change = (cgp_change / cgp_prev * 100) if cgp_prev != 0 else 0
+                
+                cgi_recent = recent.get("mean_cgi", np.nan)
+                cgi_prev = previous.get("mean_cgi", np.nan)
+                cgi_change = cgi_recent - cgi_prev if pd.notna(cgi_recent) and pd.notna(cgi_prev) else np.nan
+                
+                comparison_data[subject_str] = {
+                    "recent_year": recent["time_label"],
+                    "prev_year": previous["time_label"],
+                    "cgp_recent": cgp_recent,
+                    "cgp_prev": cgp_prev,
+                    "cgp_change": cgp_change,
+                    "cgp_pct_change": cgp_pct_change,
+                    "cgi_recent": cgi_recent,
+                    "cgi_prev": cgi_prev,
+                    "cgi_change": cgi_change,
+                }
         
         subj_norm = subject_str.strip().casefold()
         d = scope_df.copy()
@@ -1289,6 +1318,42 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
                      Line2D([0], [0], color="#ffa800", marker="o", linewidth=2, markersize=6, label="Mean CGI")]
     fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
               bbox_to_anchor=(0.5, 0.94), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
+    
+    # Add comparison box at the bottom spanning both columns
+    if comparison_data:
+        ax_compare = fig.add_subplot(gs[2, :])
+        ax_compare.axis("off")
+        
+        comparison_lines = ["Year-to-Year Comparison (Most Recent vs Previous):"]
+        comparison_lines.append("")
+        
+        for subject_str in subjects:
+            if subject_str in comparison_data:
+                comp = comparison_data[subject_str]
+                comparison_lines.append(f"{subject_str}:")
+                
+                # CGP comparison
+                cgp_dir = "↑" if comp["cgp_change"] > 0 else "↓" if comp["cgp_change"] < 0 else "→"
+                comparison_lines.append(
+                    f"  Median CGP: {comp['prev_year']} = {comp['cgp_prev']:.1f} → {comp['recent_year']} = {comp['cgp_recent']:.1f} "
+                    f"({cgp_dir} {abs(comp['cgp_change']):.1f} pts, {abs(comp['cgp_pct_change']):.1f}%)"
+                )
+                
+                # CGI comparison (if available)
+                if pd.notna(comp["cgi_change"]):
+                    cgi_dir = "↑" if comp["cgi_change"] > 0 else "↓" if comp["cgi_change"] < 0 else "→"
+                    comparison_lines.append(
+                        f"  Mean CGI: {comp['prev_year']} = {comp['cgi_prev']:.2f} → {comp['recent_year']} = {comp['cgi_recent']:.2f} "
+                        f"({cgi_dir} {abs(comp['cgi_change']):.2f})"
+                    )
+                
+                comparison_lines.append("")
+        
+        # Display comparison text
+        comparison_text = "\n".join(comparison_lines)
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=10, fontweight="normal", color="#333333",
+                        ha="center", va="center", wrap=True, usetex=False,
+                        bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     charts_dir = Path(output_dir)
     folder_name = "_district" if scope_label == cfg.get("district_name", ["District (All Students)"])[0] else scope_label.replace(" ", "_")
@@ -1367,8 +1432,10 @@ def _prep_cgp_by_grade(df, subject, grade):
 
 def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label, output_dir, cfg, preview=False):
     """Plot dual-facet CGP/CGI chart for Section 5 - Fall→Fall"""
-    fig, axs = plt.subplots(1, 2, figsize=(16, 8), sharey=True)
-    fig.subplots_adjust(wspace=0.28)
+    # Use gridspec to allow for comparison box at bottom
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[4, 0.8], width_ratios=[1, 1], hspace=0.35, wspace=0.28)
+    axs = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
     
     def draw_panel(df, ax, title):
         if df.empty:
@@ -1443,7 +1510,79 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
               bbox_to_anchor=(0.5, 0.96), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
     
     fig.suptitle(f"{scope_label} • {subject_str} • Grade {grade} • Fall→Fall Growth",
-                fontsize=20, fontweight="bold", y=1)
+                fontsize=20, fontweight="bold", y=0.98)
+    
+    # Add comparison box at the bottom comparing most recent year to previous year
+    comparison_data = {}
+    
+    # Calculate comparison for Overall Growth Trends
+    if not overall_df.empty and len(overall_df) >= 2:
+        overall_sorted = overall_df.sort_values("time_label").copy()
+        recent_overall = overall_sorted.iloc[-1]
+        prev_overall = overall_sorted.iloc[-2]
+        
+        comparison_data["Overall"] = {
+            "recent_year": recent_overall["time_label"],
+            "prev_year": prev_overall["time_label"],
+            "cgp_recent": recent_overall["median_cgp"],
+            "cgp_prev": prev_overall["median_cgp"],
+            "cgp_change": recent_overall["median_cgp"] - prev_overall["median_cgp"],
+            "cgi_recent": recent_overall.get("mean_cgi", np.nan),
+            "cgi_prev": prev_overall.get("mean_cgi", np.nan),
+        }
+        if pd.notna(comparison_data["Overall"]["cgi_recent"]) and pd.notna(comparison_data["Overall"]["cgi_prev"]):
+            comparison_data["Overall"]["cgi_change"] = comparison_data["Overall"]["cgi_recent"] - comparison_data["Overall"]["cgi_prev"]
+        else:
+            comparison_data["Overall"]["cgi_change"] = np.nan
+    
+    # Calculate comparison for Cohort Growth Trends
+    if not cohort_df.empty and len(cohort_df) >= 2:
+        cohort_sorted = cohort_df.sort_values("time_label").copy()
+        recent_cohort = cohort_sorted.iloc[-1]
+        prev_cohort = cohort_sorted.iloc[-2]
+        
+        comparison_data["Cohort"] = {
+            "recent_year": recent_cohort["time_label"],
+            "prev_year": prev_cohort["time_label"],
+            "cgp_recent": recent_cohort["median_cgp"],
+            "cgp_prev": prev_cohort["median_cgp"],
+            "cgp_change": recent_cohort["median_cgp"] - prev_cohort["median_cgp"],
+            "cgi_recent": recent_cohort.get("mean_cgi", np.nan),
+            "cgi_prev": prev_cohort.get("mean_cgi", np.nan),
+        }
+        if pd.notna(comparison_data["Cohort"]["cgi_recent"]) and pd.notna(comparison_data["Cohort"]["cgi_prev"]):
+            comparison_data["Cohort"]["cgi_change"] = comparison_data["Cohort"]["cgi_recent"] - comparison_data["Cohort"]["cgi_prev"]
+        else:
+            comparison_data["Cohort"]["cgi_change"] = np.nan
+    
+    # Display comparison box
+    if comparison_data:
+        ax_compare = fig.add_subplot(gs[1, :])
+        ax_compare.axis("off")
+        
+        comparison_lines = ["Year-to-Year Comparison:"]
+        comparison_lines.append("")
+        
+        for trend_type in ["Overall", "Cohort"]:
+            if trend_type in comparison_data:
+                comp = comparison_data[trend_type]
+                
+                # CGP comparison
+                cgp_change = comp["cgp_change"]
+                cgp_dir = "↑" if cgp_change > 0 else "↓" if cgp_change < 0 else "→"
+                comparison_lines.append(f"{trend_type} - Median CGP: {cgp_dir} {abs(cgp_change):.1f} pts")
+                
+                # CGI comparison (if available)
+                if pd.notna(comp.get("cgi_change")):
+                    cgi_change = comp["cgi_change"]
+                    cgi_dir = "↑" if cgi_change > 0 else "↓" if cgi_change < 0 else "→"
+                    comparison_lines.append(f"{trend_type} - Mean CGI: {cgi_dir} {abs(cgi_change):.2f} pts")
+        
+        # Display comparison text
+        comparison_text = "\n".join(comparison_lines)
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=10, fontweight="normal", color="#333333",
+                        ha="center", va="center", wrap=True, usetex=False,
+                        bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     # Save chart
     charts_dir = Path(output_dir)
