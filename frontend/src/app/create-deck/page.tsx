@@ -382,18 +382,6 @@ export default function CreateSlide() {
                                             ))}
                                         </Select>
                                         {isLoadingDatasets && <p className="text-muted-foreground text-xs">Fetching datasets from BigQuery...</p>}
-                                        {!isLoadingDatasets && partnerOptions.length === 1 && (
-                                            <p className="text-muted-foreground text-xs">Enter a GCP Project ID above to load available datasets</p>
-                                        )}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="projectId">GCP Project ID</Label>
-                                        <Input
-                                            id="projectId"
-                                            value={formData.projectId}
-                                            onChange={(e) => setFormData((prev) => ({ ...prev, projectId: e.target.value }))}
-                                            placeholder="parsecgo"
-                                        />
                                     </div>
                                 </div>
                             </div>
