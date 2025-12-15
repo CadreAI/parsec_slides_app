@@ -67,27 +67,34 @@ export default function CreateSlide() {
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
-    const { grades: GRADES, years: YEARS } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments)
+    const { grades: GRADES, years: YEARS } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
     const { availableDistricts, availableSchools, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
         formData.partnerName,
         formData.projectId,
         formData.location,
-        formData.assessments // Pass assessments to filter which tables to query
+        formData.assessments,
+        formData.customDataSources
     )
-    const { availableAssessments, assessmentTables, isLoadingAssessmentTables } = useAssessmentTables(
+    const { availableAssessments, assessmentTables, variants, isLoadingAssessmentTables } = useAssessmentTables(
         formData.partnerName,
         formData.projectId,
         formData.location,
-        setFormData
+        setFormData,
+        true
     )
     const { availableSubjects, availableQuarters, supportsGrades, supportsStudentGroups, supportsRace, isLoadingFilters } = useAssessmentFilters(
         formData.assessments,
         formData.projectId,
         formData.partnerName,
-        formData.location
+        formData.location,
+        undefined,
+        formData.customDataSources
     )
+
+    // Combined loading state to prevent stale UI
+    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets
 
     // Helper functions
     const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
@@ -128,12 +135,26 @@ export default function CreateSlide() {
         }))
     }
 
+    // Helper function to reset scope and filters when data changes
+    const resetScopeAndFilters = () => ({
+        districtName: '',
+        schools: [],
+        districtOnly: false,
+        grades: [],
+        quarters: '',
+        subjects: [],
+        studentGroups: [],
+        race: []
+    })
+
     const handleDataSourceToggle = (sourceId: string) => {
         setFormData((prev) => ({
             ...prev,
             selectedDataSources: prev.selectedDataSources.includes(sourceId)
                 ? prev.selectedDataSources.filter((id) => id !== sourceId)
-                : [...prev.selectedDataSources, sourceId]
+                : [...prev.selectedDataSources, sourceId],
+            // Reset scope selections and filters when assessments change
+            ...resetScopeAndFilters()
         }))
     }
 
@@ -143,7 +164,9 @@ export default function CreateSlide() {
             customDataSources: {
                 ...prev.customDataSources,
                 [sourceId]: value
-            }
+            },
+            // Reset scope selections and filters when variant changes
+            ...resetScopeAndFilters()
         }))
     }
 
@@ -420,12 +443,60 @@ export default function CreateSlide() {
                                                             </Label>
                                                         </div>
                                                         {isSelected && (
-                                                            <Input
-                                                                value={customTable || defaultTable}
-                                                                onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
-                                                                placeholder={defaultTable}
-                                                                className="ml-6 mt-1 h-8 font-mono text-xs"
-                                                            />
+                                                            <div className="ml-6 mt-2">
+                                                                {/* Case 1: Multiple variants - show radio buttons */}
+                                                                {variants[source.id] && variants[source.id].length > 1 && (
+                                                                    <div className="space-y-1.5">
+                                                                        {variants[source.id].map((variant, idx) => (
+                                                                            <div key={variant.table_name} className="flex items-center space-x-2">
+                                                                                <input
+                                                                                    type="radio"
+                                                                                    id={`${source.id}-variant-${idx}`}
+                                                                                    name={`${source.id}-variant`}
+                                                                                    value={variant.full_path}
+                                                                                    checked={formData.customDataSources[source.id] === variant.full_path}
+                                                                                    onChange={() => handleCustomDataSourceChange(source.id, variant.full_path)}
+                                                                                    className="h-3.5 w-3.5 cursor-pointer"
+                                                                                />
+                                                                                <label htmlFor={`${source.id}-variant-${idx}`} className="flex-1 cursor-pointer font-mono text-xs text-gray-700">
+                                                                                    {variant.full_path}
+                                                                                    {variant.is_default && (
+                                                                                        <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                                                                                            Default
+                                                                                        </span>
+                                                                                    )}
+                                                                                </label>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Case 2: Single variant - show as read-only */}
+                                                                {variants[source.id] && variants[source.id].length === 1 && (
+                                                                    <Input
+                                                                        value={variants[source.id][0].full_path}
+                                                                        readOnly
+                                                                        className="h-8 cursor-not-allowed bg-gray-50 font-mono text-xs"
+                                                                    />
+                                                                )}
+
+                                                                {/* Case 3: No variants (fallback to manual input) */}
+                                                                {(!variants[source.id] || variants[source.id].length === 0) && (
+                                                                    <>
+                                                                        <Input
+                                                                            value={customTable || defaultTable}
+                                                                            onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
+                                                                            placeholder={defaultTable}
+                                                                            className="h-8 font-mono text-xs"
+                                                                        />
+                                                                        {variants[source.id] && variants[source.id].length === 0 && (
+                                                                            <p className="text-destructive mt-1 text-xs">
+                                                                                ⚠️ No table variants found. Please contact the Dev Team.
+                                                                            </p>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         )}
                                                     </div>
                                                 )
@@ -451,6 +522,7 @@ export default function CreateSlide() {
                                                 District <span className="text-destructive">*</span>
                                             </Label>
                                             <Select
+                                                key={`district-${formData.partnerName}-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                 id="districtName"
                                                 value={formData.districtName}
                                                 onChange={(e) => {
@@ -461,10 +533,10 @@ export default function CreateSlide() {
                                                     }))
                                                 }}
                                                 required
-                                                disabled={isLoadingDistrictsSchools || !formData.partnerName || formData.assessments.length === 0}
+                                                disabled={isLoadingChoices || !formData.partnerName || formData.assessments.length === 0}
                                             >
                                                 <option value="">
-                                                    {isLoadingDistrictsSchools
+                                                    {isLoadingChoices
                                                         ? 'Loading districts...'
                                                         : formData.assessments.length === 0
                                                           ? 'Select assessments first...'
@@ -476,7 +548,7 @@ export default function CreateSlide() {
                                                     </option>
                                                 ))}
                                             </Select>
-                                            {isLoadingDistrictsSchools && (
+                                            {isLoadingChoices && (
                                                 <p className="text-muted-foreground text-xs">
                                                     Fetching districts from {formData.assessments.join(', ')} table(s)...
                                                 </p>
@@ -503,21 +575,22 @@ export default function CreateSlide() {
                                             </div>
                                             <Label>School(s) {!formData.districtOnly && <span className="text-destructive">*</span>}</Label>
                                             <MultiSelect
+                                                key={`schools-${formData.districtName}-${Object.values(formData.customDataSources).join(',')}`}
                                                 options={schoolOptions}
                                                 selected={formData.schools}
                                                 onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
                                                 placeholder={
                                                     formData.districtOnly
                                                         ? 'District only mode - schools disabled'
-                                                        : isLoadingDistrictsSchools
+                                                        : isLoadingChoices
                                                           ? 'Loading schools...'
                                                           : !formData.districtName
                                                             ? 'Select district first...'
                                                             : 'Select school(s)...'
                                                 }
-                                                disabled={isLoadingDistrictsSchools || !formData.partnerName || !formData.districtName || formData.districtOnly}
+                                                disabled={isLoadingChoices || !formData.partnerName || !formData.districtName || formData.districtOnly}
                                             />
-                                            {isLoadingDistrictsSchools && (
+                                            {isLoadingChoices && (
                                                 <p className="text-muted-foreground text-xs">
                                                     Fetching schools from {formData.assessments.join(', ')} table(s)...
                                                 </p>
@@ -546,11 +619,12 @@ export default function CreateSlide() {
                                                     Grade(s) <span className="text-destructive">*</span>
                                                 </Label>
                                                 <MultiSelect
+                                                    key={`grades-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                     options={GRADES}
                                                     selected={formData.grades}
                                                     onChange={(selected) => setFormData((prev) => ({ ...prev, grades: selected }))}
-                                                    placeholder="Select grade(s)..."
-                                                    disabled={isLoadingFilters}
+                                                    placeholder={isLoadingChoices ? 'Loading grades...' : 'Select grade(s)...'}
+                                                    disabled={isLoadingChoices}
                                                     getDisplayLabel={getGradeDisplayLabel}
                                                 />
                                             </div>
@@ -560,11 +634,12 @@ export default function CreateSlide() {
                                                 Year(s) <span className="text-destructive">*</span>
                                             </Label>
                                             <MultiSelect
+                                                key={`years-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                 options={YEARS}
                                                 selected={formData.years}
                                                 onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
-                                                placeholder="Select at least 2 year(s)..."
-                                                disabled={isLoadingFilters}
+                                                placeholder={isLoadingChoices ? 'Loading years...' : 'Select at least 2 year(s)...'}
+                                                disabled={isLoadingChoices}
                                             />
                                             {formData.years.length > 0 && formData.years.length < 2 && (
                                                 <p className="text-destructive text-sm">Please select at least 2 years</p>
@@ -585,7 +660,7 @@ export default function CreateSlide() {
                                                             const backendQuarter = getQuarterBackendValue(e.target.value)
                                                             setFormData((prev) => ({ ...prev, quarters: backendQuarter }))
                                                         }}
-                                                        disabled={isLoadingFilters}
+                                                        disabled={isLoadingChoices}
                                                     >
                                                         <option value="">Select Type of Slides...</option>
                                                         {availableQuarters.map((quarter) => (
@@ -602,11 +677,12 @@ export default function CreateSlide() {
                                                         Subject(s) <span className="text-destructive">*</span>
                                                     </Label>
                                                     <MultiSelect
+                                                        key={`subjects-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                         options={availableSubjects}
                                                         selected={formData.subjects}
                                                         onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
-                                                        placeholder="Select subject(s)..."
-                                                        disabled={isLoadingFilters}
+                                                        placeholder={isLoadingChoices ? 'Loading subjects...' : 'Select subject(s)...'}
+                                                        disabled={isLoadingChoices}
                                                     />
                                                 </div>
                                             )}
@@ -618,6 +694,7 @@ export default function CreateSlide() {
                                                 <div className="space-y-2">
                                                     <Label>Student Groups</Label>
                                                     <MultiSelect
+                                                        key={`student-groups-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                         options={
                                                             studentGroupOptions.length > 0
                                                                 ? studentGroupOptions.filter((group) => !raceOptions.includes(group))
@@ -632,8 +709,8 @@ export default function CreateSlide() {
                                                         }
                                                         selected={formData.studentGroups}
                                                         onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
-                                                        placeholder="Select student group(s)..."
-                                                        disabled={isLoadingFilters}
+                                                        placeholder={isLoadingChoices ? 'Loading student groups...' : 'Select student group(s)...'}
+                                                        disabled={isLoadingChoices}
                                                     />
                                                 </div>
                                             )}
@@ -641,6 +718,7 @@ export default function CreateSlide() {
                                                 <div className="space-y-2">
                                                     <Label>Race/Ethnicity</Label>
                                                     <MultiSelect
+                                                        key={`race-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                         options={
                                                             raceOptions.length > 0
                                                                 ? raceOptions
@@ -657,8 +735,8 @@ export default function CreateSlide() {
                                                         }
                                                         selected={formData.race}
                                                         onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
-                                                        placeholder="Select race/ethnicity..."
-                                                        disabled={isLoadingFilters}
+                                                        placeholder={isLoadingChoices ? 'Loading race/ethnicity...' : 'Select race/ethnicity...'}
+                                                        disabled={isLoadingChoices}
                                                     />
                                                 </div>
                                             )}
