@@ -14,6 +14,7 @@ import { useAvailableAssessments } from '@/hooks/useAvailableAssessments'
 import { useDatasets } from '@/hooks/useDatasets'
 import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { useFormOptions } from '@/hooks/useFormOptions'
+import { useRaceOptions } from '@/hooks/useRaceOptions'
 import { useStudentGroups } from '@/hooks/useStudentGroups'
 import { getClusteredSchoolOptions, getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
 import { getQuarterBackendValue, getQuarterDisplayLabel } from '@/utils/quarterLabels'
@@ -93,9 +94,16 @@ export default function CreateSlide() {
         undefined,
         formData.customDataSources
     )
+    const { raceOptions: dynamicRaceOptions, isLoadingRace } = useRaceOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
+    )
 
     // Combined loading state to prevent stale UI
-    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions
+    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace
 
     // Helper functions
     const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
@@ -716,8 +724,8 @@ export default function CreateSlide() {
                                                     <MultiSelect
                                                         key={`race-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                         options={
-                                                            raceOptions.length > 0
-                                                                ? raceOptions
+                                                            dynamicRaceOptions.length > 0
+                                                                ? dynamicRaceOptions
                                                                 : [
                                                                       'Hispanic or Latino',
                                                                       'White',
