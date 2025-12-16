@@ -12,6 +12,8 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
     const [isLoadingClustering, setIsLoadingClustering] = useState(false)
 
     useEffect(() => {
+        const abortController = new AbortController()
+
         const fetchDistrictsAndSchools = async () => {
             if (!partnerName || !projectId || partnerName.trim() === '') {
                 setAvailableDistricts([])
@@ -57,7 +59,10 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
                     }
                 }
 
-                const res = await fetch(`/api/bigquery/districts-schools?${params.toString()}`)
+                const res = await fetch(
+                    `/api/bigquery/districts-schools?${params.toString()}`,
+                    { signal: abortController.signal }
+                )
                 const data = await res.json()
 
                 if (res.ok && data.success) {
@@ -75,6 +80,11 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
                     setClusteredSchools([])
                 }
             } catch (error) {
+                // Ignore abort errors - these are intentional cancellations
+                if (error instanceof Error && error.name === 'AbortError') {
+                    console.log('[useDistrictsAndSchools] Request aborted (expected behavior)')
+                    return
+                }
                 console.error('Error fetching districts and schools:', error)
                 setAvailableDistricts([])
                 setAvailableSchools([])
@@ -87,10 +97,17 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
         }
 
         fetchDistrictsAndSchools()
+
+        // Cleanup: abort the request if dependencies change or component unmounts
+        return () => {
+            abortController.abort()
+        }
     }, [partnerName, projectId, location, assessments?.join(','), Object.values(selectedTables || {}).sort().join(',')])
 
     // Separate effect: Trigger clustering when district is selected
     useEffect(() => {
+        const abortController = new AbortController()
+
         console.log('[Clustering Effect] Triggered:', { 
             districtName, 
             hasDistrictSchoolMap: Object.keys(districtSchoolMap).length > 0,
@@ -107,7 +124,8 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
                     body: JSON.stringify({
                         schools: schools,
                         district_name: districtName
-                    })
+                    }),
+                    signal: abortController.signal
                 })
                 
                 const data = await res.json()
@@ -127,6 +145,11 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
                     setClusteredSchools(schools.sort())
                 }
             } catch (error) {
+                // Ignore abort errors - these are intentional cancellations
+                if (error instanceof Error && error.name === 'AbortError') {
+                    console.log('[Clustering] Request aborted (expected behavior)')
+                    return
+                }
                 console.error('[Clustering] Error:', error)
                 // Fallback: use identity mapping
                 const identityClusters = Object.fromEntries(schools.map(s => [s, [s]]))
@@ -153,6 +176,11 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
             // Clear clustering when no district selected
             setSchoolClusters({})
             setClusteredSchools([])
+        }
+
+        // Cleanup: abort the request if dependencies change or component unmounts
+        return () => {
+            abortController.abort()
         }
     }, [districtName, districtSchoolMap])
 

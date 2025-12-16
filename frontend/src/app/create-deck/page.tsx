@@ -67,7 +67,7 @@ export default function CreateSlide() {
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
-    const { grades: GRADES, years: YEARS } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
+    const { grades: GRADES, years: YEARS, isLoading: isLoadingFormOptions } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
     const { availableDistricts, availableSchools, clusteredSchools, schoolClusters, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
@@ -95,7 +95,7 @@ export default function CreateSlide() {
     )
 
     // Combined loading state to prevent stale UI
-    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets
+    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions
 
     // Helper functions
     const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
