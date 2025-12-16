@@ -119,20 +119,12 @@ export async function GET(req: NextRequest) {
 
                 // Try different column name patterns (case-insensitive)
                 // Check for: EthnicityRace, Ethnicity_Race, ethnicityrace, Race, race, Ethnicity, ethnicity
-                const ethnicityColumnPatterns = [
-                    'ethnicityrace',
-                    'ethnicity_race',
-                    'race',
-                    'ethnicity'
-                ]
+                const ethnicityColumnPatterns = ['ethnicityrace', 'ethnicity_race', 'race', 'ethnicity']
 
                 let ethnicityColumn: string | null = null
 
                 for (const pattern of ethnicityColumnPatterns) {
-                    const matchingField = fields.find(
-                        (field: { name?: string }) => 
-                            field.name?.toLowerCase().replace(/_/g, '') === pattern.replace(/_/g, '')
-                    )
+                    const matchingField = fields.find((field: { name?: string }) => field.name?.toLowerCase().replace(/_/g, '') === pattern.replace(/_/g, ''))
                     if (matchingField && matchingField.name) {
                         ethnicityColumn = matchingField.name
                         break
@@ -222,4 +214,3 @@ export async function GET(req: NextRequest) {
         })
     }
 }
-

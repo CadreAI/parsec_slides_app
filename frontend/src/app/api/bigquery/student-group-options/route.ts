@@ -74,8 +74,8 @@ export async function GET(req: NextRequest) {
             'Title II Eligible Immigrants': 'titleiieligibleimmigrants',
             'Title I Part C Migrant': 'titleipartcmigrant',
             'ELAS Designation': 'elasdesignation',
-            'Foster': 'foster',
-            'Homeless': 'homeless'
+            Foster: 'foster',
+            Homeless: 'homeless'
         }
 
         // Normalization function: lowercase and strip underscores/spaces
@@ -136,9 +136,7 @@ export async function GET(req: NextRequest) {
                 const fields = metadata.schema?.fields || []
 
                 // Normalize all column names in the table
-                const normalizedTableColumns = fields.map((field: { name?: string }) => 
-                    field.name ? normalizeColumnName(field.name) : ''
-                ).filter(Boolean)
+                const normalizedTableColumns = fields.map((field: { name?: string }) => (field.name ? normalizeColumnName(field.name) : '')).filter(Boolean)
 
                 console.log(`[Student Group Options] ${assessmentId} normalized columns:`, normalizedTableColumns.slice(0, 10))
 
@@ -171,15 +169,7 @@ export async function GET(req: NextRequest) {
         // Fallback to defaults
         return NextResponse.json({
             success: true,
-            student_group_options: [
-                'All Students',
-                'English Learners',
-                'Students with Disabilities',
-                'Socioeconomically Disadvantaged',
-                'Foster',
-                'Homeless'
-            ]
+            student_group_options: ['All Students', 'English Learners', 'Students with Disabilities', 'Socioeconomically Disadvantaged', 'Foster', 'Homeless']
         })
     }
 }
-

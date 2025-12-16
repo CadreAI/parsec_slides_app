@@ -38,10 +38,7 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
                         }
                     }
 
-                    const res = await fetch(
-                        `/api/bigquery/form-options?${params.toString()}`,
-                        { signal: abortController.signal }
-                    )
+                    const res = await fetch(`/api/bigquery/form-options?${params.toString()}`, { signal: abortController.signal })
                     if (res.ok) {
                         const data = await res.json()
                         if (data.success) {

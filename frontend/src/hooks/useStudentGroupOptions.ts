@@ -82,8 +82,15 @@ export function useStudentGroupOptions(
         return () => {
             abortController.abort()
         }
-    }, [projectId, datasetId, location, assessments?.join(','), Object.values(selectedTables || {}).sort().join(',')])
+    }, [
+        projectId,
+        datasetId,
+        location,
+        assessments?.join(','),
+        Object.values(selectedTables || {})
+            .sort()
+            .join(',')
+    ])
 
     return { studentGroupOptions, isLoadingStudentGroups }
 }
-

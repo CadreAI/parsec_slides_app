@@ -12,13 +12,7 @@ const DEFAULT_RACE_OPTIONS = [
     'Not Stated'
 ]
 
-export function useRaceOptions(
-    projectId?: string,
-    datasetId?: string,
-    location?: string,
-    assessments?: string[],
-    selectedTables?: Record<string, string>
-) {
+export function useRaceOptions(projectId?: string, datasetId?: string, location?: string, assessments?: string[], selectedTables?: Record<string, string>) {
     const [raceOptions, setRaceOptions] = useState<string[]>([])
     const [isLoadingRace, setIsLoadingRace] = useState(true)
 
@@ -85,8 +79,15 @@ export function useRaceOptions(
         return () => {
             abortController.abort()
         }
-    }, [projectId, datasetId, location, assessments?.join(','), Object.values(selectedTables || {}).sort().join(',')])
+    }, [
+        projectId,
+        datasetId,
+        location,
+        assessments?.join(','),
+        Object.values(selectedTables || {})
+            .sort()
+            .join(',')
+    ])
 
     return { raceOptions, isLoadingRace }
 }
-

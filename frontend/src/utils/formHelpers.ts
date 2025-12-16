@@ -45,14 +45,14 @@ export function getClusteredSchoolOptions(
         if (districtName && Object.keys(districtSchoolMap).length > 0) {
             const districtSchools = new Set(districtSchoolMap[districtName] || [])
             // Return clusters that contain at least one school from this district
-            return clusteredSchools.filter(clusterName => {
+            return clusteredSchools.filter((clusterName) => {
                 const schoolsInCluster = schoolClusters[clusterName] || []
-                return schoolsInCluster.some(school => districtSchools.has(school))
+                return schoolsInCluster.some((school) => districtSchools.has(school))
             })
         }
         return clusteredSchools
     }
-    
+
     // Fallback to regular school options if clustering not available
     return getSchoolOptions(districtName, districtSchoolMap, [], partnerName, partnerConfig)
 }

@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -71,13 +72,11 @@ export default function CreateSlide() {
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
-    const { grades: GRADES, years: YEARS, isLoading: isLoadingFormOptions  } = useFormOptions(
-        formData.projectId,
-        formData.partnerName,
-        formData.location,
-        formData.assessments,
-        formData.customDataSources
-    )
+    const {
+        grades: GRADES,
+        years: YEARS,
+        isLoading: isLoadingFormOptions
+    } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
     const { availableDistricts, availableSchools, clusteredSchools, schoolClusters, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
@@ -119,12 +118,26 @@ export default function CreateSlide() {
     )
 
     // Combined loading state to prevent stale UI
-    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace || isLoadingStudentGroups
+    const isLoadingChoices =
+        isLoadingDistrictsSchools ||
+        isLoadingFilters ||
+        isLoadingAssessmentTables ||
+        isLoadingDatasets ||
+        isLoadingFormOptions ||
+        isLoadingRace ||
+        isLoadingStudentGroups
 
     // Helper functions
     const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
     const schoolOptions = getSchoolOptions(formData.districtName, districtSchoolMap, availableSchools, formData.partnerName, PARTNER_CONFIG)
-    const clusteredSchoolOptions = getClusteredSchoolOptions(formData.districtName, districtSchoolMap, clusteredSchools, schoolClusters, formData.partnerName, PARTNER_CONFIG)
+    const clusteredSchoolOptions = getClusteredSchoolOptions(
+        formData.districtName,
+        districtSchoolMap,
+        clusteredSchools,
+        schoolClusters,
+        formData.partnerName,
+        PARTNER_CONFIG
+    )
 
     const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
         setFormData((prev) => {
@@ -152,6 +165,16 @@ export default function CreateSlide() {
 
     const handlePartnerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const partner = e.target.value
+        setFormData((prev) => ({
+            ...prev,
+            partnerName: partner,
+            districtName: '',
+            schools: [],
+            quarters: ''
+        }))
+    }
+
+    const handlePartnerComboboxChange = (partner: string) => {
         setFormData((prev) => ({
             ...prev,
             partnerName: partner,
@@ -252,9 +275,7 @@ export default function CreateSlide() {
             const districtList = formData.districtName ? [formData.districtName] : ['Parsec Academy']
 
             // Expand clustered school names to actual school names
-            const expandedSchools = formData.schools.flatMap(
-                schoolName => schoolClusters[schoolName] || [schoolName]
-            )
+            const expandedSchools = formData.schools.flatMap((schoolName) => schoolClusters[schoolName] || [schoolName])
 
             // Build config object
             const config = {
@@ -399,20 +420,14 @@ export default function CreateSlide() {
                                         <Label htmlFor="partnerName">
                                             Partner Name <span className="text-destructive">*</span>
                                         </Label>
-                                        <Select
-                                            id="partnerName"
+                                        <Combobox
+                                            options={partnerOptions}
                                             value={formData.partnerName}
-                                            onChange={handlePartnerChange}
-                                            required
+                                            onChange={handlePartnerComboboxChange}
+                                            placeholder={isLoadingDatasets ? 'Loading datasets...' : 'Select a dataset/partner...'}
+                                            searchPlaceholder="Search datasets..."
                                             disabled={isLoadingDatasets}
-                                        >
-                                            <option value="">{isLoadingDatasets ? 'Loading datasets...' : 'Select a dataset/partner...'}</option>
-                                            {partnerOptions.map((partner) => (
-                                                <option key={partner.value} value={partner.value}>
-                                                    {partner.label}
-                                                </option>
-                                            ))}
-                                        </Select>
+                                        />
                                         {isLoadingDatasets && <p className="text-muted-foreground text-xs">Fetching datasets from BigQuery...</p>}
                                     </div>
                                 </div>

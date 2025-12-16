@@ -12,7 +12,7 @@ export function useDistrictsAndSchools(
     const [availableSchools, setAvailableSchools] = useState<string[]>([])
     const [districtSchoolMap, setDistrictSchoolMap] = useState<Record<string, string[]>>({})
     const [isLoadingDistrictsSchools, setIsLoadingDistrictsSchools] = useState(false)
-    
+
     // Clustering state
     const [schoolClusters, setSchoolClusters] = useState<Record<string, string[]>>({})
     const [clusteredSchools, setClusteredSchools] = useState<string[]>([])
@@ -66,10 +66,7 @@ export function useDistrictsAndSchools(
                     }
                 }
 
-                const res = await fetch(
-                    `/api/bigquery/districts-schools?${params.toString()}`,
-                    { signal: abortController.signal }
-                )
+                const res = await fetch(`/api/bigquery/districts-schools?${params.toString()}`, { signal: abortController.signal })
                 const data = await res.json()
 
                 if (res.ok && data.success) {
@@ -123,8 +120,8 @@ export function useDistrictsAndSchools(
     useEffect(() => {
         const abortController = new AbortController()
 
-        console.log('[Clustering Effect] Triggered:', { 
-            districtName, 
+        console.log('[Clustering Effect] Triggered:', {
+            districtName,
             hasDistrictSchoolMap: Object.keys(districtSchoolMap).length > 0,
             districtSchoolMapKeys: Object.keys(districtSchoolMap)
         })
@@ -142,10 +139,10 @@ export function useDistrictsAndSchools(
                     }),
                     signal: abortController.signal
                 })
-                
+
                 const data = await res.json()
                 console.log('[Clustering] API Response:', data)
-                
+
                 if (res.ok && data.success) {
                     const clusters = data.clusters || {}
                     setSchoolClusters(clusters)
@@ -155,7 +152,7 @@ export function useDistrictsAndSchools(
                 } else {
                     console.warn('[Clustering] Failed, using identity mapping:', data.error || 'Unknown error')
                     // Fallback: use identity mapping (each school is its own cluster)
-                    const identityClusters = Object.fromEntries(schools.map(s => [s, [s]]))
+                    const identityClusters = Object.fromEntries(schools.map((s) => [s, [s]]))
                     setSchoolClusters(identityClusters)
                     setClusteredSchools(schools.sort())
                 }
@@ -167,7 +164,7 @@ export function useDistrictsAndSchools(
                 }
                 console.error('[Clustering] Error:', error)
                 // Fallback: use identity mapping
-                const identityClusters = Object.fromEntries(schools.map(s => [s, [s]]))
+                const identityClusters = Object.fromEntries(schools.map((s) => [s, [s]]))
                 setSchoolClusters(identityClusters)
                 setClusteredSchools(schools.sort())
             } finally {
