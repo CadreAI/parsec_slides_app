@@ -390,6 +390,8 @@ def run_section0_iready(
         if preview:
             plt.show()
         plt.close()
+        
+        return str(out_path)
 
     # =========================================================
     # DRIVER LOGIC
@@ -403,9 +405,9 @@ def run_section0_iready(
 
     if not data_dict:
         print(f"[WARN] No valid Section 0 data for {scope_label}")
-        return
+        return None
 
-    _plot_section0_iready(scope_label, folder, data_dict, preview=preview)
+    return _plot_section0_iready(scope_label, folder, data_dict, preview=preview)
 
 
 # ---------------------------------------------------------------------
@@ -681,6 +683,8 @@ def run_section0_1_iready_fall_winter(
         if preview:
             plt.show()
         plt.close(fig)
+        
+        return str(out_path)
 
     # --- Build and plot ---
     data_dict = {}
@@ -692,9 +696,9 @@ def run_section0_1_iready_fall_winter(
 
     if not data_dict:
         print(f"[WARN] No valid Section 0.1 data for {scope_label}")
-        return
+        return None
 
-    _plot_section0_1(scope_label, folder, data_dict, preview=preview)
+    return _plot_section0_1(scope_label, folder, data_dict, preview=preview)
 
 
 # ---------------------------------------------------------------------

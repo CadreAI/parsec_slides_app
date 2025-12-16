@@ -380,6 +380,8 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
     }
     track_chart(f"Section 0: Predicted vs Actual (Winter)", out_path, scope=scope_label, section=0, chart_data=chart_data)
     print(f"Saved Section 0 (Winter): {out_path}")
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 1 - Winter Performance Trends (Dual Subject Dashboard)

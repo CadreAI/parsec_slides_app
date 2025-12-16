@@ -398,6 +398,8 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 2 — Student Group Performance Trends
@@ -637,6 +639,8 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # Model Functions (Section 6)
@@ -1121,6 +1125,8 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 4 — Overall Growth Trends by Site (CGP + CGI)
@@ -1485,6 +1491,8 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
     if preview:
         plt.show()
     plt.close(fig)
+    
+    return str(out_path)
 
 def _plot_projection_2026(scope_label, folder, output_dir, results, preview=False):
     """Plot 2026 projected CAASPP"""
@@ -1546,6 +1554,8 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
     if preview:
         plt.show()
     plt.close(fig)
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # Main Execution

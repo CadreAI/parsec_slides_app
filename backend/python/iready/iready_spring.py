@@ -177,7 +177,9 @@ def main(iready_data=None):
                     continue
                 payload[subj] = (cross, metrics)
             if payload:
-                _plot_section0_iready(scope_label, folder, args.output_dir, payload, preview=hf.DEV_MODE)
+                path = _plot_section0_iready(scope_label, folder, args.output_dir, payload, preview=hf.DEV_MODE)
+                if path:
+                    chart_paths.append(path)
         except Exception as e:
             print(f"Error generating Section 0 chart for {scope_label}: {e}")
             continue

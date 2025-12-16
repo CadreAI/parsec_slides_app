@@ -389,6 +389,8 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
         }
         track_chart(f"Section 0: Predicted vs Actual", str(out_path), scope=scope_label, section=0, chart_data=chart_data)
         print(f"[Section 0] ✓ Chart tracked: {out_path}")
+        
+        return str(out_path)
     except Exception as e:
         error_msg = f"ERROR: Failed to save Section 0 chart for {scope_label}"
         print(f"{error_msg}: {e}")
