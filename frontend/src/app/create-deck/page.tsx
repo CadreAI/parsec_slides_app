@@ -15,6 +15,7 @@ import { useDatasets } from '@/hooks/useDatasets'
 import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { useFormOptions } from '@/hooks/useFormOptions'
 import { useRaceOptions } from '@/hooks/useRaceOptions'
+import { useStudentGroupOptions } from '@/hooks/useStudentGroupOptions'
 import { useStudentGroups } from '@/hooks/useStudentGroups'
 import { getClusteredSchoolOptions, getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
 import { getQuarterBackendValue, getQuarterDisplayLabel } from '@/utils/quarterLabels'
@@ -101,9 +102,16 @@ export default function CreateSlide() {
         formData.assessments,
         formData.customDataSources
     )
+    const { studentGroupOptions: dynamicStudentGroupOptions, isLoadingStudentGroups } = useStudentGroupOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
+    )
 
     // Combined loading state to prevent stale UI
-    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace
+    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace || isLoadingStudentGroups
 
     // Helper functions
     const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
@@ -694,23 +702,12 @@ export default function CreateSlide() {
                                     )}
                                     {(supportsStudentGroups || supportsRace) && (
                                         <div className="grid grid-cols-2 gap-4">
-                                            {supportsStudentGroups && (
+                                            {supportsStudentGroups && dynamicStudentGroupOptions.length > 1 && (
                                                 <div className="space-y-2">
                                                     <Label>Student Groups</Label>
                                                     <MultiSelect
                                                         key={`student-groups-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
-                                                        options={
-                                                            studentGroupOptions.length > 0
-                                                                ? studentGroupOptions.filter((group) => !raceOptions.includes(group))
-                                                                : [
-                                                                      'All Students',
-                                                                      'English Learners',
-                                                                      'Students with Disabilities',
-                                                                      'Socioeconomically Disadvantaged',
-                                                                      'Foster',
-                                                                      'Homeless'
-                                                                  ]
-                                                        }
+                                                        options={dynamicStudentGroupOptions}
                                                         selected={formData.studentGroups}
                                                         onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
                                                         placeholder={isLoadingChoices ? 'Loading student groups...' : 'Select student group(s)...'}
