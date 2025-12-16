@@ -28,7 +28,7 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
 
                     // Add specific table paths if provided
                     if (selectedTables && assessments && assessments.length > 0) {
-                        const relevantTables = assessments.map(a => selectedTables[a]).filter(Boolean)
+                        const relevantTables = assessments.map((a) => selectedTables[a]).filter(Boolean)
                         if (relevantTables.length > 0) {
                             params.append('tablePaths', relevantTables.join(','))
                         }
@@ -63,7 +63,15 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
         }
 
         fetchFormOptions()
-    }, [projectId, datasetId, location, assessments?.join(','), Object.values(selectedTables || {}).sort().join(',')])
+    }, [
+        projectId,
+        datasetId,
+        location,
+        assessments?.join(','),
+        Object.values(selectedTables || {})
+            .sort()
+            .join(',')
+    ])
 
     return { grades, years, isLoading }
 }

@@ -319,6 +319,63 @@ def get_user_tasks():
         }), 500
 
 
+@app.route('/tasks', methods=['DELETE'])
+def delete_task():
+    """
+    Delete a task from the database.
+
+    Query params:
+    - task_id: str (required) - Celery task ID to delete
+    - clerkUserId: str (required) - Clerk user ID (for authorization)
+
+    Returns:
+    - success: bool
+    - message: str
+    """
+    try:
+        authenticate_request()
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] DELETE /tasks authentication failed: {error_msg}")
+        return jsonify({'success': False, 'error': error_msg}), 401
+
+    try:
+        task_id = request.args.get('task_id')
+        clerk_user_id = request.args.get('clerkUserId')
+        
+        if not task_id:
+            return jsonify({'success': False, 'error': 'task_id is required'}), 400
+        
+        if not clerk_user_id:
+            return jsonify({'success': False, 'error': 'clerkUserId is required'}), 400
+
+        from python.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+
+        # Verify task belongs to user before deleting
+        verify_response = supabase.table('tasks').select('*').eq('celery_task_id', task_id).eq('clerk_user_id', clerk_user_id).execute()
+        
+        if not verify_response.data or len(verify_response.data) == 0:
+            return jsonify({'success': False, 'error': 'Task not found or unauthorized'}), 404
+
+        # Delete the task
+        delete_response = supabase.table('tasks').delete().eq('celery_task_id', task_id).eq('clerk_user_id', clerk_user_id).execute()
+
+        print(f"[Backend] Deleted task {task_id} for user {clerk_user_id}")
+
+        return jsonify({'success': True, 'message': 'Task deleted successfully'}), 200
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] Error deleting task: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)

@@ -1,12 +1,13 @@
 'use client'
 
 import { SignOutButton } from '@clerk/nextjs'
-import { Calendar, ExternalLink, FileText, Loader2, Plus } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Plus, X } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select } from '@/components/ui/select'
 
 interface Deck {
     id: string
@@ -40,6 +41,9 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [tasks, setTasks] = useState<Task[]>([])
+    const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
+    const [currentPage, setCurrentPage] = useState(1)
+    const [itemsPerPage] = useState(9) // 3x3 grid
     const pollingRefs = useRef<Map<string, NodeJS.Timeout>>(new Map())
 
     const fetchDecks = useCallback(async () => {
@@ -192,6 +196,60 @@ export default function Dashboard() {
         return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     }
 
+    const dismissTask = async (taskId: string) => {
+        try {
+            // Call backend to delete the task
+            const response = await fetch(`/api/tasks?task_id=${taskId}`, {
+                method: 'DELETE'
+            })
+
+            if (response.ok) {
+                console.log('[Dashboard] Successfully deleted task:', taskId)
+                // Remove from UI
+                setTasks((prevTasks) => prevTasks.filter((t) => t.celery_task_id !== taskId))
+
+                // Clear any polling for this task
+                const intervalToStop = pollingRefs.current.get(taskId)
+                if (intervalToStop) {
+                    clearInterval(intervalToStop)
+                    pollingRefs.current.delete(taskId)
+                }
+            } else {
+                const data = await response.json()
+                console.error('[Dashboard] Failed to delete task:', data.error)
+                // Still remove from UI even if backend delete fails
+                setTasks((prevTasks) => prevTasks.filter((t) => t.celery_task_id !== taskId))
+            }
+        } catch (error) {
+            console.error('[Dashboard] Error deleting task:', error)
+            // Still remove from UI even if request fails
+            setTasks((prevTasks) => prevTasks.filter((t) => t.celery_task_id !== taskId))
+        }
+    }
+
+    // Sort and paginate decks
+    const sortedDecks = useMemo(() => {
+        const sorted = [...decks].sort((a, b) => {
+            const dateA = new Date(a.created_at).getTime()
+            const dateB = new Date(b.created_at).getTime()
+            return sortOrder === 'newest' ? dateB - dateA : dateA - dateB
+        })
+        return sorted
+    }, [decks, sortOrder])
+
+    const totalPages = Math.ceil(sortedDecks.length / itemsPerPage)
+
+    const paginatedDecks = useMemo(() => {
+        const startIndex = (currentPage - 1) * itemsPerPage
+        const endIndex = startIndex + itemsPerPage
+        return sortedDecks.slice(startIndex, endIndex)
+    }, [sortedDecks, currentPage, itemsPerPage])
+
+    // Reset to page 1 when sort order changes
+    useEffect(() => {
+        setCurrentPage(1)
+    }, [sortOrder])
+
     return (
         <div className="min-h-screen p-8">
             <div className="mx-auto max-w-7xl">
@@ -214,69 +272,20 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Task Status Cards */}
-                {tasks.length > 0 && (
-                    <div className="mb-6 space-y-4">
-                        {tasks.map((task) => (
-                            <Card key={task.celery_task_id}>
-                                <CardHeader>
-                                    <CardTitle>{task.task_type === 'create_deck_with_slides' ? 'Deck Generation Progress' : 'Active Task'}</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="space-y-3">
-                                        <div>
-                                            <p className="font-semibold">{task.task_type === 'create_deck_with_slides' ? 'Creating Slide Deck' : 'Task'}</p>
-                                            <p className="text-muted-foreground break-all text-sm">ID: {task.celery_task_id}</p>
-                                        </div>
-                                        <div className="text-sm">
-                                            Status:{' '}
-                                            <span
-                                                className={`font-semibold ${
-                                                    task.status === 'SUCCESS'
-                                                        ? 'text-green-600'
-                                                        : task.status === 'FAILURE'
-                                                          ? 'text-red-600'
-                                                          : task.status === 'STARTED' || task.status === 'PENDING'
-                                                            ? 'text-blue-600'
-                                                            : 'text-yellow-600'
-                                                }`}
-                                            >
-                                                {(task.status === 'STARTED' || task.status === 'PENDING') &&
-                                                    (task.task_type === 'create_deck_with_slides' ? 'Ingesting data and generating charts...' : 'Running...')}
-                                                {task.status === 'SUCCESS' && 'Complete!'}
-                                                {task.status === 'FAILURE' && 'Failed'}
-                                                {!task.status && 'Pending...'}
-                                            </span>
-                                        </div>
-                                        {task.status === 'SUCCESS' &&
-                                        task.task_type === 'create_deck_with_slides' &&
-                                        task.result &&
-                                        typeof task.result === 'object' &&
-                                        'presentationUrl' in task.result ? (
-                                            <div className="mt-4">
-                                                <Button
-                                                    onClick={() => window.open((task.result as { presentationUrl: string }).presentationUrl, '_blank')}
-                                                    className="w-full"
-                                                >
-                                                    <ExternalLink className="mr-2 h-4 w-4" />
-                                                    View Slides
-                                                </Button>
-                                            </div>
-                                        ) : null}
-                                        {task.result !== null && task.task_type !== 'create_deck_with_slides' && (
-                                            <div className="mt-2 text-sm text-green-700 dark:text-green-400">Result: {JSON.stringify(task.result)}</div>
-                                        )}
-                                        {task.error_message && <div className="mt-2 text-sm text-red-600 dark:text-red-400">Error: {task.error_message}</div>}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                )}
-
                 {/* Decks Preview */}
                 <div>
-                    <h2 className="mb-6 text-2xl font-semibold">Your Decks</h2>
+                    <div className="mb-6 flex items-center justify-between">
+                        <h2 className="text-2xl font-semibold">Your Decks</h2>
+                        {decks.length > 0 && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-muted-foreground text-sm">Sort by:</span>
+                                <Select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'newest' | 'oldest')} className="w-40">
+                                    <option value="newest">Newest First</option>
+                                    <option value="oldest">Oldest First</option>
+                                </Select>
+                            </div>
+                        )}
+                    </div>
 
                     {loading && (
                         <div className="flex items-center justify-center py-12">
@@ -287,7 +296,7 @@ export default function Dashboard() {
 
                     {error && <div className="border-destructive bg-destructive/10 text-destructive rounded-lg border p-4">{error}</div>}
 
-                    {!loading && !error && decks.length === 0 && (
+                    {!loading && !error && decks.length === 0 && tasks.length === 0 && (
                         <div className="rounded-lg border border-dashed p-12 text-center">
                             <FileText className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
                             <h3 className="mb-2 text-lg font-semibold">No decks yet</h3>
@@ -301,62 +310,212 @@ export default function Dashboard() {
                         </div>
                     )}
 
-                    {!loading && !error && decks.length > 0 && (
-                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-                            {decks.map((deck) => (
-                                <Card
-                                    key={deck.id}
-                                    className="cursor-pointer transition-shadow hover:shadow-lg"
-                                    onClick={() => {
-                                        if (deck.presentation_url) {
-                                            window.open(deck.presentation_url, '_blank')
-                                        }
-                                    }}
-                                >
-                                    <CardHeader>
-                                        <div className="flex items-start justify-between">
-                                            <div className="flex-1">
-                                                <CardTitle>{deck.title}</CardTitle>
-                                                {deck.description && <CardDescription className="mt-2">{deck.description}</CardDescription>}
-                                            </div>
-                                        </div>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="space-y-4">
-                                            <div className="text-muted-foreground flex items-center gap-4 text-sm">
-                                                {deck.slide_count !== undefined && (
-                                                    <div className="flex items-center gap-1">
-                                                        <FileText className="h-4 w-4" />
-                                                        <span>
-                                                            {deck.slide_count} slide{deck.slide_count !== 1 ? 's' : ''}
+                    {!loading && !error && (decks.length > 0 || tasks.length > 0) && (
+                        <>
+                            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                {/* In-progress/Failed tasks as compact cards - always show on current page */}
+                                {currentPage === 1 &&
+                                    tasks.map((task) => (
+                                        <Card
+                                            key={task.celery_task_id}
+                                            className={`relative ${
+                                                task.status === 'FAILURE'
+                                                    ? 'border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20'
+                                                    : 'border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20'
+                                            }`}
+                                        >
+                                            {task.status === 'FAILURE' && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="absolute right-2 top-2 h-6 w-6 p-0 text-red-600 hover:bg-red-100 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/30"
+                                                    onClick={() => dismissTask(task.celery_task_id)}
+                                                >
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            )}
+                                            <CardHeader>
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex-1">
+                                                        <CardTitle className="flex items-center gap-2 text-base">
+                                                            {task.status === 'PENDING' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+                                                            {task.status === 'STARTED' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+                                                            {task.status === 'FAILURE' && <span className="text-red-600">⚠</span>}
+                                                            {task.task_type === 'create_deck_with_slides' ? 'Creating Deck' : 'Processing Task'}
+                                                        </CardTitle>
+                                                    </div>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-3">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-sm font-medium">Status:</span>
+                                                        <span
+                                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                                                task.status === 'PENDING'
+                                                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                                                    : task.status === 'STARTED'
+                                                                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                                                                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                                            }`}
+                                                        >
+                                                            {task.status === 'PENDING' && 'Waiting'}
+                                                            {task.status === 'STARTED' && 'Generating...'}
+                                                            {task.status === 'FAILURE' && 'Failed'}
                                                         </span>
                                                     </div>
-                                                )}
-                                                <div className="flex items-center gap-1">
-                                                    <Calendar className="h-4 w-4" />
-                                                    <span>{formatDate(deck.created_at)}</span>
+                                                    {task.status === 'FAILURE' && (
+                                                        <p className="text-xs text-red-600 dark:text-red-400">Generation failed. Please try again.</p>
+                                                    )}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+
+                                {/* Completed decks - paginated */}
+                                {paginatedDecks.map((deck) => (
+                                    <Card
+                                        key={deck.id}
+                                        className="cursor-pointer transition-shadow hover:shadow-lg"
+                                        onClick={() => {
+                                            if (deck.presentation_url) {
+                                                window.open(deck.presentation_url, '_blank')
+                                            }
+                                        }}
+                                    >
+                                        <CardHeader>
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex-1">
+                                                    <CardTitle>{deck.title}</CardTitle>
+                                                    {deck.description && <CardDescription className="mt-2">{deck.description}</CardDescription>}
                                                 </div>
                                             </div>
-                                            <div className="flex items-center justify-end">
-                                                {deck.presentation_url && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            window.open(deck.presentation_url, '_blank')
-                                                        }}
-                                                    >
-                                                        <ExternalLink className="mr-2 h-4 w-4" />
-                                                        Open Slides
-                                                    </Button>
-                                                )}
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-4">
+                                                <div className="text-muted-foreground flex items-center gap-4 text-sm">
+                                                    {deck.slide_count !== undefined && (
+                                                        <div className="flex items-center gap-1">
+                                                            <FileText className="h-4 w-4" />
+                                                            <span>
+                                                                {deck.slide_count} slide{deck.slide_count !== 1 ? 's' : ''}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center gap-1">
+                                                        <Calendar className="h-4 w-4" />
+                                                        <span>{formatDate(deck.created_at)}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center justify-end">
+                                                    {deck.presentation_url && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                window.open(deck.presentation_url, '_blank')
+                                                            }}
+                                                        >
+                                                            <ExternalLink className="mr-2 h-4 w-4" />
+                                                            Open Slides
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex flex-col items-center gap-4">
+                                    <div className="text-muted-foreground text-sm">
+                                        Page {currentPage} of {totalPages} • {sortedDecks.length} deck{sortedDecks.length !== 1 ? 's' : ''}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                                            disabled={currentPage === 1}
+                                        >
+                                            <ChevronLeft className="h-4 w-4" />
+                                            Previous
+                                        </Button>
+
+                                        <div className="flex items-center gap-1">
+                                            {/* Show first page */}
+                                            {totalPages <= 7 ? (
+                                                // Show all pages if 7 or fewer
+                                                Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                                                    <Button
+                                                        key={page}
+                                                        variant={currentPage === page ? 'default' : 'outline'}
+                                                        size="sm"
+                                                        onClick={() => setCurrentPage(page)}
+                                                        className="h-8 w-8 p-0"
+                                                    >
+                                                        {page}
+                                                    </Button>
+                                                ))
+                                            ) : (
+                                                // Show ellipsis for many pages
+                                                <>
+                                                    <Button
+                                                        variant={currentPage === 1 ? 'default' : 'outline'}
+                                                        size="sm"
+                                                        onClick={() => setCurrentPage(1)}
+                                                        className="h-8 w-8 p-0"
+                                                    >
+                                                        1
+                                                    </Button>
+
+                                                    {currentPage > 3 && <span className="px-1">...</span>}
+
+                                                    {/* Show pages around current page */}
+                                                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                                        .filter((page) => page > 1 && page < totalPages && Math.abs(page - currentPage) <= 1)
+                                                        .map((page) => (
+                                                            <Button
+                                                                key={page}
+                                                                variant={currentPage === page ? 'default' : 'outline'}
+                                                                size="sm"
+                                                                onClick={() => setCurrentPage(page)}
+                                                                className="h-8 w-8 p-0"
+                                                            >
+                                                                {page}
+                                                            </Button>
+                                                        ))}
+
+                                                    {currentPage < totalPages - 2 && <span className="px-1">...</span>}
+
+                                                    <Button
+                                                        variant={currentPage === totalPages ? 'default' : 'outline'}
+                                                        size="sm"
+                                                        onClick={() => setCurrentPage(totalPages)}
+                                                        className="h-8 w-8 p-0"
+                                                    >
+                                                        {totalPages}
+                                                    </Button>
+                                                </>
+                                            )}
                                         </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
+
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                                            disabled={currentPage === totalPages}
+                                        >
+                                            Next
+                                            <ChevronRight className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

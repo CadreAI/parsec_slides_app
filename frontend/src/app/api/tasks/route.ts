@@ -61,3 +61,54 @@ export async function GET(request: Request) {
         return NextResponse.json({ success: false, error: message }, { status: 500 })
     }
 }
+
+export async function DELETE(request: Request) {
+    try {
+        const { userId, getToken } = await auth()
+
+        if (!userId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+        }
+
+        // Get token for backend API authentication
+        let token: string | null = null
+        try {
+            token = await getToken({ template: 'backend' })
+        } catch (error) {
+            console.log('[API Route DELETE /tasks] Backend template not found, using default token')
+        }
+        if (!token) {
+            token = await getToken()
+        }
+
+        // Get task_id from query params
+        const { searchParams } = new URL(request.url)
+        const taskId = searchParams.get('task_id')
+
+        if (!taskId) {
+            return NextResponse.json({ success: false, error: 'task_id is required' }, { status: 400 })
+        }
+
+        console.log('[API Route DELETE /tasks] Deleting task:', taskId, 'for user:', userId)
+
+        // Delete task from backend
+        const headers: Record<string, string> = {}
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`
+        }
+
+        const res = await fetch(`${BACKEND_BASE}/tasks?task_id=${taskId}&clerkUserId=${userId}`, {
+            method: 'DELETE',
+            headers
+        })
+
+        const data = await res.json().catch(() => ({ success: false }))
+        console.log('[API Route DELETE /tasks] Backend response:', res.status, data)
+
+        return NextResponse.json(data, { status: res.status })
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete task'
+        console.error('[API DELETE /tasks] Error:', err)
+        return NextResponse.json({ success: false, error: message }, { status: 500 })
+    }
+}

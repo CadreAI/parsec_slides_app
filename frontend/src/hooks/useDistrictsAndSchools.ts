@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 
-export function useDistrictsAndSchools(partnerName: string, projectId: string, location: string, assessments?: string[], selectedTables?: Record<string, string>) {
+export function useDistrictsAndSchools(
+    partnerName: string,
+    projectId: string,
+    location: string,
+    assessments?: string[],
+    selectedTables?: Record<string, string>
+) {
     const [availableDistricts, setAvailableDistricts] = useState<string[]>([])
     const [availableSchools, setAvailableSchools] = useState<string[]>([])
     const [districtSchoolMap, setDistrictSchoolMap] = useState<Record<string, string[]>>({})
@@ -40,9 +46,9 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
                 // Add specific table paths if provided
                 if (selectedTables && assessments) {
                     const relevantTables = assessments
-                        .map(a => selectedTables[a])
+                        .map((a) => selectedTables[a])
                         .filter(Boolean)
-                        .map(path => path.split('.').pop()) // Extract table name only
+                        .map((path) => path.split('.').pop()) // Extract table name only
                     if (relevantTables.length > 0) {
                         params.append('tablePaths', relevantTables.join(','))
                     }
@@ -73,7 +79,15 @@ export function useDistrictsAndSchools(partnerName: string, projectId: string, l
         }
 
         fetchDistrictsAndSchools()
-    }, [partnerName, projectId, location, assessments?.join(','), Object.values(selectedTables || {}).sort().join(',')])
+    }, [
+        partnerName,
+        projectId,
+        location,
+        assessments?.join(','),
+        Object.values(selectedTables || {})
+            .sort()
+            .join(',')
+    ])
 
     return {
         availableDistricts,
