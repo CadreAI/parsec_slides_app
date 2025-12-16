@@ -63,6 +63,9 @@ CLERK_AUTHORIZED_PARTIES = [
     p.strip() for p in os.environ.get('CLERK_AUTHORIZED_PARTIES', '').split(',') if p.strip()
 ]
 
+if not CLERK_SECRET_KEY:
+    print("[Backend] WARNING: CLERK_SECRET_KEY not set in environment variables")
+
 
 def authenticate_request():
     """
@@ -70,6 +73,22 @@ def authenticate_request():
     Expects Authorization: Bearer <token> header forwarded from frontend.
     """
     try:
+        # Check if Authorization header exists
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            print("[Backend] No Authorization header found")
+            raise ValueError('No Authorization header provided')
+        
+        if not auth_header.startswith('Bearer '):
+            print(f"[Backend] Invalid Authorization header format: {auth_header[:20]}...")
+            raise ValueError('Invalid Authorization header format')
+        
+        print(f"[Backend] Authorization header present: {auth_header[:20]}...")
+        
+        if not CLERK_SECRET_KEY:
+            print("[Backend] ERROR: CLERK_SECRET_KEY not configured")
+            raise ValueError('CLERK_SECRET_KEY not configured')
+        
         client = Clerk(bearer_auth=CLERK_SECRET_KEY)
         httpx_request = httpx.Request(
             method=request.method,
@@ -77,13 +96,17 @@ def authenticate_request():
             headers=dict(request.headers)
         )
         opts = AuthenticateRequestOptions(
-            authorized_parties=CLERK_AUTHORIZED_PARTIES
+            authorized_parties=CLERK_AUTHORIZED_PARTIES if CLERK_AUTHORIZED_PARTIES else None
         )
         state = client.authenticate_request(httpx_request, opts)
         if not state.is_signed_in:
+            print("[Backend] Authentication failed: user not signed in")
             raise ValueError('Unauthorized')
+        # RequestState doesn't have user_id attribute, but we can check session_id or other attributes
+        print("[Backend] Authentication successful")
         return state
     except Exception as e:
+        print(f"[Backend] Auth error: {e}")
         raise ValueError(f'Auth failed: {e}') from e
 
 @app.route('/health', methods=['GET'])
@@ -211,29 +234,31 @@ def queue_create_deck_with_slides_task():
             return jsonify({"success": False, "error": "clerkUserId is required"}), 400
 
         # Extract optional fields
-        drive_folder_url = data.get("driveFolderUrl")
-        enable_ai_insights = data.get("enableAIInsights", True)
-        user_prompt = data.get("userPrompt")
-        description = data.get("description")
+        drive_folder_url = data.get('driveFolderUrl')
+        enable_ai_insights = data.get('enableAIInsights', True)
+        user_prompt = data.get('userPrompt')
+        description = data.get('description')
+        theme_color_raw = data.get('themeColor')
+        theme_color = theme_color_raw if theme_color_raw and theme_color_raw.strip() else '#0094bd'  # Default to Parsec blue
+        print(f"[Backend] Received themeColor from request: '{theme_color_raw}', using: '{theme_color}'")
 
         print(
             f"[Backend] Queueing create_deck_with_slides task for partner: {partner_name}, title: {title}"
         )
 
         # Queue the Celery task
-        task = create_deck_with_slides_task.apply_async(
-            kwargs={
-                "partner_name": partner_name,
-                "config": config,
-                "chart_filters": chart_filters,
-                "title": title,
-                "clerk_user_id": clerk_user_id,
-                "drive_folder_url": drive_folder_url,
-                "enable_ai_insights": enable_ai_insights,
-                "user_prompt": user_prompt,
-                "description": description,
-            }
-        )
+        task = create_deck_with_slides_task.apply_async(kwargs={
+            'partner_name': partner_name,
+            'config': config,
+            'chart_filters': chart_filters,
+            'title': title,
+            'clerk_user_id': clerk_user_id,
+            'drive_folder_url': drive_folder_url,
+            'enable_ai_insights': enable_ai_insights,
+            'user_prompt': user_prompt,
+            'description': description,
+            'theme_color': theme_color
+        })
 
         # Store task in Supabase
         try:
@@ -318,7 +343,9 @@ def get_user_tasks():
     try:
         authenticate_request()
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 401
+        error_msg = str(e)
+        print(f"[Backend] /tasks authentication failed: {error_msg}")
+        return jsonify({'success': False, 'error': error_msg}), 401
 
     try:
         clerk_user_id = request.args.get('clerkUserId')
@@ -368,6 +395,64 @@ def get_user_tasks():
         return jsonify({"success": False, "error": error_msg}), 500
 
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+@app.route('/tasks', methods=['DELETE'])
+def delete_task():
+    """
+    Delete a task from the database.
+
+    Query params:
+    - task_id: str (required) - Celery task ID to delete
+    - clerkUserId: str (required) - Clerk user ID (for authorization)
+
+    Returns:
+    - success: bool
+    - message: str
+    """
+    try:
+        authenticate_request()
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] DELETE /tasks authentication failed: {error_msg}")
+        return jsonify({'success': False, 'error': error_msg}), 401
+
+    try:
+        task_id = request.args.get('task_id')
+        clerk_user_id = request.args.get('clerkUserId')
+        
+        if not task_id:
+            return jsonify({'success': False, 'error': 'task_id is required'}), 400
+        
+        if not clerk_user_id:
+            return jsonify({'success': False, 'error': 'clerkUserId is required'}), 400
+
+        from python.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+
+        # Verify task belongs to user before deleting
+        verify_response = supabase.table('tasks').select('*').eq('celery_task_id', task_id).eq('clerk_user_id', clerk_user_id).execute()
+        
+        if not verify_response.data or len(verify_response.data) == 0:
+            return jsonify({'success': False, 'error': 'Task not found or unauthorized'}), 404
+
+        # Delete the task
+        delete_response = supabase.table('tasks').delete().eq('celery_task_id', task_id).eq('clerk_user_id', clerk_user_id).execute()
+
+        print(f"[Backend] Deleted task {task_id} for user {clerk_user_id}")
+
+        return jsonify({'success': True, 'message': 'Task deleted successfully'}), 200
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] Error deleting task: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
+

@@ -11,7 +11,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
         }
 
-        const token = await getToken()
+        // Get token for backend API authentication
+        // Try with backend template first, fallback to default if template doesn't exist
+        let token: string | null = null
+        try {
+            token = await getToken({ template: 'backend' })
+        } catch (error) {
+            // Template doesn't exist, fallback to default token
+            console.log('[API Route /create-deck-with-slides] Backend template not found, using default token')
+        }
+        if (!token) {
+            token = await getToken()
+        }
 
         const body = await request.json().catch(() => ({}))
 
@@ -20,6 +31,9 @@ export async function POST(request: Request) {
         const config = body?.config
         const chartFilters = body?.chartFilters
         const title = body?.title
+
+        // Log themeColor for debugging
+        console.log('[API Route] Received themeColor from frontend:', body?.themeColor)
 
         // Validate required fields
         if (!partnerName) {
@@ -30,6 +44,20 @@ export async function POST(request: Request) {
         }
 
         // Forward to backend with all parameters
+        const requestPayload = {
+            partnerName,
+            config,
+            chartFilters,
+            title,
+            clerkUserId: userId,
+            driveFolderUrl: body?.driveFolderUrl,
+            enableAIInsights: body?.enableAIInsights ?? true,
+            userPrompt: body?.userPrompt,
+            description: body?.description,
+            themeColor: body?.themeColor // Forward themeColor to backend
+        }
+        console.log('[API Route] Forwarding themeColor to backend:', requestPayload.themeColor)
+
         const res = await fetch(`${BACKEND_BASE}/tasks/create-deck-with-slides`, {
             method: 'POST',
             headers: {
@@ -45,7 +73,8 @@ export async function POST(request: Request) {
                 driveFolderUrl: body?.driveFolderUrl,
                 enableAIInsights: body?.enableAIInsights ?? true,
                 userPrompt: body?.userPrompt,
-                description: body?.description
+                description: body?.description,
+                themeColor: body?.themeColor
             })
         })
 

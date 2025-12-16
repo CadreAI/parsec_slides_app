@@ -370,7 +370,7 @@ def plot_nwea_dual_subject_winter_spring_dashboard(
                     bottom_before = cumulative[idx]
                     label_color = "white" if cat in ("High", "HiAvg", "Low") else "#434343"
                     ax.text(rect.get_x() + rect.get_width() / 2, bottom_before + h / 2,
-                           f"{h:.1f}%", ha="center", va="center", fontsize=8,
+                           f"{h:.1f}%", ha="center", va="center", fontsize=11,
                            fontweight="bold", color=label_color)
             cumulative += band_vals
         ax.set_ylim(0, 100)
@@ -387,7 +387,7 @@ def plot_nwea_dual_subject_winter_spring_dashboard(
         bars = ax.bar(x, vals, color=hf.default_quintile_colors[4], edgecolor="white", linewidth=1.2)
         for rect, v in zip(bars, vals):
             ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height(), f"{v:.1f}",
-                   ha="center", va="bottom", fontsize=9, fontweight="bold", color="#434343")
+                   ha="center", va="bottom", fontsize=15, fontweight="bold", color="#434343")
         
         if "N_total" in pct_df.columns:
             n_map = pct_df.groupby("time_label")["N_total"].max().reset_index().rename(columns={"N_total": "n"})
@@ -420,7 +420,7 @@ def plot_nwea_dual_subject_winter_spring_dashboard(
         else:
             insight_lines = ["Not enough data for Winter→Spring insights"]
         
-        ax.text(0.5, 0.5, "\n".join(insight_lines), fontsize=10, fontweight="normal",
+        ax.text(0.5, 0.5, "\n".join(insight_lines), fontsize=13, fontweight="normal",
                color="#434343", ha="center", va="center", wrap=True, usetex=False,
                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
@@ -440,11 +440,11 @@ def plot_nwea_dual_subject_winter_spring_dashboard(
     for i, (pct_df, score_df, metrics, title) in enumerate(zip(pct_dfs, score_dfs, metrics_list, titles)):
         ax1 = fig.add_subplot(gs[0, i])
         draw_stacked_bar(ax1, pct_df)
-        ax1.set_title(title, fontsize=14, fontweight="bold", pad=30)
+        ax1.set_title(title, fontsize=18, fontweight="bold", pad=30)
         
         ax2 = fig.add_subplot(gs[1, i])
         draw_score_bar(ax2, pct_df, score_df)
-        ax2.set_title("Avg RIT (Winter vs Spring)", fontsize=8, fontweight="bold", pad=10)
+        ax2.set_title("Avg RIT (Winter vs Spring)", fontsize=11, fontweight="bold", pad=10)
         
         ax3 = fig.add_subplot(gs[2, i])
         draw_insight_card(ax3, metrics)
@@ -452,7 +452,7 @@ def plot_nwea_dual_subject_winter_spring_dashboard(
     legend_handles = [Patch(facecolor=hf.NWEA_COLORS[q], edgecolor="none", label=q) for q in hf.NWEA_ORDER]
     fig.legend(handles=legend_handles, labels=hf.NWEA_ORDER, loc="upper center",
               bbox_to_anchor=(0.5, 0.925), ncol=len(hf.NWEA_ORDER), frameon=False,
-              fontsize=9, handlelength=1.5, handletextpad=0.4, columnspacing=1.0)
+              fontsize=15, handlelength=1.5, handletextpad=0.4, columnspacing=1.0)
     
     if school_raw:
         school_display = hf._safe_normalize_school_name(school_raw, cfg)
@@ -460,7 +460,7 @@ def plot_nwea_dual_subject_winter_spring_dashboard(
         school_display = cfg.get("district_name", ["Districtwide"])[0]
     
     main_label = school_display
-    fig.suptitle(f"{main_label} • Winter to Spring Performance Snapshot", fontsize=20, fontweight="bold", y=1)
+    fig.suptitle(f"{main_label} • Winter to Spring Performance Snapshot", fontsize=24, fontweight="bold", y=1)
     
     charts_dir = Path(output_dir) / "charts"
     folder_name = "_district" if school_raw is None else school_display.replace(" ", "_")
@@ -623,11 +623,11 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None, cfg=None):
     bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
     for rect, yv in zip(bars, y_cgp):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
-               ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+               ha="center", va="center", fontsize=14, fontweight="bold", color="white")
     
     ax.set_ylabel("Median Fall→Winter CGP")
     ax.set_xticks(x_vals)
-    ax.set_xticklabels(sub["time_label"].astype(str).tolist())
+    ax.set_xticklabels(sub["time_label"].astype(str).tolist(), fontsize=9)
     ax.set_ylim(0, 100)
     ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
@@ -652,12 +652,12 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None, cfg=None):
     for xv, yv in zip(x_vals, y_cgi):
         if pd.notna(yv):
             ax.text(xv, yv + (0.12 if yv >= 0 else -0.12), f"{yv:.2f}", transform=blend,
-                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=8,
+                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=11,
                    fontweight="bold", color="#ffa800")
     
     ax2.set_ylabel("Avg Fall→Winter CGI")
     ax2.set_yticks([-2, -1, 0, 1, 2])
-    ax.set_title(f"{subject_str}", fontweight="bold", fontsize=14, pad=10)
+    ax.set_title(f"{subject_str}", fontweight="bold", fontsize=18, pad=10)
 
 
 def _save_cgp_chart(fig, scope_label, output_dir, cfg, section_num=4, suffix="cgp_winter_to_spring_dualpanel", chart_data=None):
@@ -690,7 +690,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
     fig = plt.figure(figsize=(16, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
-    fig.suptitle(f"{scope_label} • Fall→Winter Growth (All Students)", fontsize=20, fontweight="bold", y=0.99)
+    fig.suptitle(f"{scope_label} • Fall→Winter Growth (All Students)", fontsize=24, fontweight="bold", y=0.99)
     
     axes, n_labels_axes = [], []
     for i, subject_str in enumerate(["Reading", "Mathematics"]):
@@ -724,7 +724,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
         n_map_dict = dict(zip(n_map["time_label"], n_map["n"]))
         ticklabels = [str(lbl) for lbl in sub_df["time_label"]]
         labels_with_n = [f"{lbl}\n(n = {int(n_map_dict.get(lbl, 0))})" for lbl in ticklabels]
-        ax.set_xticklabels(labels_with_n)
+        ax.set_xticklabels(labels_with_n, fontsize=9)
         ax.tick_params(axis="x", pad=10)
         n_labels_axes.append(ax)
     
@@ -810,8 +810,10 @@ def _prep_cgp_by_grade(df, subject, grade):
 
 
 def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label, output_dir, cfg, preview=False):
-    fig, axs = plt.subplots(1, 2, figsize=(16, 8), sharey=True)
-    fig.subplots_adjust(wspace=0.28)
+    # Use gridspec to allow for comparison box at bottom
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[4, 1.1], width_ratios=[1, 1], hspace=0.4, wspace=0.28)
+    axs = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
     
     def draw_panel(df, ax, title):
         if df.empty:
@@ -821,28 +823,53 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
         y_cgp = df["median_cgp"].to_numpy(dtype=float)
         y_cgi = df["mean_cgi"].to_numpy(dtype=float)
         
+        # Calculate dynamic y-axis limits for CGP (with padding)
+        cgp_max = np.nanmax(y_cgp) if len(y_cgp) > 0 else 100
+        cgp_min = np.nanmin(y_cgp) if len(y_cgp) > 0 else 0
+        cgp_ylim_max = max(100, cgp_max * 1.1)  # At least 100, or 10% above max
+        cgp_ylim_min = max(0, cgp_min * 0.9) if cgp_min < 0 else 0  # Allow negative if needed, otherwise 0
+        
+        # Calculate dynamic y-axis limits for CGI (with padding)
+        cgi_max = np.nanmax(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else 2.5
+        cgi_min = np.nanmin(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else -2.5
+        cgi_padding = max(0.5, abs(cgi_max - cgi_min) * 0.2)  # 20% padding or at least 0.5
+        cgi_ylim_max = cgi_max + cgi_padding
+        cgi_ylim_min = cgi_min - cgi_padding
+        
+        # Extend background shading if needed (but keep original colors up to 100)
         for y_start, y_end, color in [(0, 20, "#808080"), (20, 40, "#c5c5c5"), (40, 60, "#78daf4"),
                                       (60, 80, "#00baeb"), (80, 100, "#0381a2")]:
             ax.axhspan(y_start, y_end, facecolor=color, alpha=0.5, zorder=0)
+        # Add extra shading if max exceeds 100
+        if cgp_ylim_max > 100:
+            ax.axhspan(100, cgp_ylim_max, facecolor="#0381a2", alpha=0.3, zorder=0)
+        
         for yref in [42, 50, 58]:
             ax.axhline(yref, linestyle="--", color="#6B7280", linewidth=1.2, zorder=0)
         
         bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
         for rect, yv in zip(bars, y_cgp):
             ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
-                   ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+                   ha="center", va="center", fontsize=14, fontweight="bold", color="white")
         
         labels_with_n = df["time_label"].astype(str).tolist()
-        ax.set_ylabel("Median Fall→Winter CGP")
+        ax.set_ylabel("Median Winter→Spring CGP")
         ax.set_xticks(x_vals)
-        ax.set_xticklabels(labels_with_n, ha="center", fontsize=8)
+        ax.set_xticklabels(labels_with_n, ha="center", fontsize=9)
         ax.tick_params(axis="x", pad=10)
-        ax.set_ylim(0, 100)
+        ax.set_ylim(cgp_ylim_min, cgp_ylim_max)
         
         ax2 = ax.twinx()
-        ax2.set_ylim(-2.5, 2.5)
-        ax2.set_ylabel("Avg Fall→Winter CGI")
-        ax2.set_yticks([-2, -1, 0, 1, 2])
+        ax2.set_ylim(cgi_ylim_min, cgi_ylim_max)
+        ax2.set_ylabel("Avg Winter→Spring CGI")
+        # Set ticks dynamically based on range
+        cgi_range = cgi_ylim_max - cgi_ylim_min
+        if cgi_range <= 5:
+            ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 1))
+        elif cgi_range <= 10:
+            ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 2))
+        else:
+            ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 5))
         ax2.set_zorder(ax.get_zorder() - 1)
         ax2.patch.set_alpha(0)
         
@@ -865,10 +892,10 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
             if pd.isna(yv):
                 continue
             ax.text(xv, yv + (0.12 if yv >= 0 else -0.12), f"{yv:.2f}", transform=blend,
-                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=8,
+                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=11,
                    fontweight="bold", color="#ffa800", zorder=3.1)
         
-        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.set_title(title, fontsize=18, fontweight="bold")
         ax.grid(axis="y", linestyle=":", alpha=0.6)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -885,8 +912,80 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
     fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
               bbox_to_anchor=(0.5, 0.96), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
     
-    fig.suptitle(f"{scope_label} • {subject_str} • Grade {grade} • Fall→Winter Growth",
-                fontsize=20, fontweight="bold", y=1)
+    fig.suptitle(f"{scope_label} • {subject_str} • Grade {grade} • Winter→Spring Growth",
+                fontsize=24, fontweight="bold", y=0.98)
+    
+    # Add comparison box at the bottom comparing most recent year to previous year
+    comparison_data = {}
+    
+    # Calculate comparison for Overall Growth Trends
+    if not overall_df.empty and len(overall_df) >= 2:
+        overall_sorted = overall_df.sort_values("time_label").copy()
+        recent_overall = overall_sorted.iloc[-1]
+        prev_overall = overall_sorted.iloc[-2]
+        
+        comparison_data["Overall"] = {
+            "recent_year": recent_overall["time_label"],
+            "prev_year": prev_overall["time_label"],
+            "cgp_recent": recent_overall["median_cgp"],
+            "cgp_prev": prev_overall["median_cgp"],
+            "cgp_change": recent_overall["median_cgp"] - prev_overall["median_cgp"],
+            "cgi_recent": recent_overall.get("mean_cgi", np.nan),
+            "cgi_prev": prev_overall.get("mean_cgi", np.nan),
+        }
+        if pd.notna(comparison_data["Overall"]["cgi_recent"]) and pd.notna(comparison_data["Overall"]["cgi_prev"]):
+            comparison_data["Overall"]["cgi_change"] = comparison_data["Overall"]["cgi_recent"] - comparison_data["Overall"]["cgi_prev"]
+        else:
+            comparison_data["Overall"]["cgi_change"] = np.nan
+    
+    # Calculate comparison for Cohort Growth Trends
+    if not cohort_df.empty and len(cohort_df) >= 2:
+        cohort_sorted = cohort_df.sort_values("time_label").copy()
+        recent_cohort = cohort_sorted.iloc[-1]
+        prev_cohort = cohort_sorted.iloc[-2]
+        
+        comparison_data["Cohort"] = {
+            "recent_year": recent_cohort["time_label"],
+            "prev_year": prev_cohort["time_label"],
+            "cgp_recent": recent_cohort["median_cgp"],
+            "cgp_prev": prev_cohort["median_cgp"],
+            "cgp_change": recent_cohort["median_cgp"] - prev_cohort["median_cgp"],
+            "cgi_recent": recent_cohort.get("mean_cgi", np.nan),
+            "cgi_prev": prev_cohort.get("mean_cgi", np.nan),
+        }
+        if pd.notna(comparison_data["Cohort"]["cgi_recent"]) and pd.notna(comparison_data["Cohort"]["cgi_prev"]):
+            comparison_data["Cohort"]["cgi_change"] = comparison_data["Cohort"]["cgi_recent"] - comparison_data["Cohort"]["cgi_prev"]
+        else:
+            comparison_data["Cohort"]["cgi_change"] = np.nan
+    
+    # Display comparison box
+    if comparison_data:
+        ax_compare = fig.add_subplot(gs[1, :])
+        ax_compare.axis("off")
+        
+        comparison_lines = ["Year-to-Year Comparison:"]
+        comparison_lines.append("")
+        
+        for trend_type in ["Overall", "Cohort"]:
+            if trend_type in comparison_data:
+                comp = comparison_data[trend_type]
+                
+                # CGP comparison
+                cgp_change = comp["cgp_change"]
+                cgp_dir = "↑" if cgp_change > 0 else "↓" if cgp_change < 0 else "→"
+                comparison_lines.append(f"{trend_type} - Median CGP: {cgp_dir} {abs(cgp_change):.1f} pts")
+                
+                # CGI comparison (if available)
+                if pd.notna(comp.get("cgi_change")):
+                    cgi_change = comp["cgi_change"]
+                    cgi_dir = "↑" if cgi_change > 0 else "↓" if cgi_change < 0 else "→"
+                    comparison_lines.append(f"{trend_type} - Mean CGI: {cgi_dir} {abs(cgi_change):.2f} pts")
+        
+        # Display comparison text
+        comparison_text = "\n".join(comparison_lines)
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=11, fontweight="normal", color="#333333",
+                        ha="center", va="center", wrap=True, usetex=False,
+                        bbox=dict(boxstyle="round,pad=1.0", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     # Prepare chart data for saving
     chart_data = {
@@ -1060,26 +1159,26 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
         if len(pct_dfs[i]) > 0 and len(time_orders[i]) > 0:
             draw_stacked_bar(axes[i][0], pct_dfs[i], score_dfs[i], hf.NWEA_ORDER)
         else:
-            axes[i][0].text(0.5, 0.5, f"No {subj} data available", ha="center", va="center", fontsize=12)
+            axes[i][0].text(0.5, 0.5, f"No {subj} data available", ha="center", va="center", fontsize=15)
             axes[i][0].axis("off")
-        axes[i][0].set_title(subj, fontsize=14, fontweight="bold", y=1.1)
+        axes[i][0].set_title(subj, fontsize=18, fontweight="bold", y=1.1)
     
     fig.legend(handles=legend_handles, labels=hf.NWEA_ORDER, loc="upper center", bbox_to_anchor=(0.5, 0.92),
-              ncol=len(hf.NWEA_ORDER), frameon=False, fontsize=10)
+              ncol=len(hf.NWEA_ORDER), frameon=False, fontsize=13)
     
     # Panel 2: RIT scores (row 1)
     for i in range(2):
         if len(score_dfs[i]) > 0 and len(time_orders[i]) > 0:
             draw_score_bar(axes[i][1], score_dfs[i], hf.NWEA_ORDER)
         else:
-            axes[i][1].text(0.5, 0.5, "No score data available", ha="center", va="center", fontsize=12)
+            axes[i][1].text(0.5, 0.5, "No score data available", ha="center", va="center", fontsize=15)
             axes[i][1].axis("off")
     
     # Panel 3: Insights (row 2)
     for i in range(2):
         draw_insight_card(axes[i][2], metrics_list[i], subjects[i])
     
-    fig.suptitle(f"{scope_label} • {window_filter} Year-to-Year Trends", fontsize=20, fontweight="bold", y=1)
+    fig.suptitle(f"{scope_label} • {window_filter} Year-to-Year Trends", fontsize=24, fontweight="bold", y=1)
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1196,7 +1295,7 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     
     fig.legend(handles=handles, labels=first_metrics["act_order"], loc="upper center",
               bbox_to_anchor=(0.5, 0.93), ncol=len(first_metrics["act_order"]), frameon=False,
-              fontsize=9, handlelength=1.5, handletextpad=0.4, columnspacing=1.0)
+              fontsize=15, handlelength=1.5, handletextpad=0.4, columnspacing=1.0)
     
     for i, subject in enumerate(subjects):
         proj_pct = subj_payload[subject]["proj_pct"]
@@ -1215,7 +1314,7 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
             rect = bars.patches[0]
             if val >= LABEL_MIN_PCT:
                 bar_ax.text(rect.get_x() + rect.get_width() / 2.0, cumulative + val / 2.0, f"{val:.1f}%",
-                           ha="center", va="center", fontsize=8, fontweight="bold", color="#434343")
+                           ha="center", va="center", fontsize=18, fontweight="bold", color="#434343")
             cumulative += val
         
         cumulative = 0
@@ -1228,14 +1327,14 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
             if val >= LABEL_MIN_PCT:
                 txt_color = "#434343" if "Nearly" in level else "white"
                 bar_ax.text(rect.get_x() + rect.get_width() / 2.0, cumulative + val / 2.0, f"{val:.1f}%",
-                           ha="center", va="center", fontsize=8, fontweight="bold", color=txt_color)
+                           ha="center", va="center", fontsize=18, fontweight="bold", color=txt_color)
             cumulative += val
         
         bar_ax.set_xticks([-0.2, 0.2])
         bar_ax.set_xticklabels(["Predicted", "Actual"])
         bar_ax.set_ylim(0, 100)
         bar_ax.set_ylabel("% of Students")
-        bar_ax.set_title(titles[subject], fontsize=14, fontweight="bold", pad=30)
+        bar_ax.set_title(titles[subject], fontsize=18, fontweight="bold", pad=30)
         bar_ax.grid(axis="y", alpha=0.5)
         bar_ax.spines["top"].set_visible(False)
         bar_ax.spines["right"].set_visible(False)
@@ -1246,7 +1345,7 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
         pct_ax.bar("Actual Met/Exc", metrics["act_met"], color=hf.CERS_LEVEL_COLORS["Level 4 - Standard Exceeded"],
                    alpha=1.0, edgecolor=hf.CERS_LEVEL_COLORS["Level 4 - Standard Exceeded"], linewidth=1.2)
         for x, v in zip([0, 1], [metrics["proj_met"], metrics["act_met"]]):
-            pct_ax.text(x, v + 1, f"{v:.1f}%", ha="center", va="bottom", fontsize=9, fontweight="bold", color="#434343")
+            pct_ax.text(x, v + 1, f"{v:.1f}%", ha="center", va="bottom", fontsize=15, fontweight="bold", color="#434343")
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
         pct_ax.grid(axis="y", alpha=0.2)
@@ -1260,11 +1359,11 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
         delta = pred - act
         insight_text = (r"Predicted vs Actual Met/Exceed:" + "\n" +
                        rf"${pred:.1f}\% - {act:.1f}\% = \mathbf{{{pred - act:+.1f}}}$ pts")
-        ax3.text(0.5, 0.5, insight_text, fontsize=12, ha="center", va="center", color="#434343",
+        ax3.text(0.5, 0.5, insight_text, fontsize=15, ha="center", va="center", color="#434343",
                 bbox=dict(boxstyle="round,pad=0.6", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     fig.suptitle(f"{scope_label} • Spring {first_metrics['year']} Prediction Accuracy",
-                fontsize=20, fontweight="bold", y=1.02)
+                fontsize=24, fontweight="bold", y=1.02)
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1414,7 +1513,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
                     bottom_before = cumulative[idx]
                     label_color = "white" if cat in ["High", "HiAvg", "Low"] else "#434343"
                     ax1.text(rect.get_x() + rect.get_width() / 2, bottom_before + h / 2, f"{h:.2f}%",
-                            ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
+                            ha="center", va="center", fontsize=11, fontweight="bold", color=label_color)
             cumulative += band_vals
         
         ax1.set_ylim(0, 100)
@@ -1424,10 +1523,10 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         ax1.grid(axis="y", alpha=0.2)
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
-        ax1.set_title(f"{subject_titles[i]}", fontsize=14, fontweight="bold", y=1.1)
+        ax1.set_title(f"{subject_titles[i]}", fontsize=18, fontweight="bold", y=1.1)
     
     fig.legend(handles=legend_handles, labels=hf.NWEA_ORDER, loc="upper center", bbox_to_anchor=(0.5, 0.92),
-              ncol=len(hf.NWEA_ORDER), frameon=False, fontsize=10, handlelength=1.8, handletextpad=0.5, columnspacing=1.1)
+              ncol=len(hf.NWEA_ORDER), frameon=False, fontsize=13, handlelength=1.8, handletextpad=0.5, columnspacing=1.1)
     
     for i, subj in enumerate(subjects):
         score_df = score_dfs[i]
@@ -1438,7 +1537,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         rit_bars = ax2.bar(rit_x, rit_vals, color=hf.default_quintile_colors[4], edgecolor="white", linewidth=1.2)
         for rect, v in zip(rit_bars, rit_vals):
             ax2.text(rect.get_x() + rect.get_width() / 2, rect.get_height(), f"{v:.2f}",
-                    ha="center", va="bottom", fontsize=10, fontweight="bold", color="#434343")
+                    ha="center", va="bottom", fontsize=13, fontweight="bold", color="#434343")
         
         if "N_total" in pct_df.columns:
             n_map = pct_df.groupby("time_label", observed=False)["N_total"].max().reset_index().rename(columns={"N_total": "n"})
@@ -1455,7 +1554,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         ax2.set_ylabel("Avg RIT")
         ax2.set_xticks(rit_x)
         ax2.set_xticklabels(x_labels)
-        ax2.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
+        ax2.set_title("Average RIT", fontsize=18, fontweight="bold", pad=10)
         ax2.grid(axis="y", alpha=0.2)
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
@@ -1491,12 +1590,12 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         else:
             insight_lines = ["Not enough history for insights"]
         
-        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="medium", color="#333333",
+        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=10, fontweight="medium", color="#333333",
                 ha="center", va="center", wrap=True, usetex=False,
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     fig.suptitle(f"{title_label} • {group_name} • {window_filter} Year-to-Year Trends",
-                fontsize=20, fontweight="bold", y=1)
+                fontsize=24, fontweight="bold", y=1)
     
     charts_dir = Path(output_dir)
     folder_name = "_district" if school_raw is None else scope_label.replace(" ", "_")
@@ -1775,7 +1874,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                     bottom_before = cumulative[idx]
                     label_color = "white" if cat in ["High", "HiAvg", "Low"] else "#434343"
                     ax.text(rect.get_x() + rect.get_width() / 2, bottom_before + h / 2, f"{h:.2f}%",
-                           ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
+                           ha="center", va="center", fontsize=11, fontweight="bold", color=label_color)
             cumulative += band_vals
         ax.set_ylim(0, 100)
         ax.set_ylabel("% of Students")
@@ -1789,12 +1888,12 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                     .reindex(columns=hf.NWEA_ORDER).fillna(0))
     ax1 = fig.add_subplot(gs[0, 0])
     draw_stacked_bar(ax1, stack_df_left, pct_df_left, time_order_left, is_cohort=False)
-    ax1.set_title("Overall Trends", fontsize=14, fontweight="bold", pad=30)
+    ax1.set_title("Overall Trends", fontsize=18, fontweight="bold", pad=30)
     
     legend_handles = [Patch(facecolor=hf.NWEA_COLORS[q], edgecolor="none", label=q) for q in hf.NWEA_ORDER]
     fig.legend(handles=legend_handles, labels=hf.NWEA_ORDER, loc="upper center",
               bbox_to_anchor=(0.5, 0.95), ncol=len(hf.NWEA_ORDER), frameon=False,
-              fontsize=9, handlelength=1.5, handletextpad=0.4, columnspacing=1.0)
+              fontsize=15, handlelength=1.5, handletextpad=0.4, columnspacing=1.0)
     
     # Only create cohort trends subplot if cohort data exists
     if has_cohort_data:
@@ -1806,7 +1905,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                              .reindex(columns=hf.NWEA_ORDER).fillna(0))
             x_labels_cohort = stack_df_right.index.tolist()
             draw_stacked_bar(ax2, stack_df_right, cohort_df_for_pivot, x_labels_cohort, is_cohort=True)
-            ax2.set_title("Cohort Trends", fontsize=14, fontweight="bold", pad=30)
+            ax2.set_title("Cohort Trends", fontsize=18, fontweight="bold", pad=30)
     
     ax3 = fig.add_subplot(gs[1, 0])
     rit_x = np.arange(len(score_df_left["time_label"]))
@@ -1814,7 +1913,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     rit_bars = ax3.bar(rit_x, rit_vals, color=hf.default_quintile_colors[4], edgecolor="white", linewidth=1.2)
     for rect, v in zip(rit_bars, rit_vals):
         ax3.text(rect.get_x() + rect.get_width() / 2, rect.get_height(), f"{v:.2f}",
-                ha="center", va="bottom", fontsize=9, fontweight="bold", color="#434343")
+                ha="center", va="bottom", fontsize=15, fontweight="bold", color="#434343")
     
     if "N_total" in pct_df_left.columns:
         n_map_left = pct_df_left.groupby("time_label", observed=False)["N_total"].max().reset_index().rename(columns={"N_total": "n"})
@@ -1833,7 +1932,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     ax3.set_xticklabels(x_labels_left, ha="center")
     for label in ax3.get_xticklabels():
         label.set_y(-0.09)
-    ax3.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
+    ax3.set_title("Average RIT", fontsize=18, fontweight="bold", pad=10)
     ax3.grid(axis="y", alpha=0.2)
     ax3.spines["top"].set_visible(False)
     ax3.spines["right"].set_visible(False)
@@ -1847,7 +1946,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             rit_barsr = ax4.bar(rit_xr, rit_valsr, color=hf.default_quintile_colors[4], edgecolor="white", linewidth=1.2)
             for rect, v in zip(rit_barsr, rit_valsr):
                 ax4.text(rect.get_x() + rect.get_width() / 2, rect.get_height(), f"{v:.2f}",
-                        ha="center", va="bottom", fontsize=9, fontweight="bold", color="#434343")
+                        ha="center", va="bottom", fontsize=15, fontweight="bold", color="#434343")
             
             if not pct_df_right.empty:
                 cohort_df_for_pivot = pct_df_right.copy()
@@ -1871,7 +1970,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             ax4.set_xticklabels(x_labels_right, ha="center")
             for label in ax4.get_xticklabels():
                 label.set_y(-0.09)
-            ax4.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
+            ax4.set_title("Average RIT", fontsize=18, fontweight="bold", pad=10)
             ax4.grid(axis="y", alpha=0.2)
             ax4.spines["top"].set_visible(False)
             ax4.spines["right"].set_visible(False)
@@ -1902,7 +2001,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     else:
         insight_lines = ["Not enough history for insights"]
     
-    ax5.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
+    ax5.text(0.5, 0.5, "\n".join(insight_lines), fontsize=15, fontweight="normal", color="#434343",
             ha="center", va="center", wrap=True, usetex=False,
             bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
@@ -1934,12 +2033,12 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
         else:
             insight_lines = ["Insufficient cohort data"]
         
-        ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
+        ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=15, fontweight="normal", color="#434343",
                 ha="center", va="center", wrap=True, usetex=False,
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
     fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
-                fontsize=20, fontweight="bold", y=1)
+                fontsize=24, fontweight="bold", y=1)
     
     charts_dir = Path(output_dir)
     out_dir = charts_dir / folder_name
@@ -2069,11 +2168,11 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
     for rect, yv in zip(bars, y_cgp):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
-               ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+               ha="center", va="center", fontsize=14, fontweight="bold", color="white")
     
     ax.set_ylabel("Median Fall→Fall CGP")
     ax.set_xticks(x_vals)
-    ax.set_xticklabels(sub["time_label"].astype(str).tolist())
+    ax.set_xticklabels(sub["time_label"].astype(str).tolist(), fontsize=9)
     ax.set_ylim(0, 100)
     ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
@@ -2100,12 +2199,12 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     for xv, yv in zip(x_vals, y_cgi):
         if pd.notna(yv):
             ax.text(xv, yv + (0.12 if yv >= 0 else -0.12), f"{yv:.2f}", transform=blend,
-                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=8,
+                   ha="center", va="bottom" if yv >= 0 else "top", fontsize=11,
                    fontweight="bold", color="#ffa800")
     
     ax2.set_ylabel("Avg Fall→Fall CGI")
     ax2.set_yticks([-2, -1, 0, 1, 2])
-    ax.set_title(f"{subject_str}", fontweight="bold", fontsize=14, pad=10)
+    ax.set_title(f"{subject_str}", fontweight="bold", fontsize=18, pad=10)
 
 def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, subjects=None):
     """Run CGP dual trend chart generation"""
@@ -2118,17 +2217,46 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
         return
     
     fig = plt.figure(figsize=(16, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.75])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
-    fig.suptitle(f"{scope_label} • Fall→Fall Growth (All Students)", fontsize=20, fontweight="bold", y=0.99)
+    fig.suptitle(f"{scope_label} • Fall→Fall Growth (All Students)", fontsize=24, fontweight="bold", y=0.99)
     
     axes = []
+    comparison_data = {}  # Store comparison data for each subject
+    
     for i, subject_str in enumerate(subjects):
         ax = fig.add_subplot(gs[0, i])
         axes.append(ax)
         sub_df = cgp_trend[(cgp_trend["scope_label"] == scope_label) & (cgp_trend["subject"] == subject_str)]
         if not sub_df.empty:
             _plot_cgp_trend(sub_df, subject_str, scope_label, ax=ax)
+            
+            # Calculate comparison between most recent year and previous year
+            sub_df_sorted = sub_df.sort_values("time_label").copy()
+            if len(sub_df_sorted) >= 2:
+                recent = sub_df_sorted.iloc[-1]
+                previous = sub_df_sorted.iloc[-2]
+                
+                cgp_recent = recent["median_cgp"]
+                cgp_prev = previous["median_cgp"]
+                cgp_change = cgp_recent - cgp_prev
+                cgp_pct_change = (cgp_change / cgp_prev * 100) if cgp_prev != 0 else 0
+                
+                cgi_recent = recent.get("mean_cgi", np.nan)
+                cgi_prev = previous.get("mean_cgi", np.nan)
+                cgi_change = cgi_recent - cgi_prev if pd.notna(cgi_recent) and pd.notna(cgi_prev) else np.nan
+                
+                comparison_data[subject_str] = {
+                    "recent_year": recent["time_label"],
+                    "prev_year": previous["time_label"],
+                    "cgp_recent": cgp_recent,
+                    "cgp_prev": cgp_prev,
+                    "cgp_change": cgp_change,
+                    "cgp_pct_change": cgp_pct_change,
+                    "cgi_recent": cgi_recent,
+                    "cgi_prev": cgi_prev,
+                    "cgi_change": cgi_change,
+                }
         
         subj_norm = subject_str.strip().casefold()
         d = scope_df.copy()
@@ -2149,13 +2277,49 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
         n_map_dict = dict(zip(n_map["time_label"], n_map["n"]))
         ticklabels = [str(lbl) for lbl in sub_df["time_label"]]
         labels_with_n = [f"{lbl}\n(n = {int(n_map_dict.get(lbl, 0))})" for lbl in ticklabels]
-        ax.set_xticklabels(labels_with_n)
+        ax.set_xticklabels(labels_with_n, fontsize=9)
         ax.tick_params(axis="x", pad=10)
     
     legend_handles = [Patch(facecolor="#0381a2", edgecolor="white", label="Median CGP"),
                      Line2D([0], [0], color="#ffa800", marker="o", linewidth=2, markersize=6, label="Mean CGI")]
     fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
               bbox_to_anchor=(0.5, 0.94), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
+    
+    # Add comparison box at the bottom spanning both columns
+    if comparison_data:
+        ax_compare = fig.add_subplot(gs[2, :])
+        ax_compare.axis("off")
+        
+        comparison_lines = ["Year-to-Year Comparison (Most Recent vs Previous):"]
+        comparison_lines.append("")
+        
+        for subject_str in subjects:
+            if subject_str in comparison_data:
+                comp = comparison_data[subject_str]
+                comparison_lines.append(f"{subject_str}:")
+                
+                # CGP comparison
+                cgp_dir = "↑" if comp["cgp_change"] > 0 else "↓" if comp["cgp_change"] < 0 else "→"
+                comparison_lines.append(
+                    f"  Median CGP: {comp['prev_year']} = {comp['cgp_prev']:.1f} → {comp['recent_year']} = {comp['cgp_recent']:.1f} "
+                    f"({cgp_dir} {abs(comp['cgp_change']):.1f} pts, {abs(comp['cgp_pct_change']):.1f}%)"
+                )
+                
+                # CGI comparison (if available)
+                if pd.notna(comp["cgi_change"]):
+                    cgi_dir = "↑" if comp["cgi_change"] > 0 else "↓" if comp["cgi_change"] < 0 else "→"
+                    comparison_lines.append(
+                        f"  Mean CGI: {comp['prev_year']} = {comp['cgi_prev']:.2f} → {comp['recent_year']} = {comp['cgi_recent']:.2f} "
+                        f"({cgi_dir} {abs(comp['cgi_change']):.2f})"
+                    )
+                
+                comparison_lines.append("")
+        
+        # Display comparison text
+        comparison_text = "\n".join(comparison_lines)
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=10, fontweight="normal", color="#333333",
+                        ha="center", va="center", wrap=True, usetex=False,
+                        bbox=dict(boxstyle="round,pad=0.9", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     charts_dir = Path(output_dir)
     folder_name = "_district" if scope_label == cfg.get("district_name", ["District (All Students)"])[0] else scope_label.replace(" ", "_")
@@ -2211,7 +2375,7 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
                   edgecolor="black", linestyle="--", alpha=0.5)
             if val > 3:
                 ax.text(x_pred, bottom + val / 2, f"{val:.1f}%", ha="center", va="center",
-                       color="black", fontsize=8, fontweight="bold")
+                       color="black", fontsize=18, fontweight="bold")
             bottom += val
         
         bottom = 0
@@ -2220,7 +2384,7 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
                   edgecolor="white")
             if val > 3:
                 ax.text(x_act, bottom + val / 2, f"{val:.1f}%", ha="center", va="center",
-                       color="white", fontsize=8, fontweight="bold")
+                       color="white", fontsize=18, fontweight="bold")
             bottom += val
         
         ax.set_xticks([x_pred, x_act])
@@ -2287,7 +2451,7 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
                   edgecolor="white", alpha=0.9)
             if val > 3:
                 ax.text(0, bottom + val / 2, f"{val:.1f}%", ha="center", va="center",
-                       color="white", fontsize=9, fontweight="bold")
+                       color="white", fontsize=15, fontweight="bold")
             bottom += val
         
         ax.set_xticks([])
@@ -2363,6 +2527,13 @@ def main(nwea_data=None):
     
     # Extract chart filters
     chart_filters = cfg.get("chart_filters", {})
+    # Ensure chart_filters is a dict, not a string
+    if isinstance(chart_filters, str):
+        try:
+            chart_filters = json.loads(chart_filters)
+        except:
+            print(f"[Warning] Could not parse chart_filters from config as JSON: {chart_filters}")
+            chart_filters = {}
     if chart_filters:
         print(f"\n[Filters] Applying chart generation filters:")
         if chart_filters.get("grades"):
@@ -2950,6 +3121,13 @@ def main(nwea_data=None):
     hf.DEV_MODE = args.dev_mode.lower() in ('true', '1', 'yes', 'on')
     
     chart_filters = cfg.get("chart_filters", {})
+    # Ensure chart_filters is a dict, not a string
+    if isinstance(chart_filters, str):
+        try:
+            chart_filters = json.loads(chart_filters)
+        except:
+            print(f"[Warning] Could not parse chart_filters from config as JSON: {chart_filters}")
+            chart_filters = {}
     
     # Load data
     if nwea_data is not None:
@@ -3177,6 +3355,13 @@ def generate_nwea_spring_charts(
     
     cfg = config or {}
     if chart_filters:
+        # Ensure chart_filters is a dict, not a string
+        if isinstance(chart_filters, str):
+            try:
+                chart_filters = json.loads(chart_filters)
+            except:
+                print(f"[Warning] Could not parse chart_filters as JSON: {chart_filters}")
+                chart_filters = {}
         cfg['chart_filters'] = chart_filters
     
     hf.DEV_MODE = cfg.get('dev_mode', False)

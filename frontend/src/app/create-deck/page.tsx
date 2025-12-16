@@ -18,7 +18,7 @@ import { useRaceOptions } from '@/hooks/useRaceOptions'
 import { useStudentGroupOptions } from '@/hooks/useStudentGroupOptions'
 import { useStudentGroups } from '@/hooks/useStudentGroups'
 import { getClusteredSchoolOptions, getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
-import { getQuarterBackendValue, getQuarterDisplayLabel } from '@/utils/quarterLabels'
+import { getQuarterBackendValue } from '@/utils/quarterLabels'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -64,12 +64,20 @@ export default function CreateSlide() {
         studentGroups: [] as string[],
         race: [] as string[],
         assessments: [] as string[],
-        slidePrompt: ''
+        slidePrompt: '',
+        enableAIInsights: true, // Toggle for AI analytics/insights
+        themeColor: '#0094bd' // Default Parsec blue color
     })
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
-    const { grades: GRADES, years: YEARS, isLoading: isLoadingFormOptions } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
+    const { grades: GRADES, years: YEARS, isLoading: isLoadingFormOptions  } = useFormOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
+    )
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
     const { availableDistricts, availableSchools, clusteredSchools, schoolClusters, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
@@ -192,6 +200,9 @@ export default function CreateSlide() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
 
+        // Debug: Log current formData state at submit time
+        console.log('[Frontend] handleSubmit - Current formData.themeColor:', formData.themeColor)
+
         if (!formData.partnerName.trim()) {
             toast.error('Please enter a partner name')
             return
@@ -301,19 +312,24 @@ export default function CreateSlide() {
             const driveFolderUrl = 'https://drive.google.com/drive/folders/1CUOM-Sz6ulyzD2mTREdcYoBXUJLrgngw'
 
             // Call the new task API endpoint
+            const requestBody = {
+                partnerName: formData.partnerName,
+                config: config,
+                chartFilters: chartFilters,
+                title: presentationTitle,
+                driveFolderUrl: driveFolderUrl,
+                enableAIInsights: formData.enableAIInsights,
+                userPrompt: formData.slidePrompt || undefined,
+                description: `Deck for ${formData.districtName || 'Parsec Academy'}`,
+                themeColor: formData.themeColor // Always send the actual value from formData
+            }
+            console.log('[Frontend] FormData themeColor:', formData.themeColor)
+            console.log('[Frontend] Sending themeColor in request:', requestBody.themeColor)
+
             const res = await fetch('/api/tasks/create-deck-with-slides', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    partnerName: formData.partnerName,
-                    config: config,
-                    chartFilters: chartFilters,
-                    title: presentationTitle,
-                    driveFolderUrl: driveFolderUrl,
-                    enableAIInsights: true,
-                    userPrompt: formData.slidePrompt || undefined,
-                    description: `Deck for ${formData.districtName || 'Parsec Academy'}`
-                })
+                body: JSON.stringify(requestBody)
             })
 
             const data = await res.json()
@@ -470,7 +486,10 @@ export default function CreateSlide() {
                                                                                     onChange={() => handleCustomDataSourceChange(source.id, variant.full_path)}
                                                                                     className="h-3.5 w-3.5 cursor-pointer"
                                                                                 />
-                                                                                <label htmlFor={`${source.id}-variant-${idx}`} className="flex-1 cursor-pointer font-mono text-xs text-gray-700">
+                                                                                <label
+                                                                                    htmlFor={`${source.id}-variant-${idx}`}
+                                                                                    className="flex-1 cursor-pointer font-mono text-xs text-gray-700"
+                                                                                >
                                                                                     {variant.full_path}
                                                                                     {variant.is_default && (
                                                                                         <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
@@ -528,46 +547,50 @@ export default function CreateSlide() {
                             {formData.assessments.length > 0 && (
                                 <div className="space-y-4 border-b pb-4">
                                     <h3 className="text-lg font-semibold">Scope Selection</h3>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label>
-                                                District <span className="text-destructive">*</span>
-                                            </Label>
-                                            <Select
-                                                key={`district-${formData.partnerName}-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
-                                                id="districtName"
-                                                value={formData.districtName}
-                                                onChange={(e) => {
-                                                    setFormData((prev) => ({
-                                                        ...prev,
-                                                        districtName: e.target.value,
-                                                        schools: []
-                                                    }))
-                                                }}
-                                                required
-                                                disabled={isLoadingChoices || !formData.partnerName || formData.assessments.length === 0}
-                                            >
-                                                <option value="">
-                                                    {isLoadingChoices
-                                                        ? 'Loading districts...'
-                                                        : formData.assessments.length === 0
-                                                          ? 'Select assessments first...'
-                                                          : 'Select a district...'}
+
+                                    {/* District Selection */}
+                                    <div className="space-y-2">
+                                        <Label>
+                                            District <span className="text-destructive">*</span>
+                                        </Label>
+                                        <Select
+                                            key={`district-${formData.partnerName}-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
+                                            id="districtName"
+                                            value={formData.districtName}
+                                            onChange={(e) => {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    districtName: e.target.value,
+                                                    schools: []
+                                                }))
+                                            }}
+                                            required
+                                            disabled={isLoadingChoices || !formData.partnerName || formData.assessments.length === 0}
+                                        >
+                                            <option value="">
+                                                {isLoadingChoices
+                                                    ? 'Loading districts...'
+                                                    : formData.assessments.length === 0
+                                                      ? 'Select assessments first...'
+                                                      : 'Select a district...'}
+                                            </option>
+                                            {districtOptions.map((district: string) => (
+                                                <option key={district} value={district}>
+                                                    {district}
                                                 </option>
-                                                {districtOptions.map((district: string) => (
-                                                    <option key={district} value={district}>
-                                                        {district}
-                                                    </option>
-                                                ))}
-                                            </Select>
-                                            {isLoadingChoices && (
-                                                <p className="text-muted-foreground text-xs">
-                                                    Fetching districts from {formData.assessments.join(', ')} table(s)...
-                                                </p>
-                                            )}
-                                        </div>
-                                        <div className="space-y-2">
-                                            <div className="mb-2 flex items-center space-x-2">
+                                            ))}
+                                        </Select>
+                                        {isLoadingChoices && (
+                                            <p className="text-muted-foreground text-xs">
+                                                Fetching districts from {formData.assessments.join(', ')} table(s)...
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* District Only Option */}
+                                    {formData.districtName && (
+                                        <div className="bg-muted/30 rounded-lg border p-4">
+                                            <div className="flex items-start space-x-3">
                                                 <Checkbox
                                                     id="districtOnly"
                                                     checked={formData.districtOnly}
@@ -576,43 +599,77 @@ export default function CreateSlide() {
                                                         setFormData((prev) => ({
                                                             ...prev,
                                                             districtOnly: checked,
-                                                            schools: checked ? [] : prev.schools // Clear schools when enabling district only
+                                                            schools: checked ? [] : prev.schools
                                                         }))
                                                     }}
                                                     disabled={!formData.districtName || isLoadingDistrictsSchools}
+                                                    className="mt-1"
                                                 />
-                                                <Label htmlFor="districtOnly" className="cursor-pointer text-sm font-normal">
-                                                    District Only (exclude school-level charts)
-                                                </Label>
+                                                <div className="flex-1">
+                                                    <Label htmlFor="districtOnly" className="cursor-pointer font-medium">
+                                                        District Only Mode
+                                                    </Label>
+                                                    <p className="text-muted-foreground mt-1 text-sm">
+                                                        Enable this to generate only district-level charts and exclude specific school charts
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <Label>School(s) {!formData.districtOnly && <span className="text-destructive">*</span>}</Label>
+                                        </div>
+                                    )}
+
+                                    {/* School Selection */}
+                                    {!formData.districtOnly && formData.districtName && (
+                                        <div className="space-y-2">
+                                            <Label>
+                                                School(s) <span className="text-destructive">*</span>
+                                            </Label>
                                             <MultiSelect
                                                 key={`schools-${formData.districtName}-${Object.values(formData.customDataSources).join(',')}`}
                                                 options={clusteredSchoolOptions}
                                                 selected={formData.schools}
                                                 onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
                                                 placeholder={
-                                                    formData.districtOnly
-                                                        ? 'District only mode - schools disabled'
-                                                        : isLoadingChoices
-                                                          ? 'Loading schools...'
-                                                          : !formData.districtName
-                                                            ? 'Select district first...'
-                                                            : 'Select school(s)...'
+                                                    isLoadingChoices
+                                                        ? 'Loading schools...'
+                                                        : !formData.districtName
+                                                          ? 'Select district first...'
+                                                          : 'Select school(s)...'
                                                 }
-                                                disabled={isLoadingChoices || !formData.partnerName || !formData.districtName || formData.districtOnly}
+                                                disabled={isLoadingChoices || !formData.partnerName || !formData.districtName}
                                             />
                                             {isLoadingChoices && (
                                                 <p className="text-muted-foreground text-xs">
                                                     Fetching schools from {formData.assessments.join(', ')} table(s)...
                                                 </p>
                                             )}
-                                            {formData.districtOnly && (
-                                                <p className="text-muted-foreground text-xs">
-                                                    District only mode enabled - only district-level charts will be generated
-                                                </p>
-                                            )}
                                         </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Quarter Selection - Buttons */}
+                            {formData.assessments.length > 0 && availableQuarters.length > 0 && (
+                                <div className="space-y-4 border-b pb-4">
+                                    <h3 className="text-lg font-semibold">
+                                        Type of Slides <span className="text-destructive">*</span>
+                                    </h3>
+                                    <div className="flex gap-4">
+                                        {['BOY', 'MOY', 'EOY'].map((quarter) => {
+                                            const backendValue = getQuarterBackendValue(quarter)
+                                            const isSelected = formData.quarters === backendValue
+                                            return (
+                                                <Button
+                                                    key={quarter}
+                                                    type="button"
+                                                    variant={isSelected ? 'default' : 'outline'}
+                                                    onClick={() => setFormData((prev) => ({ ...prev, quarters: backendValue }))}
+                                                    disabled={isLoadingChoices}
+                                                    className={`flex-1 ${isSelected ? 'bg-primary text-primary-foreground' : ''}`}
+                                                >
+                                                    {quarter}
+                                                </Button>
+                                            )
+                                        })}
                                     </div>
                                 </div>
                             )}
@@ -658,46 +715,21 @@ export default function CreateSlide() {
                                             )}
                                         </div>
                                     </div>
-                                    {(availableQuarters.length > 0 || availableSubjects.length > 0) && (
+                                    {availableSubjects.length > 0 && (
                                         <div className="grid grid-cols-2 gap-4">
-                                            {availableQuarters.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <Label>
-                                                        Quarter <span className="text-destructive">*</span>
-                                                    </Label>
-                                                    <Select
-                                                        value={formData.quarters ? getQuarterDisplayLabel(formData.quarters) : ''}
-                                                        onChange={(e) => {
-                                                            // Convert display label back to backend value for storage
-                                                            const backendQuarter = getQuarterBackendValue(e.target.value)
-                                                            setFormData((prev) => ({ ...prev, quarters: backendQuarter }))
-                                                        }}
-                                                        disabled={isLoadingChoices}
-                                                    >
-                                                        <option value="">Select Type of Slides...</option>
-                                                        {availableQuarters.map((quarter) => (
-                                                            <option key={quarter} value={getQuarterDisplayLabel(quarter)}>
-                                                                {getQuarterDisplayLabel(quarter)}
-                                                            </option>
-                                                        ))}
-                                                    </Select>
-                                                </div>
-                                            )}
-                                            {availableSubjects.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <Label>
-                                                        Subject(s) <span className="text-destructive">*</span>
-                                                    </Label>
-                                                    <MultiSelect
-                                                        key={`subjects-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
-                                                        options={availableSubjects}
-                                                        selected={formData.subjects}
-                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
-                                                        placeholder={isLoadingChoices ? 'Loading subjects...' : 'Select subject(s)...'}
-                                                        disabled={isLoadingChoices}
-                                                    />
-                                                </div>
-                                            )}
+                                            <div className="space-y-2">
+                                                <Label>
+                                                    Subject(s) <span className="text-destructive">*</span>
+                                                </Label>
+                                                <MultiSelect
+                                                    key={`subjects-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
+                                                    options={availableSubjects}
+                                                    selected={formData.subjects}
+                                                    onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
+                                                    placeholder={isLoadingChoices ? 'Loading subjects...' : 'Select subject(s)...'}
+                                                    disabled={isLoadingChoices}
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                     {(supportsStudentGroups || supportsRace) && (
@@ -749,15 +781,73 @@ export default function CreateSlide() {
                             {/* Slide Content */}
                             <div className="space-y-4">
                                 <h3 className="text-lg font-semibold">Slide Content</h3>
-                                <div className="space-y-2">
-                                    <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
-                                    <Textarea
-                                        id="slidePrompt"
-                                        value={formData.slidePrompt}
-                                        onChange={handleTextareaChange}
-                                        placeholder="Enter any additional information for the slides..."
-                                        rows={4}
-                                    />
+                                <div className="space-y-4">
+                                    <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id="enableAIInsights"
+                                            checked={formData.enableAIInsights}
+                                            onChange={(e) => {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    enableAIInsights: e.target.checked
+                                                }))
+                                            }}
+                                        />
+                                        <Label htmlFor="enableAIInsights" className="cursor-pointer text-sm font-normal">
+                                            Enable AI Analytics & Insights
+                                        </Label>
+                                    </div>
+                                    {!formData.enableAIInsights && (
+                                        <p className="text-muted-foreground text-xs">
+                                            ⚡ AI analytics disabled - charts will be generated faster without AI analysis
+                                        </p>
+                                    )}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="themeColor">Theme Color</Label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="color"
+                                                id="themeColor"
+                                                value={formData.themeColor}
+                                                onChange={(e) => {
+                                                    const newColor = e.target.value
+                                                    console.log('[Frontend] Color picker changed to:', newColor)
+                                                    setFormData((prev) => {
+                                                        console.log('[Frontend] Updating themeColor from', prev.themeColor, 'to', newColor)
+                                                        return { ...prev, themeColor: newColor }
+                                                    })
+                                                }}
+                                                className="h-10 w-20 cursor-pointer rounded border border-gray-300"
+                                            />
+                                            <Input
+                                                type="text"
+                                                value={formData.themeColor}
+                                                onChange={(e) => {
+                                                    const newColor = e.target.value
+                                                    console.log('[Frontend] Color text input changed to:', newColor)
+                                                    setFormData((prev) => {
+                                                        console.log('[Frontend] Updating themeColor from', prev.themeColor, 'to', newColor)
+                                                        return { ...prev, themeColor: newColor }
+                                                    })
+                                                }}
+                                                placeholder="#0094bd"
+                                                className="w-32"
+                                            />
+                                        </div>
+                                        <p className="text-muted-foreground text-xs">
+                                            Select a color for the top bar and cover slide background (default: Parsec blue)
+                                        </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
+                                        <Textarea
+                                            id="slidePrompt"
+                                            value={formData.slidePrompt}
+                                            onChange={handleTextareaChange}
+                                            placeholder="Enter any additional information for the slides..."
+                                            rows={4}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </CardContent>

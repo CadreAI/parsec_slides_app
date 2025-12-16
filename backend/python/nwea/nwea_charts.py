@@ -398,6 +398,8 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 2 — Student Group Performance Trends
@@ -589,9 +591,9 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         else:
             insight_lines = ["Not enough history for insights"]
         
-        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="medium", color="#333333",
+        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=10, fontweight="medium", color="#333333",
                 ha="center", va="center", wrap=True, usetex=False,
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     fig.suptitle(f"{title_label} • {group_name} • {window_filter} Year-to-Year Trends",
                 fontsize=20, fontweight="bold", y=1)
@@ -637,6 +639,8 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # Model Functions (Section 6)
@@ -1044,9 +1048,9 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     else:
         insight_lines = ["Not enough history for insights"]
     
-    ax5.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
+    ax5.text(0.5, 0.5, "\n".join(insight_lines), fontsize=8, fontweight="normal", color="#434343",
             ha="center", va="center", wrap=True, usetex=False,
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     # Only create cohort insights subplot if cohort data exists
     if has_cohort_data:
@@ -1076,9 +1080,9 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
         else:
             insight_lines = ["Insufficient cohort data"]
         
-        ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
+        ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=8, fontweight="normal", color="#434343",
                 ha="center", va="center", wrap=True, usetex=False,
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
                 fontsize=20, fontweight="bold", y=1)
@@ -1121,6 +1125,8 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 4 — Overall Growth Trends by Site (CGP + CGI)
@@ -1204,6 +1210,23 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     for y in [42, 50, 58]:
         ax.axhline(y, linestyle="--", color="#6B7280", linewidth=1.2)
     
+    # Calculate dynamic y-axis limits for CGP (with padding)
+    cgp_max = np.nanmax(y_cgp) if len(y_cgp) > 0 else 100
+    cgp_min = np.nanmin(y_cgp) if len(y_cgp) > 0 else 0
+    cgp_ylim_max = max(100, cgp_max * 1.1)  # At least 100, or 10% above max
+    cgp_ylim_min = max(0, cgp_min * 0.9) if cgp_min < 0 else 0  # Allow negative if needed, otherwise 0
+    
+    # Calculate dynamic y-axis limits for CGI (with padding)
+    cgi_max = np.nanmax(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else 2.5
+    cgi_min = np.nanmin(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else -2.5
+    cgi_padding = max(0.5, abs(cgi_max - cgi_min) * 0.2)  # 20% padding or at least 0.5
+    cgi_ylim_max = cgi_max + cgi_padding
+    cgi_ylim_min = cgi_min - cgi_padding
+    
+    # Extend background shading if needed (but keep original colors up to 100)
+    if cgp_ylim_max > 100:
+        ax.axhspan(100, cgp_ylim_max, facecolor="#0381a2", alpha=0.3, zorder=0)
+    
     bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
     for rect, yv in zip(bars, y_cgp):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
@@ -1212,13 +1235,13 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     ax.set_ylabel("Median Fall→Fall CGP")
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist())
-    ax.set_ylim(0, 100)
+    ax.set_ylim(cgp_ylim_min, cgp_ylim_max)
     ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     
     ax2 = ax.twinx()
-    ax2.set_ylim(-2.5, 2.5)
+    ax2.set_ylim(cgi_ylim_min, cgi_ylim_max)
     ax2.patch.set_alpha(0)
     blend = mtransforms.BlendedGenericTransform(ax.transData, ax2.transData)
     x0, x1 = ax.get_xlim()
@@ -1242,7 +1265,14 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
                    fontweight="bold", color="#ffa800")
     
     ax2.set_ylabel("Avg Fall→Fall CGI")
-    ax2.set_yticks([-2, -1, 0, 1, 2])
+    # Set ticks dynamically based on range
+    cgi_range = cgi_ylim_max - cgi_ylim_min
+    if cgi_range <= 5:
+        ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 1))
+    elif cgi_range <= 10:
+        ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 2))
+    else:
+        ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 5))
     ax.set_title(f"{subject_str}", fontweight="bold", fontsize=14, pad=10)
 
 def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, subjects=None):
@@ -1261,12 +1291,41 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     fig.suptitle(f"{scope_label} • Fall→Fall Growth (All Students)", fontsize=20, fontweight="bold", y=0.99)
     
     axes = []
+    comparison_data = {}  # Store comparison data for each subject
+    
     for i, subject_str in enumerate(subjects):
         ax = fig.add_subplot(gs[0, i])
         axes.append(ax)
         sub_df = cgp_trend[(cgp_trend["scope_label"] == scope_label) & (cgp_trend["subject"] == subject_str)]
         if not sub_df.empty:
             _plot_cgp_trend(sub_df, subject_str, scope_label, ax=ax)
+            
+            # Calculate comparison between most recent year and previous year
+            sub_df_sorted = sub_df.sort_values("time_label").copy()
+            if len(sub_df_sorted) >= 2:
+                recent = sub_df_sorted.iloc[-1]
+                previous = sub_df_sorted.iloc[-2]
+                
+                cgp_recent = recent["median_cgp"]
+                cgp_prev = previous["median_cgp"]
+                cgp_change = cgp_recent - cgp_prev
+                cgp_pct_change = (cgp_change / cgp_prev * 100) if cgp_prev != 0 else 0
+                
+                cgi_recent = recent.get("mean_cgi", np.nan)
+                cgi_prev = previous.get("mean_cgi", np.nan)
+                cgi_change = cgi_recent - cgi_prev if pd.notna(cgi_recent) and pd.notna(cgi_prev) else np.nan
+                
+                comparison_data[subject_str] = {
+                    "recent_year": recent["time_label"],
+                    "prev_year": previous["time_label"],
+                    "cgp_recent": cgp_recent,
+                    "cgp_prev": cgp_prev,
+                    "cgp_change": cgp_change,
+                    "cgp_pct_change": cgp_pct_change,
+                    "cgi_recent": cgi_recent,
+                    "cgi_prev": cgi_prev,
+                    "cgi_change": cgi_change,
+                }
         
         subj_norm = subject_str.strip().casefold()
         d = scope_df.copy()
@@ -1294,6 +1353,33 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
                      Line2D([0], [0], color="#ffa800", marker="o", linewidth=2, markersize=6, label="Mean CGI")]
     fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
               bbox_to_anchor=(0.5, 0.94), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
+    
+    # Add comparison box at the bottom spanning both columns
+    if comparison_data:
+        ax_compare = fig.add_subplot(gs[2, :])
+        ax_compare.axis("off")
+        
+        comparison_lines = ["Year-to-Year Comparison:"]
+        comparison_lines.append("")
+        
+        for subject_str in subjects:
+            if subject_str in comparison_data:
+                comp = comparison_data[subject_str]
+                
+                # CGP comparison
+                cgp_dir = "↑" if comp["cgp_change"] > 0 else "↓" if comp["cgp_change"] < 0 else "→"
+                comparison_lines.append(f"{subject_str} - Median CGP: {cgp_dir} {abs(comp['cgp_change']):.1f} pts")
+                
+                # CGI comparison (if available)
+                if pd.notna(comp["cgi_change"]):
+                    cgi_dir = "↑" if comp["cgi_change"] > 0 else "↓" if comp["cgi_change"] < 0 else "→"
+                    comparison_lines.append(f"{subject_str} - Mean CGI: {cgi_dir} {abs(comp['cgi_change']):.2f} pts")
+        
+        # Display comparison text
+        comparison_text = "\n".join(comparison_lines)
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=10, fontweight="normal", color="#333333",
+                        ha="center", va="center", wrap=True, usetex=False,
+                        bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     charts_dir = Path(output_dir)
     folder_name = "_district" if scope_label == cfg.get("district_name", ["District (All Students)"])[0] else scope_label.replace(" ", "_")
@@ -1405,6 +1491,8 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
     if preview:
         plt.show()
     plt.close(fig)
+    
+    return str(out_path)
 
 def _plot_projection_2026(scope_label, folder, output_dir, results, preview=False):
     """Plot 2026 projected CAASPP"""
@@ -1466,6 +1554,8 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
     if preview:
         plt.show()
     plt.close(fig)
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # Main Execution

@@ -49,9 +49,16 @@ export function useAssessmentFilters(
                 // Fetch from actual data tables if we have projectId and datasetId
                 if (projectId && datasetId && assessments.length > 0) {
                     // Add table paths to query params if provided
-                    const tablePathsParam = selectedTables && assessments.length > 0
-                        ? '&tablePaths=' + encodeURIComponent(assessments.map(a => selectedTables[a]).filter(Boolean).join(','))
-                        : ''
+                    const tablePathsParam =
+                        selectedTables && assessments.length > 0
+                            ? '&tablePaths=' +
+                              encodeURIComponent(
+                                  assessments
+                                      .map((a) => selectedTables[a])
+                                      .filter(Boolean)
+                                      .join(',')
+                              )
+                            : ''
                     const res = await fetch(
                         `/api/bigquery/assessment-filters?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(datasetId)}&assessments=${encodeURIComponent(assessmentsParam)}&location=${encodeURIComponent(location || 'US')}${tablePathsParam}`,
                         { signal: abortController.signal }
@@ -124,7 +131,15 @@ export function useAssessmentFilters(
             abortController.abort()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [assessments.join(','), projectId, datasetId, location, Object.values(selectedTables || {}).sort().join(',')])
+    }, [
+        assessments.join(','),
+        projectId,
+        datasetId,
+        location,
+        Object.values(selectedTables || {})
+            .sort()
+            .join(',')
+    ])
 
     return {
         availableSubjects,

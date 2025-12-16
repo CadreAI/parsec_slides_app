@@ -141,7 +141,7 @@ def draw_score_bar(ax, score_df, labels, n_map=None):
                 f"{v:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=10,
+                fontsize=14,
                 fontweight="bold",
                 color="#434343",
             )

@@ -380,6 +380,8 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
     }
     track_chart(f"Section 0: Predicted vs Actual (Spring)", out_path, scope=scope_label, section=0, chart_data=chart_data)
     print(f"Saved Section 0 (Spring): {out_path}")
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 1 - Spring Performance Trends (Dual Subject Dashboard)
@@ -640,7 +642,7 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
         bars = ax2.bar(x2, vals, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
         for rect, v in zip(bars, vals):
             ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                    ha="center", va="bottom", fontsize=10, fontweight="bold", color="#434343")
+                    ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
         n_map = pct_df.groupby("time_label")["N_total"].max().to_dict()
         labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
                  for tl in score_df["time_label"].astype(str).tolist()]
@@ -959,7 +961,7 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
         bars = ax2.bar(x2, vals, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
         for rect, v in zip(bars, vals):
             ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                    ha="center", va="bottom", fontsize=10, fontweight="bold", color="#434343")
+                    ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
         n_map = pct_df.groupby("time_label")["N_total"].max().dropna().astype(int).to_dict()
         labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" for tl in score_df["time_label"].astype(str).tolist()]
         ax2.set_xticks(x2)

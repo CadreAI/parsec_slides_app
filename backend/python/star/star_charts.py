@@ -375,6 +375,8 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
     }
     track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0, chart_data=chart_data)
     print(f"Saved Section 0: {out_path}")
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 1 - Fall Performance Trends (Dual Subject Dashboard)

@@ -18,8 +18,8 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
             setYears([])
 
             try {
-                // Fetch from actual data tables if we have projectId and datasetId
-                if (projectId && datasetId) {
+                // Only fetch from actual data tables if we have projectId, datasetId, AND assessments selected
+                if (projectId && datasetId && assessments && assessments.length > 0) {
                     // Build query params
                     const params = new URLSearchParams({
                         projectId,
@@ -27,14 +27,12 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
                         location: location || 'US'
                     })
 
-                    // Add assessments parameter if provided
-                    if (assessments && assessments.length > 0) {
-                        params.append('assessments', assessments.join(','))
-                    }
+                    // Add assessments parameter
+                    params.append('assessments', assessments.join(','))
 
                     // Add specific table paths if provided
-                    if (selectedTables && assessments && assessments.length > 0) {
-                        const relevantTables = assessments.map(a => selectedTables[a]).filter(Boolean)
+                    if (selectedTables) {
+                        const relevantTables = assessments.map((a) => selectedTables[a]).filter(Boolean)
                         if (relevantTables.length > 0) {
                             params.append('tablePaths', relevantTables.join(','))
                         }
@@ -55,7 +53,7 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
                     }
                 }
 
-                // Fallback to defaults if no dataset selected or query fails
+                // Fallback to defaults if no dataset/assessments selected or query fails
                 // Return all possible grades (Pre-K to 12) - actual grades will come from query
                 setGrades(['-1', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'])
                 const currentYear = new Date().getFullYear()
@@ -82,7 +80,15 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
         return () => {
             abortController.abort()
         }
-    }, [projectId, datasetId, location, assessments?.join(','), Object.values(selectedTables || {}).sort().join(',')])
+    }, [
+        projectId,
+        datasetId,
+        location,
+        assessments?.join(','),
+        Object.values(selectedTables || {})
+            .sort()
+            .join(',')
+    ])
 
     return { grades, years, isLoading }
 }

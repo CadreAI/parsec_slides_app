@@ -6,8 +6,22 @@ from datetime import datetime
 from .slide_constants import SLIDE_WIDTH_EMU, SLIDE_HEIGHT_EMU, PARSEC_BLUE, hex_to_rgb_color
 
 
-def create_cover_slide_requests(cover_slide_id: str, logo_url: Optional[str] = None) -> List[Dict[str, Any]]:
+def hex_to_rgb_dict(hex_str: str) -> Dict[str, float]:
+    """Convert hex color string to RGB dict for Slides API"""
+    clean_hex = hex_str.replace('#', '')
+    r = int(clean_hex[0:2], 16) / 255.0
+    g = int(clean_hex[2:4], 16) / 255.0
+    b = int(clean_hex[4:6], 16) / 255.0
+    return {'red': r, 'green': g, 'blue': b}
+
+
+def create_cover_slide_requests(cover_slide_id: str, logo_url: Optional[str] = None, theme_color: Optional[str] = None) -> List[Dict[str, Any]]:
     """Create cover slide requests (ported from coverSlide.ts)"""
+    # Use provided theme_color or default to Parsec blue
+    # Handle both None and empty string cases
+    final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+    print(f"[Cover Slide] Theme color: received={theme_color}, using={final_theme_color}")
+    
     slide_width_emu = SLIDE_WIDTH_EMU
     slide_height_emu = SLIDE_HEIGHT_EMU
     header_height_emu = 1500000  # ~1.64 inches
@@ -196,7 +210,7 @@ def create_cover_slide_requests(cover_slide_id: str, logo_url: Optional[str] = N
             'updateShapeProperties': {
                 'objectId': 'content_background',
                 'shapeProperties': {
-                    'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': PARSEC_BLUE}}},
+                    'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': hex_to_rgb_dict(final_theme_color)}}},
                     'outline': {'propertyState': 'NOT_RENDERED'}
                 },
                 'fields': 'shapeBackgroundFill.solidFill.color,outline'

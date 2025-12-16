@@ -108,8 +108,21 @@ def ingest_nwea(
         print(f"[Data Ingestion] ⚠️  WARNING: No school filter applied!")
         print(f"[Data Ingestion] ⚠️  This will fetch data for ALL schools (may be very large)")
 
-    # NWEA: Use simplified query that fetches last 3 years in a single query
-    print(f"[Data Ingestion] NWEA: Executing single query for last 3 years...")
+    # NWEA: Use simplified query that fetches selected years (or last 3 years if none selected)
+    # Determine years to query
+    years = chart_filters.get('years')
+    if not years or len(years) == 0:
+        # Default: last 3 years
+        current_date = datetime.now()
+        current_year = current_date.year
+        if current_date.month >= 7:
+            current_year += 1
+        years = [current_year - 2, current_year - 1, current_year]
+        print(f"[Data Ingestion] No years specified, using default: {years}")
+    else:
+        print(f"[Data Ingestion] Querying years: {years}")
+    
+    print(f"[Data Ingestion] NWEA: Executing single query for years: {years}")
     print(f"[Data Ingestion] Table: {table_id}")
 
     # Get exclude columns from config if specified
@@ -138,7 +151,12 @@ def ingest_nwea(
         elif 'academicyear' in [col.lower() for col in table_columns]:
             year_column = 'AcademicYear'
         
-        sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column)
+        # Build SQL query with selected years
+        # Pass both years and quarters to SQL builder
+        sql_filters = {'years': years}
+        if chart_filters.get('quarters'):
+            sql_filters['quarters'] = chart_filters['quarters']
+        sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column, filters=sql_filters)
 
         print(f"[Data Ingestion] SQL Query:")
         print(f"[Data Ingestion] {sql}")
@@ -362,7 +380,7 @@ def ingest_iready(
                 year_column = 'AcademicYear'
             elif 'year' in [col.lower() for col in table_columns]:
                 year_column = 'Year'
-            
+
             # Build SQL query for this specific year
             sql_filters = {'years': [year]}
             sql = sql_iready(table_id, exclude_cols, filters=sql_filters, year_column=year_column)
