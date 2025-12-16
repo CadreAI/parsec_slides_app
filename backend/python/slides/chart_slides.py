@@ -5,6 +5,15 @@ from typing import List, Dict, Optional, Any
 from .slide_constants import SLIDE_WIDTH_EMU, SLIDE_HEIGHT_EMU, PARSEC_BLUE, hex_to_rgb_color
 
 
+def hex_to_rgb_dict(hex_str: str) -> Dict[str, float]:
+    """Convert hex color string to RGB dict for Slides API"""
+    clean_hex = hex_str.replace('#', '')
+    r = int(clean_hex[0:2], 16) / 255.0
+    g = int(clean_hex[2:4], 16) / 255.0
+    b = int(clean_hex[4:6], 16) / 255.0
+    return {'red': r, 'green': g, 'blue': b}
+
+
 def create_chart_slide_request(presentation_id: str, slide_object_id: str, insertion_index: int) -> Dict[str, Any]:
     """Create a blank slide for charts"""
     return {
@@ -23,18 +32,23 @@ def create_single_chart_slide_requests(
     slide_width_emu: float = SLIDE_WIDTH_EMU,
     slide_height_emu: float = SLIDE_HEIGHT_EMU,
     start_index: int = 0,
-    summary: Optional[str] = None
+    summary: Optional[str] = None,
+    theme_color: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Create requests for a single chart slide with title and summary"""
+    # Use provided theme_color or default to Parsec blue
+    # Handle both None and empty string cases
+    final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+    
     requests = []
     
     if not chart_url:
         return requests
     
-    # Reduced margins and spacing to maximize chart size
-    margin_emu = 200000  # Reduced from 500000
-    title_height_emu = 800000  # Reduced from 1200000
-    top_bar_height_emu = 150000  # Reduced from 200000
+    # Further reduced margins and spacing to maximize chart size
+    margin_emu = 100000  # Reduced from 150000 for larger chart
+    title_height_emu = 600000  # Reduced from 700000 to give more space to chart
+    top_bar_height_emu = 150000
     
     # Top bar
     top_bar_object_id = f'TopBar_{start_index}'
@@ -53,7 +67,7 @@ def create_single_chart_slide_requests(
         {
             'updateShapeProperties': {
                 'objectId': top_bar_object_id,
-                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': PARSEC_BLUE}}}},
+                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': hex_to_rgb_dict(final_theme_color)}}}},
                 'fields': 'shapeBackgroundFill.solidFill.color'
             }
         }
@@ -63,7 +77,7 @@ def create_single_chart_slide_requests(
     title_object_id = f'Title_{start_index}'
     title_width = 9000000
     title_x = (slide_width_emu - title_width) / 2
-    title_y = top_bar_height_emu + 50000  # Reduced from 100000
+    title_y = top_bar_height_emu + 3000
     
     requests.extend([
         {
@@ -83,7 +97,7 @@ def create_single_chart_slide_requests(
         {
             'updateTextStyle': {
                 'objectId': title_object_id,
-                'style': {'fontSize': {'magnitude': 20, 'unit': 'PT'}, 'bold': True},
+                'style': {'fontSize': {'magnitude': 19, 'unit': 'PT'}, 'bold': True},
                 'fields': 'fontSize,bold',
                 'textRange': {'type': 'ALL'}
             }
@@ -98,16 +112,23 @@ def create_single_chart_slide_requests(
         }
     ])
     
-    # Chart - maximize size and move higher
+    # Chart - maximize size and keep centered
     available_width = slide_width_emu - margin_emu * 2
-    available_height = slide_height_emu - margin_emu - title_height_emu - top_bar_height_emu - 50000  # Minimal bottom margin
-    # Use almost full available width and height
-    chart_width = available_width - margin_emu  # Use most of width
-    chart_height = available_height  # Use full available height
+    
+    # Calculate chart position
+    chart_y = top_bar_height_emu + title_height_emu + 20000  # Minimal spacing after title
+    
+    # Calculate available height - reduced bottom margin for larger chart
+    bottom_margin_emu = 30000  # Reduced from 50000 for even larger chart
+    available_height = slide_height_emu - chart_y - bottom_margin_emu
+    
+    # Use maximum available width and height
+    chart_width = available_width * 0.98  # Use 98% of available width
+    chart_height = available_height * 0.99  # Use 99% of available height
     
     chart_object_id = f'Chart_{start_index}'
-    chart_x = margin_emu  # Start at margin
-    chart_y = top_bar_height_emu + title_height_emu + 30000  # Move higher - minimal spacing after title
+    # Center the chart horizontally
+    chart_x = (slide_width_emu - chart_width) / 2  # Center horizontally
     
     requests.append({
         'createImage': {
@@ -133,9 +154,14 @@ def create_dual_chart_slide_requests(
     slide_height_emu: float = SLIDE_HEIGHT_EMU,
     start_index: int = 0,
     insight1: Optional[Dict[str, Any]] = None,
-    insight2: Optional[Dict[str, Any]] = None
+    insight2: Optional[Dict[str, Any]] = None,
+    theme_color: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Create requests for a dual chart slide (math + reading side by side) with context text below each chart"""
+    # Use provided theme_color or default to Parsec blue
+    # Handle both None and empty string cases
+    final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+    
     requests = []
     
     if not chart_url1 or not chart_url2:
@@ -164,7 +190,7 @@ def create_dual_chart_slide_requests(
         {
             'updateShapeProperties': {
                 'objectId': top_bar_object_id,
-                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': PARSEC_BLUE}}}},
+                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': hex_to_rgb_dict(final_theme_color)}}}},
                 'fields': 'shapeBackgroundFill.solidFill.color'
             }
         }
@@ -194,7 +220,7 @@ def create_dual_chart_slide_requests(
         {
             'updateTextStyle': {
                 'objectId': title_object_id,
-                'style': {'fontSize': {'magnitude': 20, 'unit': 'PT'}, 'bold': True},
+                'style': {'fontSize': {'magnitude': 19, 'unit': 'PT'}, 'bold': True},
                 'fields': 'fontSize,bold',
                 'textRange': {'type': 'ALL'}
             }
@@ -218,11 +244,11 @@ def create_dual_chart_slide_requests(
     # Move charts higher - minimal spacing after title
     chart1_object_id = f'Chart_{start_index}'
     chart1_x = margin_emu
-    chart1_y = top_bar_height_emu + title_height_emu + 30000  # Move higher - minimal spacing
+    chart1_y = top_bar_height_emu + title_height_emu + 10000  # Move higher - minimal spacing
     
     chart2_object_id = f'Chart_{start_index + 1}'
     chart2_x = margin_emu + chart_width + chart_spacing_emu
-    chart2_y = top_bar_height_emu + title_height_emu + 30000  # Move higher - minimal spacing
+    chart2_y = top_bar_height_emu + title_height_emu + 10000  # Move higher - minimal spacing
     
     requests.extend([
         {
@@ -245,9 +271,9 @@ def create_dual_chart_slide_requests(
                     'size': {'width': {'magnitude': chart_width, 'unit': 'EMU'}, 'height': {'magnitude': chart_height, 'unit': 'EMU'}},
                     'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': chart2_x, 'translateY': chart2_y, 'unit': 'EMU'}
                 }
+                }
             }
-        }
-    ])
+        ])
     
     return requests
 

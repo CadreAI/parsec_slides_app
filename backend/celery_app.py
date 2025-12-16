@@ -24,10 +24,10 @@ def make_celery() -> Celery:
         accept_content=["json"],
         result_serializer="json",
         task_default_queue=os.getenv("CELERY_TASK_DEFAULT_QUEUE", "slides"),
-        task_soft_time_limit=int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "420")),
-        task_time_limit=int(os.getenv("CELERY_TASK_TIME_LIMIT", "480")),
+        task_soft_time_limit=int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "1800")),  # 30 minutes
+        task_time_limit=int(os.getenv("CELERY_TASK_TIME_LIMIT", "2400")),  # 40 minutes
         broker_transport_options={
-            "visibility_timeout": int(os.getenv("CELERY_VISIBILITY_TIMEOUT", "900"))
+            "visibility_timeout": int(os.getenv("CELERY_VISIBILITY_TIMEOUT", "3600"))  # 1 hour
         },
         result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", "14400")),
     )
