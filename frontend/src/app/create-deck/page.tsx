@@ -63,7 +63,8 @@ export default function CreateSlide() {
         race: [] as string[],
         assessments: [] as string[],
         slidePrompt: '',
-        enableAIInsights: true // Toggle for AI analytics/insights
+        enableAIInsights: true, // Toggle for AI analytics/insights
+        themeColor: '#0094bd' // Default Parsec blue color
     })
 
     // Custom hooks for data fetching
@@ -181,6 +182,9 @@ export default function CreateSlide() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
 
+        // Debug: Log current formData state at submit time
+        console.log('[Frontend] handleSubmit - Current formData.themeColor:', formData.themeColor)
+
         if (!formData.partnerName.trim()) {
             toast.error('Please enter a partner name')
             return
@@ -284,19 +288,24 @@ export default function CreateSlide() {
             const driveFolderUrl = 'https://drive.google.com/drive/folders/1CUOM-Sz6ulyzD2mTREdcYoBXUJLrgngw'
 
             // Call the new task API endpoint
+            const requestBody = {
+                partnerName: formData.partnerName,
+                config: config,
+                chartFilters: chartFilters,
+                title: presentationTitle,
+                driveFolderUrl: driveFolderUrl,
+                enableAIInsights: formData.enableAIInsights,
+                userPrompt: formData.slidePrompt || undefined,
+                description: `Deck for ${formData.districtName || 'Parsec Academy'}`,
+                themeColor: formData.themeColor // Always send the actual value from formData
+            }
+            console.log('[Frontend] FormData themeColor:', formData.themeColor)
+            console.log('[Frontend] Sending themeColor in request:', requestBody.themeColor)
+
             const res = await fetch('/api/tasks/create-deck-with-slides', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    partnerName: formData.partnerName,
-                    config: config,
-                    chartFilters: chartFilters,
-                    title: presentationTitle,
-                    driveFolderUrl: driveFolderUrl,
-                    enableAIInsights: formData.enableAIInsights,
-                    userPrompt: formData.slidePrompt || undefined,
-                    description: `Deck for ${formData.districtName || 'Parsec Academy'}`
-                })
+                body: JSON.stringify(requestBody)
             })
 
             const data = await res.json()
@@ -779,6 +788,42 @@ export default function CreateSlide() {
                                             ⚡ AI analytics disabled - charts will be generated faster without AI analysis
                                         </p>
                                     )}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="themeColor">Theme Color</Label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="color"
+                                                id="themeColor"
+                                                value={formData.themeColor}
+                                                onChange={(e) => {
+                                                    const newColor = e.target.value
+                                                    console.log('[Frontend] Color picker changed to:', newColor)
+                                                    setFormData((prev) => {
+                                                        console.log('[Frontend] Updating themeColor from', prev.themeColor, 'to', newColor)
+                                                        return { ...prev, themeColor: newColor }
+                                                    })
+                                                }}
+                                                className="h-10 w-20 cursor-pointer rounded border border-gray-300"
+                                            />
+                                            <Input
+                                                type="text"
+                                                value={formData.themeColor}
+                                                onChange={(e) => {
+                                                    const newColor = e.target.value
+                                                    console.log('[Frontend] Color text input changed to:', newColor)
+                                                    setFormData((prev) => {
+                                                        console.log('[Frontend] Updating themeColor from', prev.themeColor, 'to', newColor)
+                                                        return { ...prev, themeColor: newColor }
+                                                    })
+                                                }}
+                                                placeholder="#0094bd"
+                                                className="w-32"
+                                            />
+                                        </div>
+                                        <p className="text-muted-foreground text-xs">
+                                            Select a color for the top bar and cover slide background (default: Parsec blue)
+                                        </p>
+                                    </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
                                         <Textarea

@@ -5,11 +5,21 @@ from typing import List, Dict, Any, Optional
 from .slide_constants import SLIDE_WIDTH_EMU, SLIDE_HEIGHT_EMU, PARSEC_BLUE, hex_to_rgb_color
 
 
+def hex_to_rgb_dict(hex_str: str) -> Dict[str, float]:
+    """Convert hex color string to RGB dict for Slides API"""
+    clean_hex = hex_str.replace('#', '')
+    r = int(clean_hex[0:2], 16) / 255.0
+    g = int(clean_hex[2:4], 16) / 255.0
+    b = int(clean_hex[4:6], 16) / 255.0
+    return {'red': r, 'green': g, 'blue': b}
+
+
 def create_section_divider_slide_requests(
     slide_object_id: str,
     test_type: str,
     sections: List[str],
-    insertion_index: int = 0
+    insertion_index: int = 0,
+    theme_color: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Create a section divider slide with fully blue background.
@@ -24,6 +34,10 @@ def create_section_divider_slide_requests(
     Returns:
         List of Google Slides API requests
     """
+    # Use provided theme_color or default to Parsec blue
+    # Handle both None and empty string cases
+    final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+    
     slide_width_emu = SLIDE_WIDTH_EMU
     slide_height_emu = SLIDE_HEIGHT_EMU
     requests = []
@@ -58,7 +72,7 @@ def create_section_divider_slide_requests(
         'updateShapeProperties': {
             'objectId': f'{slide_object_id}_background',
             'shapeProperties': {
-                'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': PARSEC_BLUE}}},
+                'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': hex_to_rgb_dict(final_theme_color)}}},
                 'outline': {'propertyState': 'NOT_RENDERED'}
             },
             'fields': 'shapeBackgroundFill.solidFill.color,outline'

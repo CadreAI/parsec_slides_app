@@ -19,6 +19,9 @@ export async function POST(request: Request) {
         const chartFilters = body?.chartFilters
         const title = body?.title
 
+        // Log themeColor for debugging
+        console.log('[API Route] Received themeColor from frontend:', body?.themeColor)
+
         // Validate required fields
         if (!partnerName) {
             return NextResponse.json({ success: false, error: 'partnerName is required' }, { status: 400 })
@@ -28,20 +31,24 @@ export async function POST(request: Request) {
         }
 
         // Forward to backend with all parameters
+        const requestPayload = {
+            partnerName,
+            config,
+            chartFilters,
+            title,
+            clerkUserId: userId,
+            driveFolderUrl: body?.driveFolderUrl,
+            enableAIInsights: body?.enableAIInsights ?? true,
+            userPrompt: body?.userPrompt,
+            description: body?.description,
+            themeColor: body?.themeColor // Forward themeColor to backend
+        }
+        console.log('[API Route] Forwarding themeColor to backend:', requestPayload.themeColor)
+
         const res = await fetch(`${BACKEND_BASE}/tasks/create-deck-with-slides`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                partnerName,
-                config,
-                chartFilters,
-                title,
-                clerkUserId: userId,
-                driveFolderUrl: body?.driveFolderUrl,
-                enableAIInsights: body?.enableAIInsights ?? true,
-                userPrompt: body?.userPrompt,
-                description: body?.description
-            })
+            body: JSON.stringify(requestPayload)
         })
 
         const data = await res.json().catch(() => ({}))

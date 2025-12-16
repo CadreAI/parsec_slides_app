@@ -8,7 +8,7 @@ import os
 from celery_app import celery_app
 
 
-@celery_app.task(bind=True, name="create_deck_with_slides_task", soft_time_limit=1800, time_limit=2400)
+@celery_app.task(bind=True, name="create_deck_with_slides_task")
 def create_deck_with_slides_task(
     self,
     partner_name: str,
@@ -19,7 +19,8 @@ def create_deck_with_slides_task(
     drive_folder_url: str = None,
     enable_ai_insights: bool = True,
     user_prompt: str = None,
-    description: str = None
+    description: str = None,
+    theme_color: str = None
 ):
     """
     Combined task that ingests data, generates charts, and creates a Google Slides presentation.
@@ -284,13 +285,18 @@ def create_deck_with_slides_task(
         # ====================
         logging.info(f"[Task {task_id}] Creating slides presentation: {title}")
         logging.info(f"[Task {task_id}] This may take several minutes for large decks ({len(all_chart_paths)} charts)...")
+        # Use provided theme_color or default to Parsec blue
+        # Handle both None and empty string cases
+        final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+        logging.info(f"[Task {task_id}] Theme color: received='{theme_color}', using='{final_theme_color}'")
         try:
             slides_result = create_slides_presentation(
                 title=title,
                 chart_paths=all_chart_paths,
                 drive_folder_url=drive_folder_url,
                 enable_ai_insights=enable_ai_insights,
-                user_prompt=user_prompt
+                user_prompt=user_prompt,
+                theme_color=final_theme_color
             )
         except Exception as e:
             import traceback
