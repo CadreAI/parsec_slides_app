@@ -142,6 +142,9 @@ def queue_create_deck_with_slides_task():
         enable_ai_insights = data.get('enableAIInsights', True)
         user_prompt = data.get('userPrompt')
         description = data.get('description')
+        theme_color_raw = data.get('themeColor')
+        theme_color = theme_color_raw if theme_color_raw and theme_color_raw.strip() else '#0094bd'  # Default to Parsec blue
+        print(f"[Backend] Received themeColor from request: '{theme_color_raw}', using: '{theme_color}'")
 
         print(f"[Backend] Queueing create_deck_with_slides task for partner: {partner_name}, title: {title}")
 
@@ -155,7 +158,8 @@ def queue_create_deck_with_slides_task():
             'drive_folder_url': drive_folder_url,
             'enable_ai_insights': enable_ai_insights,
             'user_prompt': user_prompt,
-            'description': description
+            'description': description,
+            'theme_color': theme_color
         })
 
         # Store task in Supabase

@@ -626,9 +626,9 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         else:
             insight_lines = ["Not enough history for insights"]
         
-        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="medium", color="#333333",
+        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=10, fontweight="medium", color="#333333",
                 ha="center", va="center", wrap=True, usetex=False,
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     fig.suptitle(f"{title_label} • {group_name} • {window_filter} Year-to-Year Trends",
                 fontsize=20, fontweight="bold", y=1)
@@ -1445,9 +1445,27 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
         y_cgp = df["median_cgp"].to_numpy(dtype=float)
         y_cgi = df["mean_cgi"].to_numpy(dtype=float)
         
+        # Calculate dynamic y-axis limits for CGP (with padding)
+        cgp_max = np.nanmax(y_cgp) if len(y_cgp) > 0 else 100
+        cgp_min = np.nanmin(y_cgp) if len(y_cgp) > 0 else 0
+        cgp_ylim_max = max(100, cgp_max * 1.1)  # At least 100, or 10% above max
+        cgp_ylim_min = max(0, cgp_min * 0.9) if cgp_min < 0 else 0  # Allow negative if needed, otherwise 0
+        
+        # Calculate dynamic y-axis limits for CGI (with padding)
+        cgi_max = np.nanmax(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else 2.5
+        cgi_min = np.nanmin(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else -2.5
+        cgi_padding = max(0.5, abs(cgi_max - cgi_min) * 0.2)  # 20% padding or at least 0.5
+        cgi_ylim_max = cgi_max + cgi_padding
+        cgi_ylim_min = cgi_min - cgi_padding
+        
+        # Extend background shading if needed (but keep original colors up to 100)
         for y_start, y_end, color in [(0, 20, "#808080"), (20, 40, "#c5c5c5"), (40, 60, "#78daf4"),
                                       (60, 80, "#00baeb"), (80, 100, "#0381a2")]:
             ax.axhspan(y_start, y_end, facecolor=color, alpha=0.5, zorder=0)
+        # Add extra shading if max exceeds 100
+        if cgp_ylim_max > 100:
+            ax.axhspan(100, cgp_ylim_max, facecolor="#0381a2", alpha=0.3, zorder=0)
+        
         for yref in [42, 50, 58]:
             ax.axhline(yref, linestyle="--", color="#6B7280", linewidth=1.2, zorder=0)
         
@@ -1461,12 +1479,19 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
         ax.set_xticks(x_vals)
         ax.set_xticklabels(labels_with_n, ha="center", fontsize=8)
         ax.tick_params(axis="x", pad=10)
-        ax.set_ylim(0, 100)
+        ax.set_ylim(cgp_ylim_min, cgp_ylim_max)
         
         ax2 = ax.twinx()
-        ax2.set_ylim(-2.5, 2.5)
+        ax2.set_ylim(cgi_ylim_min, cgi_ylim_max)
         ax2.set_ylabel("Avg Fall→Fall CGI")
-        ax2.set_yticks([-2, -1, 0, 1, 2])
+        # Set ticks dynamically based on range
+        cgi_range = cgi_ylim_max - cgi_ylim_min
+        if cgi_range <= 5:
+            ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 1))
+        elif cgi_range <= 10:
+            ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 2))
+        else:
+            ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 5))
         ax2.set_zorder(ax.get_zorder() - 1)
         ax2.patch.set_alpha(0)
         

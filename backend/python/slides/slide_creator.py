@@ -536,7 +536,8 @@ def create_slides_presentation(
     drive_folder_url: Optional[str] = None,
     enable_ai_insights: bool = True,
     user_prompt: Optional[str] = None,
-    deck_type: Optional[str] = None
+    deck_type: Optional[str] = None,
+    theme_color: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Main function to create a Google Slides presentation
@@ -663,9 +664,14 @@ def create_slides_presentation(
     else:
         print(f"[Slides] Logo not found at {logo_path}, using fallback text")
     
+    # Use provided theme_color or default to Parsec blue
+    # Handle both None and empty string cases
+    final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+    print(f"[Slides] Theme color: received={theme_color}, using={final_theme_color}")
+    
     # Create cover slide
     cover_slide_id = 'cover_slide_001'
-    create_slide_requests = create_cover_slide_requests(cover_slide_id, logo_url=logo_url)
+    create_slide_requests = create_cover_slide_requests(cover_slide_id, logo_url=logo_url, theme_color=final_theme_color)
     
     # Calculate chart slides needed
     if normalized_charts:
@@ -903,7 +909,8 @@ def create_slides_presentation(
                         slide_object_id=divider_slide_id,
                         test_type=current_test_type,
                         sections=[section_title],
-                        insertion_index=slide_index
+                        insertion_index=slide_index,
+                        theme_color=final_theme_color
                     )
                     # Insert the divider slide
                     try:
@@ -963,7 +970,8 @@ def create_slides_presentation(
                         slide_object_id=divider_slide_id,
                         test_type=current_test_type,
                         sections=[section_title],
-                        insertion_index=slide_index
+                        insertion_index=slide_index,
+                        theme_color=final_theme_color
                     )
                     # Insert the divider slide
                     try:
@@ -1119,7 +1127,8 @@ def create_slides_presentation(
                         SLIDE_HEIGHT_EMU,
                         global_chart_index,
                         insight1=insight1,
-                        insight2=insight2
+                        insight2=insight2,
+                        theme_color=final_theme_color
                     )
                     print(f"[Slides] Using dual chart template for subject graphs with title: {title_text}")
                     print(f"[Slides]   Chart 1: {Path(current_charts[0]).name} -> {current_urls[0][:50]}...")
@@ -1244,7 +1253,8 @@ def create_slides_presentation(
                         SLIDE_WIDTH_EMU,
                         SLIDE_HEIGHT_EMU,
                         global_chart_index,
-                        summary
+                        summary=summary,
+                        theme_color=final_theme_color
                     )
                     print(f"[Slides] Using single chart template with title: {title_text}")
                     print(f"[Slides]   Chart: {Path(current_charts[0]).name} -> {current_urls[0][:50]}...")

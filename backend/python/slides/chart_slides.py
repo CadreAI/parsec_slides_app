@@ -5,6 +5,15 @@ from typing import List, Dict, Optional, Any
 from .slide_constants import SLIDE_WIDTH_EMU, SLIDE_HEIGHT_EMU, PARSEC_BLUE, hex_to_rgb_color
 
 
+def hex_to_rgb_dict(hex_str: str) -> Dict[str, float]:
+    """Convert hex color string to RGB dict for Slides API"""
+    clean_hex = hex_str.replace('#', '')
+    r = int(clean_hex[0:2], 16) / 255.0
+    g = int(clean_hex[2:4], 16) / 255.0
+    b = int(clean_hex[4:6], 16) / 255.0
+    return {'red': r, 'green': g, 'blue': b}
+
+
 def create_chart_slide_request(presentation_id: str, slide_object_id: str, insertion_index: int) -> Dict[str, Any]:
     """Create a blank slide for charts"""
     return {
@@ -23,9 +32,14 @@ def create_single_chart_slide_requests(
     slide_width_emu: float = SLIDE_WIDTH_EMU,
     slide_height_emu: float = SLIDE_HEIGHT_EMU,
     start_index: int = 0,
-    summary: Optional[str] = None
+    summary: Optional[str] = None,
+    theme_color: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Create requests for a single chart slide with title and summary"""
+    # Use provided theme_color or default to Parsec blue
+    # Handle both None and empty string cases
+    final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+    
     requests = []
     
     if not chart_url:
@@ -53,7 +67,7 @@ def create_single_chart_slide_requests(
         {
             'updateShapeProperties': {
                 'objectId': top_bar_object_id,
-                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': PARSEC_BLUE}}}},
+                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': hex_to_rgb_dict(final_theme_color)}}}},
                 'fields': 'shapeBackgroundFill.solidFill.color'
             }
         }
@@ -140,9 +154,14 @@ def create_dual_chart_slide_requests(
     slide_height_emu: float = SLIDE_HEIGHT_EMU,
     start_index: int = 0,
     insight1: Optional[Dict[str, Any]] = None,
-    insight2: Optional[Dict[str, Any]] = None
+    insight2: Optional[Dict[str, Any]] = None,
+    theme_color: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Create requests for a dual chart slide (math + reading side by side) with context text below each chart"""
+    # Use provided theme_color or default to Parsec blue
+    # Handle both None and empty string cases
+    final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
+    
     requests = []
     
     if not chart_url1 or not chart_url2:
@@ -171,7 +190,7 @@ def create_dual_chart_slide_requests(
         {
             'updateShapeProperties': {
                 'objectId': top_bar_object_id,
-                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': PARSEC_BLUE}}}},
+                'shapeProperties': {'shapeBackgroundFill': {'solidFill': {'color': {'rgbColor': hex_to_rgb_dict(final_theme_color)}}}},
                 'fields': 'shapeBackgroundFill.solidFill.color'
             }
         }
