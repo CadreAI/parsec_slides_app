@@ -178,11 +178,26 @@ def _prep_section0_iready(df, subject):
         * 100
     )
     
+    # Calculate distributions for chart_data tracking
+    iready_pct = {}
+    for level in hf.IREADY_ORDER:
+        count = (d[placement_col] == level).sum()
+        total = len(d)
+        iready_pct[level] = (count / total * 100) if total > 0 else 0.0
+    
+    cers_pct = {}
+    for level in hf.CERS_LEVELS:
+        count = (d[cers_col] == level).sum()
+        total = len(d)
+        cers_pct[level] = (count / total * 100) if total > 0 else 0.0
+    
     metrics = {
         "iready_mid_above": iready_mid_above,
         "cers_met_exceed": cers_met_exceed,
         "delta": iready_mid_above - cers_met_exceed,
         "year": int(last_year),
+        "iready_pct": iready_pct,
+        "cers_pct": cers_pct,
     }
     
     return cross_dict, metrics, last_year
