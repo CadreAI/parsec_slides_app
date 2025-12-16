@@ -331,7 +331,7 @@ def run_section0_iready(
                     f"{val:.1f}%",
                     ha="center",
                     va="bottom",
-                    fontsize=10,
+                    fontsize=14,
                     fontweight="bold",
                     color="#434343",
                 )
@@ -622,7 +622,7 @@ def run_section0_1_iready_fall_winter(
                         f"{val:.1f}",
                         ha="center",
                         va="bottom",
-                        fontsize=10,
+                        fontsize=14,
                         fontweight="bold",
                         color="#333",
                     )
@@ -1045,7 +1045,7 @@ def plot_iready_dual_subject_dashboard(
                 f"{v:.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=14,
                 fontweight="bold",
                 color="#333",
             )
@@ -1454,7 +1454,7 @@ def plot_iready_subject_dashboard_by_group(
                 f"{v:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=10,
+                fontsize=14,
                 fontweight="bold",
                 color="#434343",
             )
@@ -2165,7 +2165,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
                 f"{yv:.0f}%\n(n={int(n)})",
                 ha="center",
                 va="center",
-                fontsize=10,
+                fontsize=14,
                 fontweight="bold",
                 color="white",
             )
@@ -2571,7 +2571,7 @@ def run_section5_growth_progress_moy(
                         f"{v:.0f}%",
                         ha="center",
                         va="bottom",
-                        fontsize=12,
+                        fontsize=14,
                         fontweight="bold",
                         color="#333",
                     )
@@ -2612,7 +2612,7 @@ def run_section5_growth_progress_moy(
                         f"{v:.0f}%",
                         ha="center",
                         va="bottom",
-                        fontsize=11,
+                        fontsize=14,
                         fontweight="bold",
                         color="#333",
                     )

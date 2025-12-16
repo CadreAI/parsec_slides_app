@@ -11,7 +11,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
         }
 
-        const token = await getToken()
+        // Get token for backend API authentication
+        // Try with backend template first, fallback to default if template doesn't exist
+        let token: string | null = null
+        try {
+            token = await getToken({ template: 'backend' })
+        } catch (error) {
+            // Template doesn't exist, fallback to default token
+            console.log('[API Route /create-deck-with-slides] Backend template not found, using default token')
+        }
+        if (!token) {
+            token = await getToken()
+        }
 
         const body = await request.json().catch(() => ({}))
 
@@ -62,7 +73,8 @@ export async function POST(request: Request) {
                 driveFolderUrl: body?.driveFolderUrl,
                 enableAIInsights: body?.enableAIInsights ?? true,
                 userPrompt: body?.userPrompt,
-                description: body?.description
+                description: body?.description,
+                themeColor: body?.themeColor
             })
         })
 

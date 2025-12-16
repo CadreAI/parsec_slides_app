@@ -621,7 +621,7 @@ def main(iready_data=None):
                     f"{val:.1f}%",
                     ha="center",
                     va="bottom",
-                    fontsize=10,
+                    fontsize=14,
                     fontweight="bold",
                     color="#434343",
                 )
@@ -882,7 +882,7 @@ def main(iready_data=None):
                         f"{val:.1f}",
                         ha="center",
                         va="bottom",
-                        fontsize=10,
+                        fontsize=14,
                         fontweight="bold",
                         color="#333",
                     )
@@ -1150,7 +1150,7 @@ def main(iready_data=None):
                     f"{yv:.0f}%\n(n={int(n)})",
                     ha="center",
                     va="center",
-                    fontsize=10,
+                    fontsize=14,
                     fontweight="bold",
                     color="white",
                 )
@@ -1551,7 +1551,7 @@ def main(iready_data=None):
                         f"{v:.0f}%",
                         ha="center",
                         va="bottom",
-                        fontsize=12,
+                        fontsize=14,
                         fontweight="bold",
                         color="#333",
                     )
@@ -1587,7 +1587,7 @@ def main(iready_data=None):
                         f"{v:.0f}%",
                         ha="center",
                         va="bottom",
-                        fontsize=11,
+                        fontsize=14,
                         fontweight="bold",
                         color="#333",
                     )

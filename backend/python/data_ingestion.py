@@ -380,7 +380,7 @@ def ingest_iready(
                 year_column = 'AcademicYear'
             elif 'year' in [col.lower() for col in table_columns]:
                 year_column = 'Year'
-            
+
             # Build SQL query for this specific year
             sql_filters = {'years': [year]}
             sql = sql_iready(table_id, exclude_cols, filters=sql_filters, year_column=year_column)

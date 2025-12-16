@@ -22,6 +22,9 @@ openai>=1.0.0
 # Database
 supabase>=2.0.0
 
+# Authentication
+clerk-backend-api>=4.2.0
+
 # Utilities
 python-dotenv>=1.0.0
 

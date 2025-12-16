@@ -55,6 +55,9 @@ CLERK_AUTHORIZED_PARTIES = [
     p.strip() for p in os.environ.get('CLERK_AUTHORIZED_PARTIES', '').split(',') if p.strip()
 ]
 
+if not CLERK_SECRET_KEY:
+    print("[Backend] WARNING: CLERK_SECRET_KEY not set in environment variables")
+
 
 def authenticate_request():
     """
@@ -62,6 +65,22 @@ def authenticate_request():
     Expects Authorization: Bearer <token> header forwarded from frontend.
     """
     try:
+        # Check if Authorization header exists
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            print("[Backend] No Authorization header found")
+            raise ValueError('No Authorization header provided')
+        
+        if not auth_header.startswith('Bearer '):
+            print(f"[Backend] Invalid Authorization header format: {auth_header[:20]}...")
+            raise ValueError('Invalid Authorization header format')
+        
+        print(f"[Backend] Authorization header present: {auth_header[:20]}...")
+        
+        if not CLERK_SECRET_KEY:
+            print("[Backend] ERROR: CLERK_SECRET_KEY not configured")
+            raise ValueError('CLERK_SECRET_KEY not configured')
+        
         client = Clerk(bearer_auth=CLERK_SECRET_KEY)
         httpx_request = httpx.Request(
             method=request.method,
@@ -69,13 +88,17 @@ def authenticate_request():
             headers=dict(request.headers)
         )
         opts = AuthenticateRequestOptions(
-            authorized_parties=CLERK_AUTHORIZED_PARTIES
+            authorized_parties=CLERK_AUTHORIZED_PARTIES if CLERK_AUTHORIZED_PARTIES else None
         )
         state = client.authenticate_request(httpx_request, opts)
         if not state.is_signed_in:
+            print("[Backend] Authentication failed: user not signed in")
             raise ValueError('Unauthorized')
+        # RequestState doesn't have user_id attribute, but we can check session_id or other attributes
+        print("[Backend] Authentication successful")
         return state
     except Exception as e:
+        print(f"[Backend] Auth error: {e}")
         raise ValueError(f'Auth failed: {e}') from e
 
 @app.route('/health', methods=['GET'])
@@ -245,7 +268,9 @@ def get_user_tasks():
     try:
         authenticate_request()
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 401
+        error_msg = str(e)
+        print(f"[Backend] /tasks authentication failed: {error_msg}")
+        return jsonify({'success': False, 'error': error_msg}), 401
 
     try:
         clerk_user_id = request.args.get('clerkUserId')

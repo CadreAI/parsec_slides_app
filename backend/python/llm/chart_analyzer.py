@@ -519,20 +519,21 @@ def analyze_chart_with_gpt(
     max_context = 8192
     
     # If prompt is too large for gpt-4, use gpt-4o which has 128k context window
-    if estimated_tokens > 7000:  # Leave room for response
+    # Switch to gpt-4o earlier (5000 instead of 7000) to ensure enough room for complete JSON responses
+    if estimated_tokens > 5000:  # Leave room for response (reduced from 7000)
         # Use gpt-4o which has 128k context window (much larger than gpt-4's 8k)
         model = "gpt-4o"
         max_context = 128000
         print(f"[Chart Analyzer] Prompt is large ({estimated_tokens} estimated tokens), using {model} for larger context window")
-    elif estimated_tokens > 6000:
+    elif estimated_tokens > 4000:
         print(f"[Chart Analyzer] Warning: Large prompt ({estimated_tokens} estimated tokens), may exceed gpt-4 context limit")
     
     try:
         # Use text-only model with appropriate context window
         # Calculate max_tokens leaving buffer for response
-        max_response_tokens = min(2000, max_context - estimated_tokens - 1000)  # Leave 1k token buffer
-        if max_response_tokens < 500:
-            max_response_tokens = 500  # Minimum response size
+        max_response_tokens = min(3000, max_context - estimated_tokens - 1000)  # Increased from 2000 to 3000
+        if max_response_tokens < 1500:
+            max_response_tokens = 1500  # Increased minimum from 500 to 1500 to ensure complete JSON
         
         response = client.chat.completions.create(
             model=model,
@@ -608,7 +609,7 @@ def analyze_chart_with_gpt(
                                 "content": prompt
                             }
                         ],
-                        max_tokens=2000,
+                        max_tokens=3000,  # Increased from 2000 to allow complete JSON responses
                         temperature=0.4
                     )
                     # Process response same as above
@@ -889,9 +890,9 @@ def analyze_multiple_charts_with_gpt(
         print(f"[Chart Analyzer] Warning: Very large multi-chart prompt ({estimated_tokens} tokens), may need further optimization")
     
     try:
-        max_response_tokens = min(4000, max_context - estimated_tokens - 2000)  # Larger response for multiple charts
-        if max_response_tokens < 1000:
-            max_response_tokens = 1000
+        max_response_tokens = min(6000, max_context - estimated_tokens - 2000)  # Larger response for multiple charts (increased from 4000)
+        if max_response_tokens < 2000:
+            max_response_tokens = 2000  # Increased minimum from 1000 to ensure complete JSON array
         
         response = client.chat.completions.create(
             model=model,

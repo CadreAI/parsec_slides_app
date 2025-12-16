@@ -15,7 +15,18 @@ export async function GET(_: Request, { params }: { params: Promise<{ taskId: st
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
         }
 
-        const token = await getToken()
+        // Get token for backend API authentication
+        // Try with backend template first, fallback to default if template doesn't exist
+        let token: string | null = null
+        try {
+            token = await getToken({ template: 'backend' })
+        } catch (error) {
+            // Template doesn't exist, fallback to default token
+            console.log('[API Route /tasks/status] Backend template not found, using default token')
+        }
+        if (!token) {
+            token = await getToken()
+        }
 
         const res = await fetch(`${BACKEND_BASE}/tasks/status/${taskId}`, {
             headers: token ? { Authorization: `Bearer ${token}` } : undefined

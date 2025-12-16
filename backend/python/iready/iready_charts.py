@@ -263,7 +263,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
                 f"{val:.1f}%",
                 ha="center",
                 va="bottom",
-                fontsize=10,
+                fontsize=14,
                 fontweight="bold",
                 color="#434343",
             )
@@ -1080,7 +1080,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder, output_dir, c
                 f"{yv:.0f}%\n(n={int(n)})",
                 ha="center",
                 va="center",
-                fontsize=10,
+                fontsize=14,
                 fontweight="bold",
                 color="white",
             )
@@ -1401,7 +1401,7 @@ def _plot_mid_flag_stacked(data, subject, scope_label, folder, output_dir, cfg, 
                     f"{v:.0f}%",
                     ha="center",
                     va="center",
-                    fontsize=11,
+                    fontsize=14,
                     fontweight="bold",
                     color=label_color,
                 )

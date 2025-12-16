@@ -623,11 +623,11 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None, cfg=None):
     bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
     for rect, yv in zip(bars, y_cgp):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
-               ha="center", va="center", fontsize=12, fontweight="bold", color="white")
+               ha="center", va="center", fontsize=14, fontweight="bold", color="white")
     
     ax.set_ylabel("Median Fall→Winter CGP")
     ax.set_xticks(x_vals)
-    ax.set_xticklabels(sub["time_label"].astype(str).tolist())
+    ax.set_xticklabels(sub["time_label"].astype(str).tolist(), fontsize=9)
     ax.set_ylim(0, 100)
     ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
@@ -724,7 +724,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
         n_map_dict = dict(zip(n_map["time_label"], n_map["n"]))
         ticklabels = [str(lbl) for lbl in sub_df["time_label"]]
         labels_with_n = [f"{lbl}\n(n = {int(n_map_dict.get(lbl, 0))})" for lbl in ticklabels]
-        ax.set_xticklabels(labels_with_n)
+        ax.set_xticklabels(labels_with_n, fontsize=9)
         ax.tick_params(axis="x", pad=10)
         n_labels_axes.append(ax)
     
@@ -812,7 +812,7 @@ def _prep_cgp_by_grade(df, subject, grade):
 def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label, output_dir, cfg, preview=False):
     # Use gridspec to allow for comparison box at bottom
     fig = plt.figure(figsize=(16, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[4, 0.8], width_ratios=[1, 1], hspace=0.35, wspace=0.28)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[4, 1.1], width_ratios=[1, 1], hspace=0.4, wspace=0.28)
     axs = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])]
     
     def draw_panel(df, ax, title):
@@ -850,12 +850,12 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
         bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
         for rect, yv in zip(bars, y_cgp):
             ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
-                   ha="center", va="center", fontsize=12, fontweight="bold", color="white")
+                   ha="center", va="center", fontsize=14, fontweight="bold", color="white")
         
         labels_with_n = df["time_label"].astype(str).tolist()
         ax.set_ylabel("Median Winter→Spring CGP")
         ax.set_xticks(x_vals)
-        ax.set_xticklabels(labels_with_n, ha="center", fontsize=11)
+        ax.set_xticklabels(labels_with_n, ha="center", fontsize=9)
         ax.tick_params(axis="x", pad=10)
         ax.set_ylim(cgp_ylim_min, cgp_ylim_max)
         
@@ -983,9 +983,9 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
         
         # Display comparison text
         comparison_text = "\n".join(comparison_lines)
-        ax_compare.text(0.5, 0.5, comparison_text, fontsize=13, fontweight="normal", color="#333333",
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=11, fontweight="normal", color="#333333",
                         ha="center", va="center", wrap=True, usetex=False,
-                        bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
+                        bbox=dict(boxstyle="round,pad=1.0", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     # Prepare chart data for saving
     chart_data = {
@@ -2168,11 +2168,11 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
     for rect, yv in zip(bars, y_cgp):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
-               ha="center", va="center", fontsize=12, fontweight="bold", color="white")
+               ha="center", va="center", fontsize=14, fontweight="bold", color="white")
     
     ax.set_ylabel("Median Fall→Fall CGP")
     ax.set_xticks(x_vals)
-    ax.set_xticklabels(sub["time_label"].astype(str).tolist())
+    ax.set_xticklabels(sub["time_label"].astype(str).tolist(), fontsize=9)
     ax.set_ylim(0, 100)
     ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
@@ -2217,7 +2217,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
         return
     
     fig = plt.figure(figsize=(16, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.75])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     fig.suptitle(f"{scope_label} • Fall→Fall Growth (All Students)", fontsize=24, fontweight="bold", y=0.99)
     
@@ -2277,7 +2277,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
         n_map_dict = dict(zip(n_map["time_label"], n_map["n"]))
         ticklabels = [str(lbl) for lbl in sub_df["time_label"]]
         labels_with_n = [f"{lbl}\n(n = {int(n_map_dict.get(lbl, 0))})" for lbl in ticklabels]
-        ax.set_xticklabels(labels_with_n)
+        ax.set_xticklabels(labels_with_n, fontsize=9)
         ax.tick_params(axis="x", pad=10)
     
     legend_handles = [Patch(facecolor="#0381a2", edgecolor="white", label="Median CGP"),
@@ -2317,9 +2317,9 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
         
         # Display comparison text
         comparison_text = "\n".join(comparison_lines)
-        ax_compare.text(0.5, 0.5, comparison_text, fontsize=13, fontweight="normal", color="#333333",
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=10, fontweight="normal", color="#333333",
                         ha="center", va="center", wrap=True, usetex=False,
-                        bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
+                        bbox=dict(boxstyle="round,pad=0.9", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     charts_dir = Path(output_dir)
     folder_name = "_district" if scope_label == cfg.get("district_name", ["District (All Students)"])[0] else scope_label.replace(" ", "_")

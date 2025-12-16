@@ -941,7 +941,8 @@ def create_slides_presentation(
                     slide_object_id=divider_slide_id,
                     test_type=current_test_type,
                     sections=[section_title],
-                    insertion_index=slide_index
+                    insertion_index=slide_index,
+                    theme_color=final_theme_color
                 )
                 # Insert the divider slide
                 try:

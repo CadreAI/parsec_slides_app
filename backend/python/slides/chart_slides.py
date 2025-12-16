@@ -271,9 +271,9 @@ def create_dual_chart_slide_requests(
                     'size': {'width': {'magnitude': chart_width, 'unit': 'EMU'}, 'height': {'magnitude': chart_height, 'unit': 'EMU'}},
                     'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': chart2_x, 'translateY': chart2_y, 'unit': 'EMU'}
                 }
+                }
             }
-        }
-    ])
+        ])
     
     return requests
 
