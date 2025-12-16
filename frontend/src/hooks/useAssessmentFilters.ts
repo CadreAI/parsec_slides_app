@@ -30,6 +30,8 @@ export function useAssessmentFilters(
     const [isLoadingFilters, setIsLoadingFilters] = useState(false)
 
     useEffect(() => {
+        const abortController = new AbortController()
+
         const fetchAssessmentFilters = async () => {
             if (assessments.length === 0) {
                 setAvailableSubjects([])
@@ -58,7 +60,8 @@ export function useAssessmentFilters(
                               )
                             : ''
                     const res = await fetch(
-                        `/api/bigquery/assessment-filters?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(datasetId)}&assessments=${encodeURIComponent(assessmentsParam)}&location=${encodeURIComponent(location || 'US')}${tablePathsParam}`
+                        `/api/bigquery/assessment-filters?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(datasetId)}&assessments=${encodeURIComponent(assessmentsParam)}&location=${encodeURIComponent(location || 'US')}${tablePathsParam}`,
+                        { signal: abortController.signal }
                     )
                     if (res.ok) {
                         const data = await res.json()
@@ -106,6 +109,11 @@ export function useAssessmentFilters(
                 setSupportsStudentGroups(DEFAULT_FILTERS.supportsStudentGroups)
                 setSupportsRace(DEFAULT_FILTERS.supportsRace)
             } catch (error) {
+                // Ignore abort errors - these are intentional cancellations
+                if (error instanceof Error && error.name === 'AbortError') {
+                    console.log('[useAssessmentFilters] Request aborted (expected behavior)')
+                    return
+                }
                 console.error('Error fetching assessment filters:', error)
                 setAvailableSubjects(DEFAULT_FILTERS.subjects)
                 setAvailableQuarters(DEFAULT_FILTERS.quarters)
@@ -117,6 +125,11 @@ export function useAssessmentFilters(
             }
         }
         fetchAssessmentFilters()
+
+        // Cleanup: abort the request if dependencies change or component unmounts
+        return () => {
+            abortController.abort()
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         assessments.join(','),

@@ -36,3 +36,4 @@ PyPDF2>=3.0.0
 pdfplumber>=0.10.0  # Better for complex layouts
 pymupdf>=1.23.0  # Better for image-based PDFs (PyMuPDF)
 
+clerk-backend-api>=1.0.0

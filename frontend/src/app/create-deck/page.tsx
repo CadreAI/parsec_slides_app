@@ -14,8 +14,10 @@ import { useAvailableAssessments } from '@/hooks/useAvailableAssessments'
 import { useDatasets } from '@/hooks/useDatasets'
 import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { useFormOptions } from '@/hooks/useFormOptions'
+import { useRaceOptions } from '@/hooks/useRaceOptions'
+import { useStudentGroupOptions } from '@/hooks/useStudentGroupOptions'
 import { useStudentGroups } from '@/hooks/useStudentGroups'
-import { getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
+import { getClusteredSchoolOptions, getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
 import { getQuarterBackendValue } from '@/utils/quarterLabels'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -69,7 +71,7 @@ export default function CreateSlide() {
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
-    const { grades: GRADES, years: YEARS } = useFormOptions(
+    const { grades: GRADES, years: YEARS, isLoading: isLoadingFormOptions  } = useFormOptions(
         formData.projectId,
         formData.partnerName,
         formData.location,
@@ -78,12 +80,13 @@ export default function CreateSlide() {
     )
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
-    const { availableDistricts, availableSchools, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
+    const { availableDistricts, availableSchools, clusteredSchools, schoolClusters, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
         formData.partnerName,
         formData.projectId,
         formData.location,
         formData.assessments,
-        formData.customDataSources
+        formData.customDataSources,
+        formData.districtName
     )
     const { availableAssessments, assessmentTables, variants, isLoadingAssessmentTables } = useAssessmentTables(
         formData.partnerName,
@@ -100,13 +103,28 @@ export default function CreateSlide() {
         undefined,
         formData.customDataSources
     )
+    const { raceOptions: dynamicRaceOptions, isLoadingRace } = useRaceOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
+    )
+    const { studentGroupOptions: dynamicStudentGroupOptions, isLoadingStudentGroups } = useStudentGroupOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
+    )
 
     // Combined loading state to prevent stale UI
-    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets
+    const isLoadingChoices = isLoadingDistrictsSchools || isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace || isLoadingStudentGroups
 
     // Helper functions
     const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
     const schoolOptions = getSchoolOptions(formData.districtName, districtSchoolMap, availableSchools, formData.partnerName, PARTNER_CONFIG)
+    const clusteredSchoolOptions = getClusteredSchoolOptions(formData.districtName, districtSchoolMap, clusteredSchools, schoolClusters, formData.partnerName, PARTNER_CONFIG)
 
     const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
         setFormData((prev) => {
@@ -233,6 +251,11 @@ export default function CreateSlide() {
             // Use selected districts from scope selection
             const districtList = formData.districtName ? [formData.districtName] : ['Parsec Academy']
 
+            // Expand clustered school names to actual school names
+            const expandedSchools = formData.schools.flatMap(
+                schoolName => schoolClusters[schoolName] || [schoolName]
+            )
+
             // Build config object
             const config = {
                 partner_name: formData.partnerName || 'demodashboard',
@@ -259,7 +282,8 @@ export default function CreateSlide() {
                     config_dir: '.'
                 },
                 // Scope selection: only generate charts for selected schools/districts
-                selected_schools: formData.districtOnly ? [] : formData.schools.length > 0 ? formData.schools : [], // Empty array if district only mode
+                // Use expanded schools (cluster names expanded to actual database school names)
+                selected_schools: formData.districtOnly ? [] : expandedSchools.length > 0 ? expandedSchools : [], // Empty array if district only mode
                 include_district_scope: !!formData.districtName // Include district scope if district is selected
             }
 
@@ -390,18 +414,6 @@ export default function CreateSlide() {
                                             ))}
                                         </Select>
                                         {isLoadingDatasets && <p className="text-muted-foreground text-xs">Fetching datasets from BigQuery...</p>}
-                                        {!isLoadingDatasets && partnerOptions.length === 1 && (
-                                            <p className="text-muted-foreground text-xs">Enter a GCP Project ID above to load available datasets</p>
-                                        )}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="projectId">GCP Project ID</Label>
-                                        <Input
-                                            id="projectId"
-                                            value={formData.projectId}
-                                            onChange={(e) => setFormData((prev) => ({ ...prev, projectId: e.target.value }))}
-                                            placeholder="parsecgo"
-                                        />
                                     </div>
                                 </div>
                             </div>
@@ -613,7 +625,7 @@ export default function CreateSlide() {
                                             </Label>
                                             <MultiSelect
                                                 key={`schools-${formData.districtName}-${Object.values(formData.customDataSources).join(',')}`}
-                                                options={schoolOptions}
+                                                options={clusteredSchoolOptions}
                                                 selected={formData.schools}
                                                 onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
                                                 placeholder={
@@ -722,23 +734,12 @@ export default function CreateSlide() {
                                     )}
                                     {(supportsStudentGroups || supportsRace) && (
                                         <div className="grid grid-cols-2 gap-4">
-                                            {supportsStudentGroups && (
+                                            {supportsStudentGroups && dynamicStudentGroupOptions.length > 1 && (
                                                 <div className="space-y-2">
                                                     <Label>Student Groups</Label>
                                                     <MultiSelect
                                                         key={`student-groups-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
-                                                        options={
-                                                            studentGroupOptions.length > 0
-                                                                ? studentGroupOptions.filter((group) => !raceOptions.includes(group))
-                                                                : [
-                                                                      'All Students',
-                                                                      'English Learners',
-                                                                      'Students with Disabilities',
-                                                                      'Socioeconomically Disadvantaged',
-                                                                      'Foster',
-                                                                      'Homeless'
-                                                                  ]
-                                                        }
+                                                        options={dynamicStudentGroupOptions}
                                                         selected={formData.studentGroups}
                                                         onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
                                                         placeholder={isLoadingChoices ? 'Loading student groups...' : 'Select student group(s)...'}
@@ -752,8 +753,8 @@ export default function CreateSlide() {
                                                     <MultiSelect
                                                         key={`race-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                         options={
-                                                            raceOptions.length > 0
-                                                                ? raceOptions
+                                                            dynamicRaceOptions.length > 0
+                                                                ? dynamicRaceOptions
                                                                 : [
                                                                       'Hispanic or Latino',
                                                                       'White',

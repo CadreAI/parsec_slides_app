@@ -9,8 +9,14 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
+        const abortController = new AbortController()
+
         const fetchFormOptions = async () => {
+            // IMMEDIATELY clear state when dependencies change to prevent showing stale data
             setIsLoading(true)
+            setGrades([])
+            setYears([])
+
             try {
                 // Only fetch from actual data tables if we have projectId, datasetId, AND assessments selected
                 if (projectId && datasetId && assessments && assessments.length > 0) {
@@ -32,7 +38,10 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
                         }
                     }
 
-                    const res = await fetch(`/api/bigquery/form-options?${params.toString()}`)
+                    const res = await fetch(
+                        `/api/bigquery/form-options?${params.toString()}`,
+                        { signal: abortController.signal }
+                    )
                     if (res.ok) {
                         const data = await res.json()
                         if (data.success) {
@@ -50,6 +59,11 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
                 const currentYear = new Date().getFullYear()
                 setYears([currentYear, currentYear + 1, currentYear + 2, currentYear + 3].map((y) => y.toString()))
             } catch (error) {
+                // Ignore abort errors - these are intentional cancellations
+                if (error instanceof Error && error.name === 'AbortError') {
+                    console.log('[useFormOptions] Request aborted (expected behavior)')
+                    return
+                }
                 console.error('Error fetching form options:', error)
                 // Fallback to all possible grades (Pre-K to 12)
                 setGrades(['-1', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'])
@@ -61,6 +75,11 @@ export function useFormOptions(projectId?: string, datasetId?: string, location?
         }
 
         fetchFormOptions()
+
+        // Cleanup: abort the request if dependencies change or component unmounts
+        return () => {
+            abortController.abort()
+        }
     }, [
         projectId,
         datasetId,

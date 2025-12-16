@@ -19,6 +19,8 @@ export function useAssessmentTables<T extends { customDataSources?: Record<strin
     const [isLoadingAssessmentTables, setIsLoadingAssessmentTables] = useState(false)
 
     useEffect(() => {
+        const abortController = new AbortController()
+
         const fetchAssessmentTables = async () => {
             if (!partnerName || !projectId || partnerName.trim() === '') {
                 setAvailableAssessments([])
@@ -30,7 +32,8 @@ export function useAssessmentTables<T extends { customDataSources?: Record<strin
             setIsLoadingAssessmentTables(true)
             try {
                 const res = await fetch(
-                    `/api/bigquery/assessment-tables?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(partnerName)}&location=${encodeURIComponent(location)}&includeVariants=${includeVariants}`
+                    `/api/bigquery/assessment-tables?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(partnerName)}&location=${encodeURIComponent(location)}&includeVariants=${includeVariants}`,
+                    { signal: abortController.signal }
                 )
                 const data = await res.json()
 
@@ -64,6 +67,11 @@ export function useAssessmentTables<T extends { customDataSources?: Record<strin
                     setVariants({})
                 }
             } catch (error) {
+                // Ignore abort errors - these are intentional cancellations
+                if (error instanceof Error && error.name === 'AbortError') {
+                    console.log('[useAssessmentTables] Request aborted (expected behavior)')
+                    return
+                }
                 console.error('Error fetching assessment tables:', error)
                 setAvailableAssessments([])
                 setAssessmentTables({})
@@ -74,6 +82,11 @@ export function useAssessmentTables<T extends { customDataSources?: Record<strin
         }
 
         fetchAssessmentTables()
+
+        // Cleanup: abort the request if dependencies change or component unmounts
+        return () => {
+            abortController.abort()
+        }
     }, [partnerName, projectId, location, includeVariants, setFormData])
 
     return {
