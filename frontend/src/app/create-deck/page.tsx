@@ -1,5 +1,6 @@
 'use client'
 
+import { AssessmentScopeSelector } from '@/components/AssessmentScopeSelector'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -7,18 +8,15 @@ import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
-import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAssessmentFilters } from '@/hooks/useAssessmentFilters'
 import { useAssessmentTables } from '@/hooks/useAssessmentTables'
 import { useAvailableAssessments } from '@/hooks/useAvailableAssessments'
 import { useDatasets } from '@/hooks/useDatasets'
-import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { useFormOptions } from '@/hooks/useFormOptions'
 import { useRaceOptions } from '@/hooks/useRaceOptions'
 import { useStudentGroupOptions } from '@/hooks/useStudentGroupOptions'
 import { useStudentGroups } from '@/hooks/useStudentGroups'
-import { getClusteredSchoolOptions, getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
 import { getQuarterBackendValue } from '@/utils/quarterLabels'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -55,9 +53,8 @@ export default function CreateSlide() {
         customDataSources: {} as Record<string, string>,
         // Slide Configuration
         deckName: '',
-        districtName: '',
-        schools: [] as string[],
-        districtOnly: false, // New: Filter to district-level charts only
+        // Per-assessment scopes: { 'NWEA': { districts: [], schools: [] }, 'iReady': { ... } }
+        assessmentScopes: {} as Record<string, { districts: string[]; schools: string[]; districtOnly?: boolean }>,
         grades: [] as string[],
         years: [] as string[],
         quarters: '' as string,
@@ -79,14 +76,7 @@ export default function CreateSlide() {
     } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
-    const { availableDistricts, availableSchools, clusteredSchools, schoolClusters, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
-        formData.partnerName,
-        formData.projectId,
-        formData.location,
-        formData.assessments,
-        formData.customDataSources,
-        formData.districtName
-    )
+    // Note: District/school fetching is now done per-assessment (see AssessmentScopeSelector component below)
     const { availableAssessments, assessmentTables, variants, isLoadingAssessmentTables } = useAssessmentTables(
         formData.partnerName,
         formData.projectId,
@@ -119,29 +109,41 @@ export default function CreateSlide() {
 
     // Combined loading state to prevent stale UI
     const isLoadingChoices =
-        isLoadingDistrictsSchools ||
-        isLoadingFilters ||
-        isLoadingAssessmentTables ||
-        isLoadingDatasets ||
-        isLoadingFormOptions ||
-        isLoadingRace ||
-        isLoadingStudentGroups
+        isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace || isLoadingStudentGroups
 
-    // Helper functions
-    const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
-    const schoolOptions = getSchoolOptions(formData.districtName, districtSchoolMap, availableSchools, formData.partnerName, PARTNER_CONFIG)
-    const clusteredSchoolOptions = getClusteredSchoolOptions(
-        formData.districtName,
-        districtSchoolMap,
-        clusteredSchools,
-        schoolClusters,
-        formData.partnerName,
-        PARTNER_CONFIG
-    )
+    // Note: District/school selection is now done per-assessment
+    // See AssessmentScopeSelector component below
 
     const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
         setFormData((prev) => {
             const currentArray = (prev[name as keyof typeof prev] as string[]) || []
+
+            // Special handling for assessments - initialize or remove scope
+            if (name === 'assessments') {
+                const newAssessments = checked ? [...currentArray, value] : currentArray.filter((item) => item !== value)
+
+                const newScopes = { ...prev.assessmentScopes }
+
+                if (checked) {
+                    // Initialize scope for new assessment
+                    newScopes[value] = {
+                        districts: [],
+                        schools: [],
+                        districtOnly: false
+                    }
+                } else {
+                    // Remove scope for deselected assessment
+                    delete newScopes[value]
+                }
+
+                return {
+                    ...prev,
+                    [name]: newAssessments,
+                    assessmentScopes: newScopes
+                }
+            }
+
+            // Default handling for other checkboxes
             if (checked) {
                 return {
                     ...prev,
@@ -168,7 +170,7 @@ export default function CreateSlide() {
         setFormData((prev) => ({
             ...prev,
             partnerName: partner,
-            districtName: '',
+            districts: [],
             schools: [],
             quarters: ''
         }))
@@ -178,7 +180,7 @@ export default function CreateSlide() {
         setFormData((prev) => ({
             ...prev,
             partnerName: partner,
-            districtName: '',
+            districts: [],
             schools: [],
             quarters: ''
         }))
@@ -186,9 +188,7 @@ export default function CreateSlide() {
 
     // Helper function to reset scope and filters when data changes
     const resetScopeAndFilters = () => ({
-        districtName: '',
-        schools: [],
-        districtOnly: false,
+        // Keep assessmentScopes intact - they are managed separately per assessment
         grades: [],
         quarters: '',
         subjects: [],
@@ -219,6 +219,16 @@ export default function CreateSlide() {
         }))
     }
 
+    const handleAssessmentScopeChange = (assessmentId: string, scope: { districts: string[]; schools: string[]; districtOnly?: boolean }) => {
+        setFormData((prev) => ({
+            ...prev,
+            assessmentScopes: {
+                ...prev.assessmentScopes,
+                [assessmentId]: scope
+            }
+        }))
+    }
+
     // Combined: Ingest data, generate charts, then create slide deck
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -231,14 +241,23 @@ export default function CreateSlide() {
             return
         }
 
-        if (!formData.districtName.trim()) {
-            toast.error('Please select a district')
-            return
-        }
-
         if (formData.assessments.length === 0) {
             toast.error('Please select at least one assessment first')
             return
+        }
+
+        // Validate that each assessment has scope selected (districts or schools)
+        for (const assessmentId of formData.assessments) {
+            const scope = formData.assessmentScopes[assessmentId]
+            if (!scope) {
+                toast.error(`Please configure scope for ${assessmentId}`)
+                return
+            }
+            // Must have either districts, schools, or district-only mode enabled
+            if (scope.districts.length === 0 && scope.schools.length === 0 && !scope.districtOnly) {
+                toast.error(`Please select at least one district or school for ${assessmentId}`)
+                return
+            }
         }
 
         if (formData.selectedDataSources.length === 0) {
@@ -271,11 +290,26 @@ export default function CreateSlide() {
                 sources[sourceId] = customTable || defaultSource?.defaultTable || ''
             })
 
-            // Use selected districts from scope selection
-            const districtList = formData.districtName ? [formData.districtName] : ['Parsec Academy']
+            // Aggregate scopes from all assessments
+            const aggregatedDistricts = new Set<string>()
+            const aggregatedSchools = new Set<string>()
+            let hasDistrictOnlyMode = false
 
-            // Expand clustered school names to actual school names
-            const expandedSchools = formData.schools.flatMap((schoolName) => schoolClusters[schoolName] || [schoolName])
+            formData.assessments.forEach((assessmentId) => {
+                const scope = formData.assessmentScopes[assessmentId]
+                if (scope) {
+                    scope.districts.forEach((d) => aggregatedDistricts.add(d))
+                    scope.schools.forEach((s) => aggregatedSchools.add(s))
+                    if (scope.districtOnly) {
+                        hasDistrictOnlyMode = true
+                    }
+                }
+            })
+
+            const districtList = Array.from(aggregatedDistricts).sort()
+            const schoolList = Array.from(aggregatedSchools).sort()
+
+            console.log('[Frontend] Aggregated scopes:', { districtList, schoolList, hasDistrictOnlyMode, assessmentScopes: formData.assessmentScopes })
 
             // Build config object
             const config = {
@@ -302,10 +336,11 @@ export default function CreateSlide() {
                     charts_dir: './charts',
                     config_dir: '.'
                 },
-                // Scope selection: only generate charts for selected schools/districts
-                // Use expanded schools (cluster names expanded to actual database school names)
-                selected_schools: formData.districtOnly ? [] : expandedSchools.length > 0 ? expandedSchools : [], // Empty array if district only mode
-                include_district_scope: !!formData.districtName // Include district scope if district is selected
+                // Scope selection: aggregated from all assessment scopes
+                selected_schools: hasDistrictOnlyMode ? [] : schoolList, // Empty if any assessment has district-only mode
+                include_district_scope: districtList.length > 0, // Include district scope if any districts selected
+                // Store per-assessment scopes for future granular filtering (not yet implemented in backend)
+                assessment_scopes: formData.assessmentScopes
             }
 
             // Build chart filters
@@ -341,7 +376,7 @@ export default function CreateSlide() {
                 driveFolderUrl: driveFolderUrl,
                 enableAIInsights: formData.enableAIInsights,
                 userPrompt: formData.slidePrompt || undefined,
-                description: `Deck for ${formData.districtName || 'Parsec Academy'}`,
+                description: `Deck for ${districtList.length > 0 ? districtList.join(', ') : schoolList.length > 0 ? schoolList.join(', ') : formData.partnerName}`,
                 themeColor: formData.themeColor // Always send the actual value from formData
             }
             console.log('[Frontend] FormData themeColor:', formData.themeColor)
@@ -544,6 +579,20 @@ export default function CreateSlide() {
                                                                 )}
                                                             </div>
                                                         )}
+
+                                                        {/* Per-Assessment Scope Selection */}
+                                                        {isSelected && formData.assessmentScopes[source.id] && (
+                                                            <AssessmentScopeSelector
+                                                                assessmentId={source.id}
+                                                                partnerName={formData.partnerName}
+                                                                projectId={formData.projectId}
+                                                                location={formData.location}
+                                                                customDataSource={formData.customDataSources[source.id]}
+                                                                scope={formData.assessmentScopes[source.id]}
+                                                                onScopeChange={handleAssessmentScopeChange}
+                                                                partnerConfig={PARTNER_CONFIG}
+                                                            />
+                                                        )}
                                                     </div>
                                                 )
                                             })}
@@ -558,109 +607,7 @@ export default function CreateSlide() {
                                 </div>
                             )}
 
-                            {/* Scope Selection - Only show when assessments are selected */}
-                            {formData.assessments.length > 0 && (
-                                <div className="space-y-4 border-b pb-4">
-                                    <h3 className="text-lg font-semibold">Scope Selection</h3>
-
-                                    {/* District Selection */}
-                                    <div className="space-y-2">
-                                        <Label>
-                                            District <span className="text-destructive">*</span>
-                                        </Label>
-                                        <Select
-                                            key={`district-${formData.partnerName}-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
-                                            id="districtName"
-                                            value={formData.districtName}
-                                            onChange={(e) => {
-                                                setFormData((prev) => ({
-                                                    ...prev,
-                                                    districtName: e.target.value,
-                                                    schools: []
-                                                }))
-                                            }}
-                                            required
-                                            disabled={isLoadingChoices || !formData.partnerName || formData.assessments.length === 0}
-                                        >
-                                            <option value="">
-                                                {isLoadingChoices
-                                                    ? 'Loading districts...'
-                                                    : formData.assessments.length === 0
-                                                      ? 'Select assessments first...'
-                                                      : 'Select a district...'}
-                                            </option>
-                                            {districtOptions.map((district: string) => (
-                                                <option key={district} value={district}>
-                                                    {district}
-                                                </option>
-                                            ))}
-                                        </Select>
-                                        {isLoadingChoices && (
-                                            <p className="text-muted-foreground text-xs">
-                                                Fetching districts from {formData.assessments.join(', ')} table(s)...
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* District Only Option */}
-                                    {formData.districtName && (
-                                        <div className="bg-muted/30 rounded-lg border p-4">
-                                            <div className="flex items-start space-x-3">
-                                                <Checkbox
-                                                    id="districtOnly"
-                                                    checked={formData.districtOnly}
-                                                    onChange={(e) => {
-                                                        const checked = e.target.checked
-                                                        setFormData((prev) => ({
-                                                            ...prev,
-                                                            districtOnly: checked,
-                                                            schools: checked ? [] : prev.schools
-                                                        }))
-                                                    }}
-                                                    disabled={!formData.districtName || isLoadingDistrictsSchools}
-                                                    className="mt-1"
-                                                />
-                                                <div className="flex-1">
-                                                    <Label htmlFor="districtOnly" className="cursor-pointer font-medium">
-                                                        District Only Mode
-                                                    </Label>
-                                                    <p className="text-muted-foreground mt-1 text-sm">
-                                                        Enable this to generate only district-level charts and exclude specific school charts
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* School Selection */}
-                                    {!formData.districtOnly && formData.districtName && (
-                                        <div className="space-y-2">
-                                            <Label>
-                                                School(s) <span className="text-destructive">*</span>
-                                            </Label>
-                                            <MultiSelect
-                                                key={`schools-${formData.districtName}-${Object.values(formData.customDataSources).join(',')}`}
-                                                options={clusteredSchoolOptions}
-                                                selected={formData.schools}
-                                                onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
-                                                placeholder={
-                                                    isLoadingChoices
-                                                        ? 'Loading schools...'
-                                                        : !formData.districtName
-                                                          ? 'Select district first...'
-                                                          : 'Select school(s)...'
-                                                }
-                                                disabled={isLoadingChoices || !formData.partnerName || !formData.districtName}
-                                            />
-                                            {isLoadingChoices && (
-                                                <p className="text-muted-foreground text-xs">
-                                                    Fetching schools from {formData.assessments.join(', ')} table(s)...
-                                                </p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            {/* Scope selection is now done per-assessment within each assessment checkbox above */}
 
                             {/* Quarter Selection - Buttons */}
                             {formData.assessments.length > 0 && availableQuarters.length > 0 && (
@@ -809,7 +756,7 @@ export default function CreateSlide() {
                                             }}
                                         />
                                         <Label htmlFor="enableAIInsights" className="cursor-pointer text-sm font-normal">
-                                            Enable AI Analytics & Insights
+                                            Enable AI Analytics & Insights (included in slide notes)
                                         </Label>
                                     </div>
                                     {!formData.enableAIInsights && (

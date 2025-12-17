@@ -690,7 +690,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
     fig = plt.figure(figsize=(16, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
-    fig.suptitle(f"{scope_label} • Fall→Winter Growth (All Students)", fontsize=24, fontweight="bold", y=0.99)
+    fig.suptitle(f"{scope_label} • Spring Assessment Trends: Fall—Winter Growth (All Students)", fontsize=24, fontweight="bold", y=0.99)
     
     axes, n_labels_axes = [], []
     for i, subject_str in enumerate(["Reading", "Mathematics"]):

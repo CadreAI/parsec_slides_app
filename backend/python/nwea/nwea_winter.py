@@ -539,8 +539,8 @@ def _run_section0_1_winter(nwea_base, cfg, output_dir):
 # Section 4: Overall Growth Trends by Site (CGP + CGI) - Fall→Winter
 # ---------------------------------------------------------------------
 
-def _prep_cgp_trend(df: pd.DataFrame, subject_str: str, cfg: dict) -> pd.DataFrame:
-    """Return tidy frame with columns: scope_label, time_label, median_cgp, mean_cgi"""
+def _prep_cgp_trend_winter(df: pd.DataFrame, subject_str: str, cfg: dict) -> pd.DataFrame:
+    """Winter-specific: Return tidy frame with columns: scope_label, time_label, median_cgp, mean_cgi"""
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == "WINTER"].copy()
     
@@ -558,7 +558,14 @@ def _prep_cgp_trend(df: pd.DataFrame, subject_str: str, cfg: dict) -> pd.DataFra
         return pd.DataFrame(columns=["scope_label", "time_label", "median_cgp", "mean_cgi"])
     
     d["year_short"] = d["year"].apply(_short_year)
-    d["time_label"] = d["testwindow"].astype(str).str.title() + " " + d["year_short"]
+    # Create clearer labels showing Fall→Winter growth across calendar years
+    # For academic year "24-25", Winter test is in calendar year 2025, Fall is in 2024
+    def _make_fall_winter_label(year_short):
+        # year_short format: "24-25"
+        fall_yr = year_short.split("-")[0]  # "24"
+        winter_yr = year_short.split("-")[1]  # "25"
+        return f"F'{fall_yr}→W'{winter_yr}"
+    d["time_label"] = d["year_short"].apply(_make_fall_winter_label)
     d["subject"] = subject_str
     
     school_col = _get_school_column(d)
@@ -599,8 +606,8 @@ def _prep_cgp_trend(df: pd.DataFrame, subject_str: str, cfg: dict) -> pd.DataFra
     return out_recent.rename(columns={"site_display": "scope_label"})
 
 
-def _plot_cgp_trend(df, subject_str, scope_label, ax=None, cfg=None):
-    """Bars = median CGP, line = mean CGI with blended transform."""
+def _plot_cgp_trend_winter(df, subject_str, scope_label, ax=None, cfg=None):
+    """Winter-specific: Bars = median CGP, line = mean CGI with blended transform."""
     sub = df[df["scope_label"] == scope_label].copy()
     if sub.empty:
         return
@@ -682,9 +689,10 @@ def _save_cgp_chart(fig, scope_label, output_dir, cfg, section_num=4, suffix="cg
     return str(out_path)
 
 
-def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
+def _run_cgp_dual_trend_winter(scope_df, scope_label, cfg, output_dir):
+    """Winter-specific CGP dual trend chart generation (Fall→Winter growth)"""
     cgp_trend = pd.concat(
-        [_prep_cgp_trend(scope_df, subj, cfg) for subj in ["Reading", "Mathematics"]],
+        [_prep_cgp_trend_winter(scope_df, subj, cfg) for subj in ["Reading", "Mathematics"]],
         ignore_index=True,
     )
     if cgp_trend.empty:
@@ -694,7 +702,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
     fig = plt.figure(figsize=(16, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
-    fig.suptitle(f"{scope_label} • Fall→Winter Growth (All Students)", fontsize=24, fontweight="bold", y=0.99)
+    fig.suptitle(f"{scope_label} • Fall→Winter Growth Trends by Year (All Students)", fontsize=24, fontweight="bold", y=0.99)
     
     axes, n_labels_axes = [], []
     for i, subject_str in enumerate(["Reading", "Mathematics"]):
@@ -702,7 +710,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
         axes.append(ax)
         sub_df = cgp_trend[(cgp_trend["scope_label"] == scope_label) & (cgp_trend["subject"] == subject_str)]
         if not sub_df.empty:
-            _plot_cgp_trend(sub_df, subject_str, scope_label, ax=ax, cfg=cfg)
+            _plot_cgp_trend_winter(sub_df, subject_str, scope_label, ax=ax, cfg=cfg)
         
         # Add n-count labels
         subj_norm = subject_str.strip().casefold()
@@ -714,7 +722,13 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
             d = d[d["course"].astype(str).str.contains("reading", case=False, na=False)].copy()
         
         d["year_short"] = d["year"].apply(_short_year)
-        d["time_label"] = d["testwindow"].astype(str).str.title() + " " + d["year_short"]
+        # Create clearer labels showing Fall→Winter growth across calendar years
+        def _make_fall_winter_label_inline(year_short):
+            # year_short format: "24-25"
+            fall_yr = year_short.split("-")[0]  # "24"
+            winter_yr = year_short.split("-")[1]  # "25"
+            return f"F'{fall_yr}→W'{winter_yr}"
+        d["time_label"] = d["year_short"].apply(_make_fall_winter_label_inline)
         school_col = _get_school_column(d)
         if school_col:
             d["site_display"] = d[school_col].apply(lambda x: hf._safe_normalize_school_name(x, cfg))
@@ -750,16 +764,16 @@ def _run_cgp_dual_trend(scope_df, scope_label, cfg, output_dir):
 
 
 def _run_section4_winter(nwea_base, cfg, output_dir, scopes):
-    """Run Section 4 for all scopes"""
+    """Run Section 4 for all scopes (Fall→Winter growth)"""
     chart_paths = []
     district_label = cfg.get("district_name", ["Districtwide"])[0]
-    path = _run_cgp_dual_trend(nwea_base.copy(), district_label, cfg, output_dir)
+    path = _run_cgp_dual_trend_winter(nwea_base.copy(), district_label, cfg, output_dir)
     if path:
         chart_paths.append(path)
     
     for scope_df, scope_label, folder in scopes:
         if folder != "_district":
-            path = _run_cgp_dual_trend(scope_df.copy(), scope_label, cfg, output_dir)
+            path = _run_cgp_dual_trend_winter(scope_df.copy(), scope_label, cfg, output_dir)
             if path:
                 chart_paths.append(path)
     
@@ -794,7 +808,18 @@ def _prep_cgp_by_grade(df, subject, grade):
         return pd.DataFrame(columns=["time_label", "median_cgp", "mean_cgi"])
     
     d["year_short"] = d["year"].apply(_short_year)
-    d["time_label"] = "Gr " + d["grade"].astype(int).astype(str) + " • Winter " + d["year_short"]
+    # Create clearer labels showing Fall→Winter growth across calendar years
+    # For academic year "24-25", Winter test is in calendar year 2025, Fall is in 2024
+    # So we need: "F'24→W'25" (showing the calendar year transition)
+    def _make_fall_winter_label(row):
+        grade = int(row["grade"])
+        year_short = row["year_short"]  # e.g., "24-25"
+        # Extract fall year (first 2 digits) and winter year (last 2 digits)
+        fall_yr = year_short.split("-")[0]  # "24"
+        winter_yr = year_short.split("-")[1]  # "25"
+        return f"F'{fall_yr}→W'{winter_yr}"
+    
+    d["time_label"] = d.apply(_make_fall_winter_label, axis=1)
     
     out = d.groupby("time_label").agg(
         median_cgp=("falltowinterconditionalgrowthpercentile", "median"),
@@ -803,7 +828,8 @@ def _prep_cgp_by_grade(df, subject, grade):
     
     def _extract_year_short(label):
         try:
-            return label.split("Winter")[-1].strip()
+            # Extract winter year from "F'YY→W'YY" format for sorting
+            return label.split("→W'")[-1].strip()
         except:
             return ""
     
@@ -916,7 +942,7 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
     fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
               bbox_to_anchor=(0.5, 0.96), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
     
-    fig.suptitle(f"{scope_label} • {subject_str} • Grade {grade} • Fall→Winter Growth",
+    fig.suptitle(f"{scope_label} • {subject_str} • Grade {grade} • Fall→Winter Growth Trends by Year",
                 fontsize=24, fontweight="bold", y=0.98)
     
     # Add comparison box at the bottom comparing most recent year to previous year
@@ -1047,10 +1073,11 @@ def _run_section5_winter(nwea_base, cfg, output_dir, scopes):
                     continue
                 cohort_rows.append({
                     "gr": gr, "yr": yr,
-                    "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                    "time_label": f"F'{str(yr - 1)[-2:]}→W'{str(yr)[-2:]}",
                     "median_cgp": d["falltowinterconditionalgrowthpercentile"].median(),
                     "mean_cgi": d["falltowinterconditionalgrowthindex"].mean(),
                 })
+
             if not cohort_rows:
                 continue
             cohort_df = pd.DataFrame(cohort_rows)
@@ -1181,7 +1208,7 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
     for i in range(2):
         draw_insight_card(axes[i][2], metrics_list[i], subjects[i])
     
-    fig.suptitle(f"{scope_label} • {window_filter} Year-to-Year Trends", fontsize=24, fontweight="bold", y=1)
+    fig.suptitle(f"{scope_label} • {window_filter} Performance Levels by Year", fontsize=24, fontweight="bold", y=1)
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2039,7 +2066,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                 ha="center", va="center", wrap=True, usetex=False,
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
-    fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
+    fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title} • {window_filter} Performance Levels by Year",
                 fontsize=24, fontweight="bold", y=1)
     
     charts_dir = Path(output_dir)

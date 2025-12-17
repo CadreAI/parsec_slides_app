@@ -277,6 +277,10 @@ export async function GET(req: NextRequest) {
                 const [nweaJob] = await client.createQueryJob(nweaOptions)
                 const [nweaRows] = await nweaJob.getQueryResults()
 
+                console.log(`[districts-schools] Processing NWEA table: ${nweaTableId}`)
+                console.log(`[districts-schools] NWEA using columns: District='DistrictName', School='${schoolColumn}'`)
+                console.log(`[districts-schools] NWEA rows returned: ${nweaRows.length}`)
+
                 for (const row of nweaRows) {
                     // NWEA table uses DistrictName column - get all possible values including NULL
                     const districtName = row.DistrictName != null ? String(row.DistrictName).trim() : null
@@ -310,6 +314,7 @@ export async function GET(req: NextRequest) {
                         schoolSet.add(schoolName.trim())
                     }
                 }
+                console.log(`[districts-schools] NWEA results: ${districtSet.size} districts, ${schoolSet.size} schools`)
             } catch (error) {
                 console.warn(`Error querying NWEA table: ${error}`)
             }
@@ -389,6 +394,10 @@ export async function GET(req: NextRequest) {
                 const [ireadyJob] = await client.createQueryJob(ireadyOptions)
                 const [ireadyRows] = await ireadyJob.getQueryResults()
 
+                console.log(`[districts-schools] Processing iReady table: ${ireadyTableId}`)
+                console.log(`[districts-schools] iReady using columns: District='${districtColumn}', School='${schoolColumn}'`)
+                console.log(`[districts-schools] iReady rows returned: ${ireadyRows.length}`)
+
                 for (const row of ireadyRows) {
                     const districtName = String(row.DistrictName || '').trim()
                     const schoolName = String(row.SchoolName || '').trim()
@@ -443,6 +452,10 @@ export async function GET(req: NextRequest) {
             try {
                 const [starJob] = await client.createQueryJob(starOptions)
                 const [starRows] = await starJob.getQueryResults()
+
+                console.log(`[districts-schools] Processing STAR table: ${starTableId}`)
+                console.log(`[districts-schools] STAR using columns: District='District_Name', School='School_Name'`)
+                console.log(`[districts-schools] STAR rows returned: ${starRows.length}`)
 
                 for (const row of starRows) {
                     // STAR uses District_Name and School_Name, but we alias them as DistrictName/SchoolName in SQL
@@ -500,6 +513,12 @@ export async function GET(req: NextRequest) {
                 const [cersIabJob] = await client.createQueryJob(cersIabOptions)
                 const [cersIabRows] = await cersIabJob.getQueryResults()
 
+                console.log(`[districts-schools] Processing CERS_IAB table: ${cersIabTableId}`)
+                console.log(
+                    `[districts-schools] CERS_IAB using columns: District='COALESCE(DistrictName, districtname)', School='COALESCE(SchoolName, schoolname)'`
+                )
+                console.log(`[districts-schools] CERS_IAB rows returned: ${cersIabRows.length}`)
+
                 for (const row of cersIabRows) {
                     const districtName = String(row.DistrictName || row.districtname || row.District_Name || row.district_name || '').trim()
                     const schoolName = String(row.SchoolName || row.schoolname || row.School_Name || row.school_name || '').trim()
@@ -541,11 +560,27 @@ export async function GET(req: NextRequest) {
         if (ireadyTableId) sourceTables.push('iReady')
         if (cersIabTableId) sourceTables.push('cers_iab')
 
+        // Detailed logging
+        console.log('[districts-schools API] Query Results:', {
+            datasetId,
+            sourceTables: sourceTables.join(', '),
+            districtsFound: districts.length,
+            schoolsFound: schools.length,
+            districts: districts,
+            districtSchoolMapKeys: Object.keys(districtSchoolMap),
+            districtSchoolMapDetails: Object.entries(districtSchoolMap).map(([district, schools]) => ({
+                district,
+                schoolCount: schools.length,
+                schools: schools.slice(0, 5) // Show first 5 schools per district
+            }))
+        })
+
         return NextResponse.json({
             success: true,
             districts: districts,
             schools: schools,
-            districtSchoolMap: districtSchoolMap // Map of district -> schools for filtering
+            districtSchoolMap: districtSchoolMap, // Map of district -> schools for filtering
+            source: sourceTables.join(', ') // Include source info for debugging
         })
     } catch (error: unknown) {
         console.error('Error fetching districts and schools:', error)

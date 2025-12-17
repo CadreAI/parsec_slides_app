@@ -6,7 +6,7 @@ export function useDistrictsAndSchools(
     location: string,
     assessments?: string[],
     selectedTables?: Record<string, string>,
-    districtName?: string
+    districts?: string[] // Changed from districtName (string) to districts (array)
 ) {
     const [availableDistricts, setAvailableDistricts] = useState<string[]>([])
     const [availableSchools, setAvailableSchools] = useState<string[]>([])
@@ -69,11 +69,24 @@ export function useDistrictsAndSchools(
                 const res = await fetch(`/api/bigquery/districts-schools?${params.toString()}`, { signal: abortController.signal })
                 const data = await res.json()
 
+                console.log('[useDistrictsAndSchools] API Response:', {
+                    success: data.success,
+                    districtsCount: data.districts?.length || 0,
+                    schoolsCount: data.schools?.length || 0,
+                    districts: data.districts,
+                    districtSchoolMapKeys: Object.keys(data.districtSchoolMap || {}),
+                    source: data.source || 'unknown',
+                    partnerName,
+                    assessments
+                })
+
                 if (res.ok && data.success) {
                     setAvailableDistricts(data.districts || [])
                     setAvailableSchools(data.schools || [])
                     setDistrictSchoolMap(data.districtSchoolMap || {})
-                    console.log(`Loaded ${data.districts?.length || 0} districts and ${data.schools?.length || 0} schools`)
+                    console.log(
+                        `[useDistrictsAndSchools] ✓ Loaded ${data.districts?.length || 0} districts and ${data.schools?.length || 0} schools from ${data.source || 'unknown source'}`
+                    )
                     // Don't cluster yet - wait for district selection
                 } else {
                     console.warn('Failed to load districts/schools:', data.error || 'Unknown error')
@@ -116,18 +129,18 @@ export function useDistrictsAndSchools(
             .join(',')
     ])
 
-    // Separate effect: Trigger clustering when district is selected
+    // Separate effect: Trigger clustering when districts are selected
     useEffect(() => {
         const abortController = new AbortController()
 
         console.log('[Clustering Effect] Triggered:', {
-            districtName,
+            districts,
             hasDistrictSchoolMap: Object.keys(districtSchoolMap).length > 0,
             districtSchoolMapKeys: Object.keys(districtSchoolMap)
         })
 
-        const fetchSchoolClusters = async (schools: string[], districtName: string) => {
-            console.log('[Clustering] Starting for district:', districtName, 'with', schools.length, 'schools')
+        const fetchSchoolClusters = async (schools: string[], districtNames: string[]) => {
+            console.log('[Clustering] Starting for districts:', districtNames.join(', '), 'with', schools.length, 'schools')
             setIsLoadingClustering(true)
             try {
                 const res = await fetch('/api/llm/cluster-schools', {
@@ -135,7 +148,7 @@ export function useDistrictsAndSchools(
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         schools: schools,
-                        district_name: districtName
+                        district_name: districtNames.join(', ') // Pass comma-separated district names
                     }),
                     signal: abortController.signal
                 })
@@ -172,20 +185,23 @@ export function useDistrictsAndSchools(
             }
         }
 
-        // Only cluster when district is selected and we have the districtSchoolMap
-        if (districtName && Object.keys(districtSchoolMap).length > 0) {
-            const schoolsInDistrict = districtSchoolMap[districtName] || []
-            console.log('[Clustering] Schools in district:', schoolsInDistrict.length, schoolsInDistrict)
-            if (schoolsInDistrict.length > 0) {
-                fetchSchoolClusters(schoolsInDistrict, districtName)
+        // Only cluster when districts are selected and we have the districtSchoolMap
+        if (districts && districts.length > 0 && Object.keys(districtSchoolMap).length > 0) {
+            // Aggregate schools from all selected districts
+            const allSchools = districts.flatMap((district) => districtSchoolMap[district] || [])
+            const uniqueSchools = Array.from(new Set(allSchools))
+
+            console.log('[Clustering] Schools across', districts.length, 'district(s):', uniqueSchools.length, uniqueSchools)
+            if (uniqueSchools.length > 0) {
+                fetchSchoolClusters(uniqueSchools, districts)
             } else {
-                console.log('[Clustering] No schools in district, clearing')
+                console.log('[Clustering] No schools in selected districts, clearing')
                 setSchoolClusters({})
                 setClusteredSchools([])
             }
         } else {
-            console.log('[Clustering] District not selected or no map, clearing')
-            // Clear clustering when no district selected
+            console.log('[Clustering] No districts selected or no map, clearing')
+            // Clear clustering when no districts selected
             setSchoolClusters({})
             setClusteredSchools([])
         }
@@ -194,7 +210,7 @@ export function useDistrictsAndSchools(
         return () => {
             abortController.abort()
         }
-    }, [districtName, districtSchoolMap])
+    }, [districts?.join(','), JSON.stringify(districtSchoolMap)])
 
     return {
         availableDistricts,
