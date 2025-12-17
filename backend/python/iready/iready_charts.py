@@ -17,8 +17,6 @@ from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-import sys
-from pathlib import Path
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
@@ -180,11 +178,26 @@ def _prep_section0_iready(df, subject):
         * 100
     )
     
+    # Calculate distributions for chart_data tracking
+    iready_pct = {}
+    for level in hf.IREADY_ORDER:
+        count = (d[placement_col] == level).sum()
+        total = len(d)
+        iready_pct[level] = (count / total * 100) if total > 0 else 0.0
+    
+    cers_pct = {}
+    for level in hf.CERS_LEVELS:
+        count = (d[cers_col] == level).sum()
+        total = len(d)
+        cers_pct[level] = (count / total * 100) if total > 0 else 0.0
+    
     metrics = {
         "iready_mid_above": iready_mid_above,
         "cers_met_exceed": cers_met_exceed,
         "delta": iready_mid_above - cers_met_exceed,
         "year": int(last_year),
+        "iready_pct": iready_pct,
+        "cers_pct": cers_pct,
     }
     
     return cross_dict, metrics, last_year
@@ -250,7 +263,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
         # Bar panel: i-Ready Mid/Above vs CERS Met/Exceed
         ax_mid = fig.add_subplot(gs[1, i])
         bars = ax_mid.bar(
-            ["i-Ready Mid/Above", "CERS Met/Exceed"],
+            ["i-Ready Mid/Above", "CAASPP Met/Exceed"],
             [metrics["iready_mid_above"], metrics["cers_met_exceed"]],
             color=["#00baeb", "#0381a2"],
             edgecolor="white",
@@ -265,7 +278,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
                 f"{val:.1f}%",
                 ha="center",
                 va="bottom",
-                fontsize=10,
+                fontsize=14,
                 fontweight="bold",
                 color="#434343",
             )
@@ -279,7 +292,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
         ax_bot = fig.add_subplot(gs[2, i])
         ax_bot.axis("off")
         insight_text = (
-            f"i-Ready Mid/Above vs CERS Met/Exceed:\n"
+            f"i-Ready Mid/Above vs CAASPP Met/Exceed:\n"
             rf"${metrics['iready_mid_above']:.1f}\% - {metrics['cers_met_exceed']:.1f}\% = "
             rf"\mathbf{{{metrics['delta']:+.1f}}}$ pts"
         )
@@ -298,7 +311,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
     
     year = next(iter(data_dict.values()))[1].get("year", "")
     fig.suptitle(
-        f"{scope_label} • Spring {year} • i-Ready Placement vs CERS Performance",
+        f"{scope_label} • Spring {year} • i-Ready Placement vs CAASPP Performance",
         fontsize=20,
         fontweight="bold",
         y=1.02,
@@ -307,14 +320,34 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
-    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_section0_iready_vs_cers.png"
+    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_IREADY_section0_iready_vs_cers.png"
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 0: {out_path}")
-    track_chart(f"{prefix}{scope_label.replace(' ', '_')}_section0_iready_vs_cers", out_path, scope=folder, section=0)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Spring",
+        "year": year,
+        "subjects": list(data_dict.keys()),
+        "iready_vs_cers": {
+            subj: {
+                "iready_mid_above": float(metrics["iready_mid_above"]),
+                "cers_met_exceed": float(metrics["cers_met_exceed"]),
+                "delta": float(metrics["delta"]),
+                "iready_distribution": {level: float(pct) for level, pct in metrics["iready_pct"].items()},
+                "cers_distribution": {level: float(pct) for level, pct in metrics["cers_pct"].items()}
+            }
+            for subj, (_, metrics) in data_dict.items()
+        }
+    }
+    track_chart(f"{prefix}{scope_label.replace(' ', '_')}_section0_iready_vs_cers", out_path, scope=folder, section=0, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 1 — Dual Subject Dashboard
@@ -390,7 +423,7 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
-    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends.png"
+    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_IREADY_section1_{window_filter.lower()}_trends.png"
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Chart saved to: {out_path}")
@@ -412,17 +445,59 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
 # SECTION 2 — Student Group Performance Trends
 # ---------------------------------------------------------------------
 
+def _find_column_fuzzy(df, target_col):
+    """
+    Find a column in dataframe using fuzzy matching.
+    Normalizes both target and actual column names by:
+    - Converting to lowercase
+    - Removing underscores, spaces, hyphens
+    - Comparing normalized versions
+    
+    Returns the actual column name if found, None otherwise.
+    """
+    if target_col in df.columns:
+        return target_col
+    
+    # Normalize target column name
+    target_norm = str(target_col).lower().replace("_", "").replace("-", "").replace(" ", "")
+    
+    # Try to find matching column
+    for actual_col in df.columns:
+        actual_norm = str(actual_col).lower().replace("_", "").replace("-", "").replace(" ", "")
+        if actual_norm == target_norm:
+            return actual_col
+    
+    return None
+
+
 def _apply_student_group_mask(df_in, group_name, group_def):
     """
     Returns boolean mask for df_in selecting the student group.
     Uses cfg['student_groups'] spec:
       type: "all"                  -> everyone True
       or {column: <col>, in: [...]} -> membership by value match (case-insensitive str compare)
+    
+    Now supports fuzzy column matching to handle variations in column names.
     """
     if group_def.get("type") == "all":
         return pd.Series(True, index=df_in.index)
     
     col = group_def["column"]
+    
+    # Try fuzzy matching if exact column not found
+    if col not in df_in.columns:
+        col_found = _find_column_fuzzy(df_in, col)
+        if col_found:
+            print(f"[Section 2]     Found column '{col_found}' using fuzzy match for '{col}'")
+            col = col_found
+        else:
+            # Log available columns for debugging
+            available_cols = sorted(df_in.columns.tolist())
+            print(f"[Section 2]     ❌ ERROR: Column '{col}' not found (even with fuzzy matching)")
+            print(f"[Section 2]     Available columns: {available_cols[:30]}...")
+            # Return all False mask if column not found
+            return pd.Series(False, index=df_in.index)
+    
     allowed_vals = group_def["in"]
     
     # normalize both sides as lowercase strings
@@ -441,21 +516,53 @@ def plot_iready_subject_dashboard_by_group(
     """
     d0 = df.copy()
     
-    # Apply group mask first
-    mask = _apply_student_group_mask(d0, group_name, group_def)
-    d0 = d0[mask].copy()
+    print(f"[Section 2] [plot_iready_subject_dashboard_by_group] Starting for group '{group_name}' in scope '{scope_label}'")
+    print(f"[Section 2]   Input data rows: {len(d0):,}")
+    print(f"[Section 2]   Window filter: {window_filter}")
+    print(f"[Section 2]   Group definition: {group_def}")
     
-    if d0.empty:
-        print(f"[group {group_name}] no rows after group mask ({scope_label})")
+    # Apply group mask first
+    try:
+        mask = _apply_student_group_mask(d0, group_name, group_def)
+        rows_before_mask = len(d0)
+        d0 = d0[mask].copy()
+        rows_after_mask = len(d0)
+        print(f"[Section 2]   Rows before group mask: {rows_before_mask:,}")
+        print(f"[Section 2]   Rows after group mask: {rows_after_mask:,} (removed {rows_before_mask - rows_after_mask:,})")
+        
+        if d0.empty:
+            print(f"[Section 2]   ❌ ERROR: No rows after group mask for '{group_name}' in '{scope_label}'")
+            print(f"[Section 2]   This could mean:")
+            print(f"[Section 2]     - Group column '{group_def.get('column')}' doesn't exist in data")
+            print(f"[Section 2]     - No rows match the group criteria: {group_def.get('in', [])}")
+            print(f"[Section 2]     - Data was already filtered out before reaching this function")
+            return None
+    except Exception as e:
+        print(f"[Section 2]   ❌ ERROR applying group mask: {e}")
+        print(f"[Section 2]   Error type: {type(e).__name__}")
+        if hf.DEV_MODE:
+            import traceback
+            traceback.print_exc()
         return None
     
     subjects = ["ELA", "Math"]
     subject_titles = ["ELA", "Math"]
     
+    # Check for Winter data
+    if "testwindow" in d0.columns:
+        winter_data = d0[d0["testwindow"].astype(str).str.upper() == window_filter.upper()]
+        print(f"[Section 2]   Rows with {window_filter} testwindow: {len(winter_data):,}")
+        if len(winter_data) == 0:
+            available_windows = d0["testwindow"].astype(str).str.upper().unique()
+            print(f"[Section 2]   ⚠️  WARNING: No {window_filter} data found!")
+            print(f"[Section 2]   Available testwindow values: {sorted(available_windows)}")
+    
     # Aggregate for each subject
     pct_dfs, score_dfs, metrics_list, time_orders, min_ns, n_maps = [], [], [], [], [], []
     
-    for subj in subjects:
+    for subj_idx, subj in enumerate(subjects, 1):
+        print(f"[Section 2]   Processing subject {subj_idx}/2: {subj}")
+        
         # Filter for subject
         if subj == "ELA":
             subj_df = d0[d0["subject"].astype(str).str.contains("ela", case=False, na=False)].copy()
@@ -464,7 +571,10 @@ def plot_iready_subject_dashboard_by_group(
         else:
             subj_df = d0.copy()
         
+        print(f"[Section 2]     Rows for {subj}: {len(subj_df):,}")
+        
         if subj_df.empty:
+            print(f"[Section 2]     ⚠️  No {subj} data found after subject filter")
             pct_dfs.append(None)
             score_dfs.append(None)
             metrics_list.append(None)
@@ -473,49 +583,86 @@ def plot_iready_subject_dashboard_by_group(
             n_maps.append({})
             continue
         
-        pct_df, score_df, metrics, time_order = prep_iready_for_charts(
-            subj_df, subject_str=subj, window_filter=window_filter
-        )
-        
-        # Restrict to most recent 4 timepoints
-        if len(time_order) > 4:
-            time_order = time_order[-4:]
-            pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
-            score_df = score_df[score_df["time_label"].isin(time_order)].copy()
-        
-        pct_dfs.append(pct_df)
-        score_dfs.append(score_df)
-        metrics_list.append(metrics)
-        time_orders.append(time_order)
-        
-        # Minimum n >= 12 check
-        if pct_df is not None and not pct_df.empty and time_order:
-            latest_label = time_order[-1]
-            latest_slice = pct_df[pct_df["time_label"] == latest_label]
-            if "N_total" in latest_slice.columns:
-                latest_n = latest_slice["N_total"].max()
+        try:
+            pct_df, score_df, metrics, time_order = prep_iready_for_charts(
+                subj_df, subject_str=subj, window_filter=window_filter
+            )
+            
+            print(f"[Section 2]     prep_iready_for_charts returned:")
+            print(f"[Section 2]       pct_df: {len(pct_df) if pct_df is not None and not pct_df.empty else 0} rows")
+            print(f"[Section 2]       score_df: {len(score_df) if score_df is not None and not score_df.empty else 0} rows")
+            print(f"[Section 2]       time_order: {len(time_order)} timepoints - {time_order}")
+            
+            # Restrict to most recent 4 timepoints
+            if len(time_order) > 4:
+                print(f"[Section 2]     Restricting to most recent 4 timepoints (from {len(time_order)} total)")
+                time_order = time_order[-4:]
+                pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
+                score_df = score_df[score_df["time_label"].isin(time_order)].copy()
+                print(f"[Section 2]     After restriction: {len(pct_df)} rows in pct_df, {len(score_df)} rows in score_df")
+            
+            pct_dfs.append(pct_df)
+            score_dfs.append(score_df)
+            metrics_list.append(metrics)
+            time_orders.append(time_order)
+            
+            # Minimum n >= 12 check
+            if pct_df is not None and not pct_df.empty and time_order:
+                latest_label = time_order[-1]
+                latest_slice = pct_df[pct_df["time_label"] == latest_label]
+                if "N_total" in latest_slice.columns:
+                    latest_n = latest_slice["N_total"].max()
+                else:
+                    latest_n = latest_slice["n"].sum()
+                min_ns.append(latest_n if not pd.isna(latest_n) else 0)
+                print(f"[Section 2]     Latest timepoint '{latest_label}' has {latest_n:.0f} students")
             else:
-                latest_n = latest_slice["n"].sum()
-            min_ns.append(latest_n if not pd.isna(latest_n) else 0)
-        else:
+                min_ns.append(0)
+                print(f"[Section 2]     ⚠️  Could not determine student count (pct_df empty or no time_order)")
+            
+            # n_map for xticklabels in score panel
+            if pct_df is not None and not pct_df.empty:
+                n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
+                n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
+                print(f"[Section 2]     n_map: {n_map}")
+            else:
+                n_map = {}
+                print(f"[Section 2]     n_map: empty (no data)")
+            n_maps.append(n_map)
+            
+        except Exception as e:
+            print(f"[Section 2]     ❌ ERROR in prep_iready_for_charts for {subj}: {e}")
+            print(f"[Section 2]     Error type: {type(e).__name__}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            pct_dfs.append(None)
+            score_dfs.append(None)
+            metrics_list.append(None)
+            time_orders.append([])
             min_ns.append(0)
-        
-        # n_map for xticklabels in score panel
-        if pct_df is not None and not pct_df.empty:
-            n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
-            n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
-        else:
-            n_map = {}
-        n_maps.append(n_map)
+            n_maps.append({})
+            continue
+    
+    # Check min_n requirements
+    print(f"[Section 2]   Minimum student counts: ELA={min_ns[0] if len(min_ns) > 0 else 'N/A'}, Math={min_ns[1] if len(min_ns) > 1 else 'N/A'}")
     
     # If either panel fails min_n, skip
     if any((n is None or n < 12) for n in min_ns):
-        print(f"[group {group_name}] skipped (<12 students in one or both subjects) in {scope_label}")
+        failed_subjects = [subjects[i] for i, n in enumerate(min_ns) if n is None or n < 12]
+        print(f"[Section 2]   ❌ SKIPPED: <12 students in one or both subjects for '{group_name}' in '{scope_label}'")
+        print(f"[Section 2]   Failed subjects: {failed_subjects}")
+        print(f"[Section 2]   Student counts: {dict(zip(subjects, min_ns))}")
         return None
     
     # If either panel has no data, skip
-    if any((df is None or df.empty) for df in pct_dfs) or any((df is None or df.empty) for df in score_dfs):
-        print(f"[group {group_name}] skipped (empty data in one or both subjects) in {scope_label}")
+    empty_pct = [i for i, df in enumerate(pct_dfs) if df is None or df.empty]
+    empty_score = [i for i, df in enumerate(score_dfs) if df is None or df.empty]
+    
+    if empty_pct or empty_score:
+        print(f"[Section 2]   ❌ SKIPPED: Empty data in one or both subjects for '{group_name}' in '{scope_label}'")
+        print(f"[Section 2]   Empty pct_dfs indices: {empty_pct}")
+        print(f"[Section 2]   Empty score_dfs indices: {empty_score}")
         return None
     
     # Setup subplots: 3 rows x 2 columns (ELA left, Math right)
@@ -575,13 +722,45 @@ def plot_iready_subject_dashboard_by_group(
     order_map = cfg.get("student_group_order", {}) if cfg else {}
     group_order_val = order_map.get(group_name, 99)
     
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_IREADY_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     
-    hf._save_and_render(fig, out_path, dev_mode=preview)
-    print(f"Saved Section 2: {out_path}")
+    try:
+        hf._save_and_render(fig, out_path, dev_mode=preview)
+        print(f"[Section 2]   ✅ Successfully saved chart: {out_path}")
+    except Exception as e:
+        print(f"[Section 2]   ❌ ERROR saving chart: {e}")
+        print(f"[Section 2]   Error type: {type(e).__name__}")
+        if hf.DEV_MODE:
+            import traceback
+            traceback.print_exc()
+        plt.close(fig)
+        return None
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=2)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": metrics_list,
+        "time_orders": time_orders,
+        "pct_data": [
+            {
+                "subject": subj,
+                "data": pct_df.to_dict('records') if pct_df is not None and not pct_df.empty else []
+            }
+            for subj, pct_df in zip(subjects, pct_dfs)
+        ],
+        "score_data": [
+            {
+                "subject": subj,
+                "data": score_df.to_dict('records') if score_df is not None and not score_df.empty else []
+            }
+            for subj, score_df in zip(subjects, score_dfs)
+        ]
+    }
+    track_chart(out_name, str(out_path), scope=scope_label, section=2, chart_data=chart_data)
     
     return str(out_path)
 
@@ -807,13 +986,508 @@ def plot_iready_blended_dashboard(
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
     
     safe_subj = subject_str.replace(" ", "_").lower()
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_grade{current_grade}_{safe_subj}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_IREADY_section3_grade{current_grade}_{safe_subj}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 3: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=3)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": current_grade,
+        "subject": subject_str,
+        "metrics": metrics_left,
+        "pct_data": {
+            "overall": pct_df_left.to_dict('records') if not pct_df_left.empty else []
+        },
+        "score_data": {
+            "overall": score_df_left.to_dict('records') if not score_df_left.empty else []
+        }
+    }
+    
+    if not pct_df_right.empty and not score_df_right.empty:
+        chart_data["cohort_metrics"] = metrics_right
+        chart_data["pct_data"]["cohort"] = pct_df_right.to_dict('records')
+        chart_data["score_data"]["cohort"] = score_df_right.to_dict('records')
+    
+    track_chart(out_name, str(out_path), scope=scope_label, section=3, chart_data=chart_data)
+    
+    return str(out_path)
+
+
+# ---------------------------------------------------------------------
+# SECTION 4 — Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)
+# ---------------------------------------------------------------------
+
+_ME_LABELS = {"Level 3 - Standard Met", "Level 4 - Standard Exceeded"}
+_SUBJECT_COLORS = {"ELA": "#0381a2", "Math": "#0381a2"}
+
+def _prep_mid_above_to_cers(df_in: pd.DataFrame, subject: str) -> pd.DataFrame:
+    """Prepare data for Section 4: Spring i-Ready Mid/Above → % CERS Met/Exceeded"""
+    d = df_in.copy()
+    placement_col = (
+        "relative_placement" if "relative_placement" in d.columns else "placement"
+    )
+    
+    d = d[
+        (d["domain"].astype(str).str.lower() == "overall")
+        & (d["testwindow"].astype(str).str.lower() == "spring")
+        & (d["cers_overall_performanceband"].notna())
+        & (d[placement_col].notna())
+    ].copy()
+    
+    d = d[d["subject"].astype(str).str.lower().str.contains(subject.lower())]
+    d["academicyear"] = pd.to_numeric(d["academicyear"], errors="coerce")
+    d = d[d["academicyear"] <= 2025]
+    
+    # Normalize i-Ready placement labels
+    if hasattr(hf, "IREADY_LABEL_MAP"):
+        d[placement_col] = d[placement_col].replace(hf.IREADY_LABEL_MAP)
+    
+    mid_vals = {"mid/above", "mid or above", "mid or above grade level"}
+    d = d[d[placement_col].astype(str).str.strip().str.lower().isin(mid_vals)].copy()
+    if d.empty:
+        return pd.DataFrame()
+    
+    id_col = "student_id" if "student_id" in d.columns else "uniqueidentifier"
+    denom = d.groupby("academicyear")[id_col].nunique().rename("n")
+    numer = (
+        d[d["cers_overall_performanceband"].isin(_ME_LABELS)]
+        .groupby("academicyear")[id_col]
+        .nunique()
+        .rename("me")
+    )
+    trend = denom.to_frame().join(numer, how="left").fillna(0).reset_index()
+    trend["pct_me"] = (trend["me"] / trend["n"]) * 100
+    return trend.sort_values("academicyear")
+
+def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder, output_dir, cfg, preview=False):
+    """Plot Section 4: Spring i-Ready Mid/Above → % CERS Met/Exceeded"""
+    subjects = ["ELA", "Math"]
+    trends = {s: _prep_mid_above_to_cers(scope_df, s) for s in subjects}
+    
+    if all(tr.empty for tr in trends.values()):
+        print(f"[Section 4] No qualifying data for {scope_label}")
+        return None
+    
+    fig, axs = plt.subplots(2, 2, figsize=(16, 9), height_ratios=[2, 0.6])
+    fig.subplots_adjust(hspace=0.45, wspace=0.25, top=0.88, bottom=0.1)
+    
+    for j, subj in enumerate(subjects):
+        ax_bar = axs[0, j]
+        ax_box = axs[1, j]
+        
+        tr = trends[subj]
+        if tr.empty:
+            ax_bar.axis("off")
+            ax_box.axis("off")
+            continue
+        
+        # Top bar chart
+        x = np.arange(len(tr))
+        color = _SUBJECT_COLORS[subj]
+        bars = ax_bar.bar(x, tr["pct_me"], color=color, edgecolor="white", width=0.55)
+        
+        for rect, yv, n in zip(bars, tr["pct_me"], tr["n"]):
+            ax_bar.text(
+                rect.get_x() + rect.get_width() / 2,
+                rect.get_height() / 2,
+                f"{yv:.0f}%\n(n={int(n)})",
+                ha="center",
+                va="center",
+                fontsize=14,
+                fontweight="bold",
+                color="white",
+            )
+        
+        ax_bar.set_ylim(0, 100)
+        ax_bar.set_xlim(-0.5, len(tr) - 0.5)
+        ax_bar.set_xticks(x)
+        ax_bar.set_xticklabels(tr["academicyear"].astype(int))
+        ax_bar.set_yticks(range(0, 101, 20))
+        ax_bar.set_yticklabels([f"{v}%" for v in range(0, 101, 20)])
+        ax_bar.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
+        ax_bar.spines["top"].set_visible(False)
+        ax_bar.spines["right"].set_visible(False)
+        ax_bar.set_ylabel("% Met or Exceeded")
+        ax_bar.set_xlabel("Academic Year")
+        ax_bar.set_title(subj, fontsize=14, fontweight="bold", pad=20)
+        ax_bar.margins(x=0.15)
+        
+        # Bottom insights box
+        ax_box.axis("off")
+        overall_pct = 100 * tr["me"].sum() / tr["n"].sum()
+        
+        lines = [
+            rf"Historically, $\mathbf{{{overall_pct:.1f}\%}}$ of students that meet ",
+            r"$\mathbf{Mid\ or\ Above}$ Grade Level in Spring i-Ready tend to ",
+            r"$\mathbf{Meet\ or\ Exceed\ Standard}$ on CAASPP for " + subj + ".",
+        ]
+        
+        ax_box.text(
+            0.5,
+            0.5,
+            "\n".join(lines),
+            ha="center",
+            va="center",
+            fontsize=13,
+            color="#333",
+            wrap=True,
+            usetex=False,
+            bbox=dict(
+                boxstyle="round,pad=0.6",
+                facecolor="#f5f5f5",
+                edgecolor="#bbb",
+                linewidth=0.8,
+            ),
+        )
+    
+    fig.suptitle(
+        f"{scope_label} \n Spring i-Ready Mid/Above → % CAASPP Met/Exceeded (≤2025)",
+        fontsize=20,
+        fontweight="bold",
+        y=1.02,
+    )
+    
+    out_dir = Path(output_dir) / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
+    safe_scope = scope_label.replace(" ", "_")
+    out_path = out_dir / f"{prefix}{safe_scope}_IREADY_section4_mid_plus_to_3plus.png"
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    print(f"[Section 4] Saved: {out_path}")
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "section": 4,
+        "trends": {
+            subj: tr.to_dict('records') if not tr.empty else []
+            for subj, tr in trends.items()
+        }
+    }
+    
+    track_chart(f"{prefix}{safe_scope}_section4_mid_plus_to_3plus", str(out_path), scope=folder, section=4, chart_data=chart_data)
+    
+    if preview:
+        plt.show()
+    plt.close(fig)
+    
+    return str(out_path)
+
+
+# ---------------------------------------------------------------------
+# SECTION 5 — Growth Path Counts and Charts (DQC/Validation)
+# ---------------------------------------------------------------------
+
+def _prep_section5_dqc(df_in, academicyear=2026):
+    """
+    Section 5: DQC/Validation - Growth Path Counts
+    Prepares data with mid_flag for data quality checks
+    """
+    print(f"[Section 5 DQC] Starting data preparation for year {academicyear}...")
+    print(f"[Section 5 DQC] Input data shape: {df_in.shape}")
+    
+    df = df_in.copy()
+    
+    # Check initial filters
+    initial_count = len(df)
+    print(f"[Section 5 DQC] Initial row count: {initial_count}")
+    
+    # Apply filters
+    df = df[
+        (df["academicyear"] == academicyear)
+        & (df["enrolled"] == "Enrolled")
+        & (df["testwindow"].astype(str).str.lower() == "fall")
+        & (df["domain"].astype(str).str.lower() == "overall")
+    ].copy()
+    
+    after_basic_filters = len(df)
+    print(f"[Section 5 DQC] After basic filters (year={academicyear}, enrolled, fall, overall): {after_basic_filters} rows")
+    
+    if after_basic_filters == 0:
+        print(f"[Section 5 DQC] WARNING: No data after basic filters. Check:")
+        print(f"  - academicyear column: {df_in['academicyear'].unique()[:10] if 'academicyear' in df_in.columns else 'MISSING'}")
+        print(f"  - enrolled values: {df_in['enrolled'].unique()[:5] if 'enrolled' in df_in.columns else 'MISSING'}")
+        print(f"  - testwindow values: {df_in['testwindow'].unique()[:5] if 'testwindow' in df_in.columns else 'MISSING'}")
+        print(f"  - domain values: {df_in['domain'].unique()[:5] if 'domain' in df_in.columns else 'MISSING'}")
+        return df
+    
+    # Filter for most recent diagnostic if column exists
+    if "most_recent_diagnostic" in df.columns:
+        before_diagnostic = len(df)
+        df = df[df["most_recent_diagnostic"] == "Yes"].copy()
+        after_diagnostic = len(df)
+        print(f"[Section 5 DQC] After most_recent_diagnostic='Yes' filter: {after_diagnostic} rows (removed {before_diagnostic - after_diagnostic})")
+    else:
+        print(f"[Section 5 DQC] WARNING: 'most_recent_diagnostic' column not found, skipping filter")
+    
+    # Keep all grades (no grade filter)
+    df["student_grade"] = pd.to_numeric(df["student_grade"], errors="coerce")
+    print(f"[Section 5 DQC] Processing all grades (no grade filter applied)")
+    
+    if df.empty:
+        print(f"[Section 5 DQC] ERROR: No data after all filters")
+        return df
+    
+    # Check required columns
+    required_cols = ["scale_score", "annual_typical_growth_measure", "annual_stretch_growth_measure", 
+                     "mid_on_grade_level_scale_score", "relative_placement"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        print(f"[Section 5 DQC] ERROR: Missing required columns: {missing_cols}")
+        return df
+    
+    # Numeric coercion
+    ss = pd.to_numeric(df["scale_score"], errors="coerce")
+    typ = pd.to_numeric(df["annual_typical_growth_measure"], errors="coerce")
+    strg = pd.to_numeric(df["annual_stretch_growth_measure"], errors="coerce")
+    mid = pd.to_numeric(df["mid_on_grade_level_scale_score"], errors="coerce")
+    
+    # Check for valid numeric values
+    ss_valid = ss.notna().sum()
+    typ_valid = typ.notna().sum()
+    strg_valid = strg.notna().sum()
+    mid_valid = mid.notna().sum()
+    print(f"[Section 5 DQC] Valid numeric values: scale_score={ss_valid}, typical={typ_valid}, stretch={strg_valid}, mid={mid_valid}")
+    
+    # Masks using precedence logic (check BEFORE label mapping, as per original code)
+    already_mid = df["relative_placement"].eq("Mid or Above Grade Level")
+    already_mid_count = already_mid.sum()
+    print(f"[Section 5 DQC] Students already Mid or Above: {already_mid_count}")
+    
+    typ_reach = (ss + typ) >= mid
+    str_reach = (ss + strg) >= mid
+    
+    # Precedence fill
+    out = np.full(len(df), np.nan, dtype=object)
+    out[already_mid.to_numpy()] = "Already Mid+"
+    m2 = (~already_mid) & typ_reach
+    out[m2.to_numpy()] = "Mid with Typical"
+    m3 = (~already_mid) & (~typ_reach) & str_reach
+    out[m3.to_numpy()] = "Mid with Stretch"
+    df["mid_flag"] = out
+    
+    # Fill remaining cases
+    before_fill = df["mid_flag"].isna().sum()
+    df["mid_flag"] = df["mid_flag"].fillna("Mid Beyond Stretch")
+    after_fill = df["mid_flag"].isna().sum()
+    print(f"[Section 5 DQC] Filled {before_fill} NaN values with 'Mid Beyond Stretch' (remaining NaNs: {after_fill})")
+    
+    # Count by flag
+    flag_counts = df["mid_flag"].value_counts()
+    print(f"[Section 5 DQC] Mid flag distribution:\n{flag_counts}")
+    
+    print(f"[Section 5 DQC] Data preparation complete. Final shape: {df.shape}")
+    return df
+
+def _print_section5_dqc(df_dqc):
+    """Print DQC counts for Section 5"""
+    if df_dqc.empty:
+        print("[Section 5 DQC] ERROR: No data available for counts")
+        return
+    
+    if "subject" not in df_dqc.columns:
+        print(f"[Section 5 DQC] ERROR: 'subject' column not found. Available columns: {df_dqc.columns.tolist()[:10]}")
+        return
+    
+    if "mid_flag" not in df_dqc.columns:
+        print(f"[Section 5 DQC] ERROR: 'mid_flag' column not found. Available columns: {df_dqc.columns.tolist()[:10]}")
+        return
+    
+    print("\n[Section 5 DQC] Growth Path Counts by Subject:")
+    try:
+        counts = (
+            df_dqc.groupby("subject")["mid_flag"]
+            .value_counts(dropna=False)
+            .unstack(fill_value=0)
+            .astype(int)
+        )
+        print(counts)
+        print(f"[Section 5 DQC] Total students: {df_dqc.groupby('subject').size().to_dict()}")
+    except Exception as e:
+        print(f"[Section 5 DQC] ERROR generating counts table: {e}")
+        import traceback
+        traceback.print_exc()
+    print()
+
+# ---------------------------------------------------------------------
+# SECTION 5a — Fall 2026 Mid+ Progression Flags (Growth Path by Grade)
+# ---------------------------------------------------------------------
+
+def _grade_labels(grades):
+    """Convert grade numbers to labels (0 -> K, others -> number)"""
+    return ["K" if int(g) == 0 else str(int(g)) for g in grades]
+
+def _prep_growth_path_data(df_in, academicyear=2026):
+    """Prepare growth path data for Section 5a - Fall 2026 Mid+ Progression Flags"""
+    df = df_in.copy()
+    df = df[
+        (df["academicyear"] == academicyear)
+        & (df["testwindow"].astype(str).str.lower() == "fall")
+        & (df["domain"].astype(str).str.lower() == "overall")
+    ].copy()
+    
+    # Process all grades (no grade filter)
+    df["student_grade"] = pd.to_numeric(df["student_grade"], errors="coerce")
+    
+    if df.empty:
+        return df
+    
+    # Numeric coercion
+    ss = pd.to_numeric(df["scale_score"], errors="coerce")
+    typ = pd.to_numeric(df["annual_typical_growth_measure"], errors="coerce")
+    strg = pd.to_numeric(df["annual_stretch_growth_measure"], errors="coerce")
+    mid = pd.to_numeric(df["mid_on_grade_level_scale_score"], errors="coerce")
+    
+    # Normalize placement labels
+    if hasattr(hf, "IREADY_LABEL_MAP"):
+        df["relative_placement"] = df["relative_placement"].replace(hf.IREADY_LABEL_MAP)
+    
+    # CASE logic for growth paths
+    df["growth_path"] = np.select(
+        [
+            ss >= mid,
+            (ss + typ) >= mid,
+            ((ss + typ) < mid) & ((ss + strg) >= mid),
+        ],
+        ["Already Mid+", "Mid with Typical", "Mid with Stretch"],
+        default="Mid Beyond Stretch",
+    )
+    
+    return df
+
+def _plot_mid_flag_stacked(data, subject, scope_label, folder, output_dir, cfg, preview=False):
+    """Render stacked bar chart showing growth paths by grade for a subject."""
+    flag_order = [
+        "Already Mid+",
+        "Mid with Typical",
+        "Mid with Stretch",
+        "Mid Beyond Stretch",
+    ]
+    flag_colors = {
+        "Already Mid+": hf.default_quartile_colors[3],
+        "Mid with Typical": hf.default_quartile_colors[2],
+        "Mid with Stretch": hf.default_quartile_colors[1],
+        "Mid Beyond Stretch": hf.default_quartile_colors[0],
+    }
+    
+    # Use uniqueidentifier if student_id not available
+    id_col = "student_id" if "student_id" in data.columns else "uniqueidentifier"
+    
+    tbl = (
+        data.groupby(["student_grade", "growth_path"])[id_col]
+        .nunique()
+        .unstack("growth_path")
+        .reindex(columns=flag_order, fill_value=0)
+        .sort_index()
+    )
+    denom = tbl.sum(axis=1).replace(0, np.nan)
+    pct = (tbl.div(denom, axis=0) * 100).fillna(0)
+    
+    n_students = (
+        data.groupby("student_grade")[id_col]
+        .nunique()
+        .reindex(pct.index)
+        .fillna(0)
+        .astype(int)
+    )
+    
+    fig, ax = plt.subplots(figsize=(16, 9))
+    bottom = np.zeros(len(pct))
+    
+    # Plot bars in reversed(flag_order) so "Already Mid+" ends up on top
+    for f in reversed(flag_order):
+        vals = pct[f].values
+        bars = ax.bar(
+            pct.index, vals, bottom=bottom, color=flag_colors[f], label=f, width=0.7
+        )
+        for i, v in enumerate(vals):
+            if v >= 3:
+                # Set color based on f
+                if f in ["Mid Beyond Stretch", "Already Mid+", "Mid with Typical"]:
+                    label_color = "white"
+                else:
+                    label_color = "#434343"
+                ax.text(
+                    pct.index[i],
+                    bottom[i] + v / 2,
+                    f"{v:.0f}%",
+                    ha="center",
+                    va="center",
+                    fontsize=14,
+                    fontweight="bold",
+                    color=label_color,
+                )
+        bottom += vals
+    
+    for i, g in enumerate(pct.index):
+        ax.text(
+            g,
+            104,
+            f"n={int(n_students.iloc[i])}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            color="#434343",
+            fontweight="bold",
+        )
+    
+    ax.set_ylim(0, 110)
+    ax.set_yticks(range(0, 101, 20))
+    ax.set_yticklabels([f"{v}%" for v in range(0, 101, 20)])
+    ax.set_xlabel("Grade")
+    ax.set_ylabel("% of Students")
+    ax.set_xticks(pct.index)
+    ax.set_xticklabels(_grade_labels(pct.index))
+    ax.set_title(
+        f"{scope_label} {subject} \n Growth Path by Grade (Fall 2026)",
+        fontweight="bold",
+        fontsize=20,
+        pad=20,
+    )
+    
+    # Build legend handles in flag_order
+    legend_handles = [Patch(facecolor=flag_colors[f], label=f) for f in flag_order]
+    legend_labels = flag_order.copy()
+    ax.legend(
+        handles=legend_handles,
+        labels=legend_labels,
+        frameon=True,
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+    )
+    ax.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
+    fig.tight_layout()
+    
+    out_dir = Path(output_dir) / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
+    safe_scope = scope_label.replace(" ", "_")
+    safe_subj = subject.lower()
+    out_path = out_dir / f"{prefix}{safe_scope}_IREADY_section5a_fall2026_{safe_subj}_growthpath.png"
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    print(f"[Section 5a] Saved: {out_path}")
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "subject": subject,
+        "year": 2026,
+        "growth_paths": tbl.to_dict('index'),
+        "percentages": pct.to_dict('index'),
+        "n_students": n_students.to_dict()
+    }
+    
+    track_chart(f"{prefix}{safe_scope}_section5a_fall2026_{safe_subj}_growthpath", str(out_path), scope=folder, section=5, chart_data=chart_data)
+    
+    if preview:
+        plt.show()
+    plt.close(fig)
     
     return str(out_path)
 
@@ -883,7 +1557,9 @@ def main(iready_data=None):
                     continue
                 payload[subj] = (cross, metrics)
             if payload:
-                _plot_section0_iready(scope_label, folder, args.output_dir, payload, preview=hf.DEV_MODE)
+                path = _plot_section0_iready(scope_label, folder, args.output_dir, payload, preview=hf.DEV_MODE)
+                if path:
+                    chart_paths.append(path)
         except Exception as e:
             print(f"Error generating Section 0 chart for {scope_label}: {e}")
             continue
@@ -982,7 +1658,7 @@ def main(iready_data=None):
         scope_df["academicyear"] = pd.to_numeric(scope_df["academicyear"], errors="coerce")
         scope_df["student_grade"] = pd.to_numeric(scope_df["student_grade"], errors="coerce")
         
-        # Normalize grades (K -> 0)
+        # Normalize grades (K -> 0, -1 -> pre-k)
         def normalize_grade_val(grade_val):
             if pd.isna(grade_val):
                 return None
@@ -990,7 +1666,9 @@ def main(iready_data=None):
             if grade_str == "K" or grade_str == "KINDERGARTEN":
                 return 0
             try:
-                return int(float(grade_str))
+                grade_num = int(float(grade_str))
+                # -1 represents pre-k
+                return grade_num
             except:
                 return None
         
@@ -1010,6 +1688,16 @@ def main(iready_data=None):
             unique_grades = [g for g in unique_grades if g in chart_filters["grades"]]
         
         print(f"  [Section 3] Found {len(unique_grades)} grade(s) in filtered data: {unique_grades}")
+        
+        # Use consolidated charts if more than 3 grades
+        use_consolidated = len(unique_grades) > 3
+        
+        if use_consolidated:
+            # Generate consolidated chart with all grades arranged horizontally
+            print(f"  [Section 3] Using consolidated horizontal layout for {len(unique_grades)} grades")
+            # For now, generate individual charts but we'll add consolidated function later
+            # TODO: Create plot_iready_consolidated_blended_dashboard function
+            pass
         
         for g in unique_grades:
             # Check if grade exists in data (for chart generation decision)
@@ -1055,6 +1743,74 @@ def main(iready_data=None):
     for scope_df, scope_label, folder in scopes:
         _run_scope_section3(scope_df.copy(), scope_label, folder)
     
+    # Section 4: Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)
+    print("\n[Section 4] Generating Spring i-Ready Mid/Above → % CERS Met/Exceeded...")
+    for scope_df, scope_label, folder in scopes:
+        try:
+            # Check if any subjects should be generated
+            subjects_to_generate = ["ELA", "Math"]
+            if chart_filters and chart_filters.get("subjects"):
+                subjects_to_generate = [s for s in subjects_to_generate if should_generate_subject(s, chart_filters)]
+            
+            if subjects_to_generate:
+                path = _plot_mid_above_to_cers_faceted(scope_df.copy(), scope_label, folder, args.output_dir, cfg, preview=hf.DEV_MODE)
+                if path:
+                    chart_paths.append(path)
+        except Exception as e:
+            print(f"Error generating Section 4 chart for {scope_label}: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            continue
+    
+    # Section 5: Growth Path Counts and Charts (DQC/Validation)
+    print("\n" + "="*80)
+    print("[Section 5] Running Growth Path DQC/Validation...")
+    print("="*80)
+    try:
+        dqc_df = _prep_section5_dqc(iready_base.copy(), academicyear=2026)
+        if not dqc_df.empty:
+            print(f"[Section 5] Successfully prepared DQC data: {dqc_df.shape}")
+            _print_section5_dqc(dqc_df)
+        else:
+            print("[Section 5] WARNING: No Fall 2026 data available for DQC")
+            print("[Section 5] This may be expected if:")
+            print("  - No data exists for academic year 2026")
+            print("  - All data was filtered out by enrolled/most_recent_diagnostic filters")
+            print("  - No data available after filters")
+    except Exception as e:
+        print(f"[Section 5] ERROR during DQC preparation: {e}")
+        import traceback
+        traceback.print_exc()
+    print("="*80)
+    
+    # Section 5a: Fall 2026 Mid+ Progression Flags (Growth Path by Grade)
+    print("\n[Section 5a] Generating Fall 2026 Mid+ Progression Flags...")
+    for scope_df, scope_label, folder in scopes:
+        # Prepare growth path data for this scope (scope_df is already filtered)
+        scope_growth_df = _prep_growth_path_data(scope_df.copy(), academicyear=2026)
+        
+        if not scope_growth_df.empty:
+            for subj in ["ELA", "Math"]:
+                # Check if subject should be generated
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                
+                try:
+                    dsub = scope_growth_df[scope_growth_df["subject"].astype(str).str.lower() == subj.lower()].copy()
+                    if not dsub.empty:
+                        path = _plot_mid_flag_stacked(dsub, subj, scope_label, folder, args.output_dir, cfg, preview=hf.DEV_MODE)
+                        if path:
+                            chart_paths.append(path)
+                except Exception as e:
+                    print(f"Error generating Section 5a chart for {scope_label} - {subj}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
+        else:
+            print(f"[Section 5a] No Fall 2026 data available for {scope_label}")
+    
     # Build chart_paths from tracked charts if chart_paths is incomplete
     if chart_links and len(chart_links) > len(chart_paths):
         print(f"[Chart Tracking] Found {len(chart_links)} tracked charts but only {len(chart_paths)} in chart_paths")
@@ -1075,7 +1831,44 @@ def main(iready_data=None):
         print(f"[Deduplication] Removed {len(chart_paths) - len(unique_chart_paths)} duplicate chart(s)")
         chart_paths = unique_chart_paths
     
+    # Check if state wants all graphs (no filters or empty filters)
+    has_filters = chart_filters and any(
+        chart_filters.get(key) and len(chart_filters.get(key, [])) > 0
+        for key in ["subjects", "grades", "quarters", "student_groups", "race", "districts", "schools"]
+    )
+    
     print(f"\n✅ Generated {len(chart_paths)} iReady charts")
+    
+    # Print all graphs if state wants all graphs (no filters applied)
+    if not has_filters:
+        print("\n" + "="*80)
+        print("[iReady Charts] ALL GRAPHS GENERATED (No filters applied)")
+        print("="*80)
+        print(f"Total charts generated: {len(chart_paths)}")
+        if len(chart_paths) > 0:
+            print("\nGenerated charts:")
+            for i, path in enumerate(sorted(chart_paths), 1):
+                # Extract chart info from path
+                path_str = str(path)
+                filename = path_str.split("/")[-1] if "/" in path_str else path_str
+                # Extract section number if present in filename
+                section_info = ""
+                if "section" in filename.lower():
+                    import re
+                    section_match = re.search(r'section(\d+)', filename.lower())
+                    if section_match:
+                        section_info = f" [Section {section_match.group(1)}]"
+                print(f"  {i:3d}. {filename}{section_info}")
+        print("="*80)
+    else:
+        print(f"\n[iReady Charts] Generated {len(chart_paths)} charts (with filters applied)")
+        if len(chart_paths) > 0:
+            print("Generated charts:")
+            for i, path in enumerate(sorted(chart_paths), 1):
+                path_str = str(path)
+                filename = path_str.split("/")[-1] if "/" in path_str else path_str
+                print(f"  {i:3d}. {filename}")
+    
     return chart_paths
 
 
@@ -1088,7 +1881,7 @@ def generate_iready_charts(
     iready_data: list = None
 ) -> list:
     """
-    Generate iReady charts (wrapper function for Flask backend)
+    Generate iReady charts (router function - directs to Fall, Winter, or Spring modules based on quarter selection)
     
     Args:
         partner_name: Partner name
@@ -1107,37 +1900,116 @@ def generate_iready_charts(
     
     cfg = config or {}
     if chart_filters:
+        # Ensure chart_filters is a dict, not a string
+        if isinstance(chart_filters, str):
+            try:
+                chart_filters = json.loads(chart_filters)
+            except:
+                print(f"[Warning] Could not parse chart_filters as JSON: {chart_filters}")
+                chart_filters = {}
         cfg['chart_filters'] = chart_filters
     
     hf.DEV_MODE = cfg.get('dev_mode', False)
     
-    class Args:
-        def __init__(self):
-            self.partner = partner_name
-            self.data_dir = data_dir if iready_data is None else None
-            self.output_dir = output_dir
-            self.dev_mode = 'true' if hf.DEV_MODE else 'false'
-            self.config = json.dumps(cfg) if cfg else '{}'
+    chart_filters_check = cfg.get('chart_filters', {})
+    selected_quarters = chart_filters_check.get("quarters", [])
+    all_chart_paths = []
     
-    args = Args()
+    # Normalize selected_quarters to handle both list and single value
+    if isinstance(selected_quarters, str):
+        selected_quarters = [selected_quarters]
+    elif not isinstance(selected_quarters, list):
+        selected_quarters = []
     
-    old_argv = sys.argv
-    try:
-        sys.argv = [
-            'iready_charts.py',
-            '--partner', args.partner,
-            '--output-dir', args.output_dir,
-            '--dev-mode', args.dev_mode,
-            '--config', args.config
-        ]
-        if args.data_dir:
-            sys.argv.extend(['--data-dir', args.data_dir])
+    # If no quarters are explicitly selected, default to Fall for backward compatibility
+    if not selected_quarters:
+        selected_quarters = ["Fall"]
+        print("\n[iReady Router] No quarters specified in chart_filters - defaulting to Fall")
+    
+    normalized_quarters = [str(q).lower() for q in selected_quarters]
+    has_winter = "winter" in normalized_quarters
+    has_fall = "fall" in normalized_quarters
+    has_spring = "spring" in normalized_quarters
+    
+    print(f"\n[iReady Router] Selected quarters from chart_filters: {selected_quarters}")
+    print(f"[iReady Router] Normalized quarters: {normalized_quarters}")
+    print(f"[iReady Router] has_winter={has_winter}, has_fall={has_fall}, has_spring={has_spring}")
+    
+    # Route to Winter module if Winter is selected
+    if has_winter:
+        from .iready_winter import generate_iready_winter_charts
+        print("\n[iReady Router] Winter detected - routing to iready_winter.py...")
+        try:
+            winter_charts = generate_iready_winter_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                iready_data=iready_data
+            )
+            if winter_charts:
+                all_chart_paths.extend(winter_charts)
+                print(f"[iReady Router] Generated {len(winter_charts)} Winter charts")
+        except Exception as e:
+            print(f"[iReady Router] Error generating Winter charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
         
-        chart_paths = main(iready_data=iready_data)
-    finally:
-        sys.argv = old_argv
+        # If ONLY Winter is selected (no Fall, no Spring), return early
+        if has_winter and not has_fall and not has_spring:
+            print("\n[iReady Router] Only Winter selected - returning early, skipping Fall/Spring chart generation.")
+            return all_chart_paths
     
-    return chart_paths
+    # Route to Spring module if Spring is selected
+    if has_spring:
+        from .iready_spring import generate_iready_spring_charts
+        print("\n[iReady Router] Spring detected - routing to iready_spring.py...")
+        try:
+            spring_charts = generate_iready_spring_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                iready_data=iready_data
+            )
+            if spring_charts:
+                all_chart_paths.extend(spring_charts)
+                print(f"[iReady Router] Generated {len(spring_charts)} Spring charts")
+        except Exception as e:
+            print(f"[iReady Router] Error generating Spring charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    
+    # Route to Fall module if Fall is selected
+    if has_fall:
+        from .iready_fall import generate_iready_fall_charts
+        print("\n[iReady Router] Fall detected - routing to iready_fall.py...")
+        try:
+            fall_charts = generate_iready_fall_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                iready_data=iready_data
+            )
+            if fall_charts:
+                all_chart_paths.extend(fall_charts)
+                print(f"[iReady Router] Generated {len(fall_charts)} Fall charts")
+        except Exception as e:
+            print(f"[iReady Router] Error generating Fall charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    else:
+        if not has_winter and not has_spring:
+            print("\n[iReady Router] No Fall, Spring, or Winter selected - skipping chart generation.")
+    
+    return all_chart_paths
 
 
 if __name__ == "__main__":

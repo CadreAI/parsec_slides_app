@@ -1,16 +1,19 @@
 import { resolveServiceAccountCredentialsPath } from '@/lib/credentials'
+import { auth } from '@clerk/nextjs/server'
 import { BigQuery } from '@google-cloud/bigquery'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
  * GET /api/bigquery/districts-schools
  *
- * Fetches unique district names and school names from NWEA and cers_iab tables
+ * Fetches unique district names and school names from specified assessment tables
  *
  * Query params:
  *   - projectId: string (required) - GCP project ID
  *   - datasetId: string (required) - Dataset ID (partner name)
  *   - location?: string (optional) - BigQuery location (default: US)
+ *   - assessments?: string (optional) - Comma-separated list of assessment IDs (nwea, star, iready)
+ *                                       If not provided, queries all available tables
  *
  * Returns:
  *   - success: boolean
@@ -19,9 +22,20 @@ import { NextRequest, NextResponse } from 'next/server'
  */
 export async function GET(req: NextRequest) {
     try {
+        const { userId } = await auth()
+        if (!userId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+        }
+
         const projectId = req.nextUrl.searchParams.get('projectId')
         const datasetId = req.nextUrl.searchParams.get('datasetId')
         const location = req.nextUrl.searchParams.get('location') || 'US'
+        const assessmentsParam = req.nextUrl.searchParams.get('assessments')
+        const tablePathsParam = req.nextUrl.searchParams.get('tablePaths')
+
+        // Parse assessments and table path if provided
+        const requestedAssessments = assessmentsParam ? assessmentsParam.split(',').map((a) => a.trim().toLowerCase()) : null
+        const specificTables = tablePathsParam ? tablePathsParam.split(',').map((t) => t.trim()) : null
 
         if (!projectId || !datasetId) {
             return NextResponse.json(
@@ -49,67 +63,25 @@ export async function GET(req: NextRequest) {
             location: location
         })
 
+        // Determine which tables to query based on requested assessments
+        const shouldQueryNwea = !requestedAssessments || requestedAssessments.includes('nwea')
+        const shouldQueryStar = !requestedAssessments || requestedAssessments.includes('star')
+        const shouldQueryIready = !requestedAssessments || requestedAssessments.includes('iready')
+        const shouldQueryCersIab = !requestedAssessments || requestedAssessments.includes('cers_iab') || requestedAssessments.includes('cers')
+
         // Try to find NWEA table
-        const nweaTableNames = ['Nwea_production_calpads', 'Nwea_production_calpads_v4_2', 'nwea_production_calpads', 'nwea_production_calpads_v4_2']
         let nweaTableId: string | null = null
-
-        for (const testTableName of nweaTableNames) {
-            try {
-                const dataset = client.dataset(datasetId)
-                const table = dataset.table(testTableName)
-                const [exists] = await table.exists()
-                if (exists) {
-                    nweaTableId = `${projectId}.${datasetId}.${testTableName}`
-                    console.log(`Found NWEA table: ${nweaTableId}`)
-                    break
-                }
-            } catch {
-                continue
-            }
-        }
-
-        // Try to find cers_iab table
-        const cersIabTableNames = ['cers_iab', 'CERS_IAB', 'cers_iab_production']
-        let cersIabTableId: string | null = null
-
-        for (const testTableName of cersIabTableNames) {
-            try {
-                const dataset = client.dataset(datasetId)
-                const table = dataset.table(testTableName)
-                const [exists] = await table.exists()
-                if (exists) {
-                    cersIabTableId = `${projectId}.${datasetId}.${testTableName}`
-                    console.log(`Found cers_iab table: ${cersIabTableId}`)
-                    break
-                }
-            } catch {
-                continue
-            }
-        }
-
-        // Try to find STAR table if NWEA is not found
-        const starTableNames = [
-            'renaissance_production_calpads_v4_2',
-            'Renaissance_production_calpads_v4_2',
-            'star_production_calpads_v4_2',
-            'star_production_calpads',
-            'star_production',
-            'star',
-            'STAR',
-            'renaissance'
-        ]
-        let starTableId: string | null = null
-
-        // Only search for STAR if NWEA is not found
-        if (!nweaTableId) {
-            for (const testTableName of starTableNames) {
+        if (shouldQueryNwea) {
+            const nweaTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('nwea'))
+                : ['Nwea_production_calpads', 'Nwea_production_calpads_v4_2', 'nwea_production_calpads', 'nwea_production_calpads_v4_2']
+            for (const testTableName of nweaTableNames) {
                 try {
                     const dataset = client.dataset(datasetId)
                     const table = dataset.table(testTableName)
                     const [exists] = await table.exists()
                     if (exists) {
-                        starTableId = `${projectId}.${datasetId}.${testTableName}`
-                        console.log(`Found STAR table: ${starTableId}`)
+                        nweaTableId = `${projectId}.${datasetId}.${testTableName}`
                         break
                     }
                 } catch {
@@ -118,29 +90,180 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        if (!nweaTableId && !cersIabTableId && !starTableId) {
+        // Try to find STAR table
+        let starTableId: string | null = null
+        if (shouldQueryStar) {
+            const starTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('star') || t.toLowerCase().includes('renaissance'))
+                : [
+                      'renaissance_production_calpads_v4_2',
+                      'Renaissance_production_calpads_v4_2',
+                      'star_production_calpads_v4_2',
+                      'star_production_calpads',
+                      'star_production',
+                      'star',
+                      'STAR',
+                      'renaissance'
+                  ]
+            for (const testTableName of starTableNames) {
+                try {
+                    const dataset = client.dataset(datasetId)
+                    const table = dataset.table(testTableName)
+                    const [exists] = await table.exists()
+                    if (exists) {
+                        starTableId = `${projectId}.${datasetId}.${testTableName}`
+                        break
+                    }
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        // Try to find iReady table
+        let ireadyTableId: string | null = null
+        if (shouldQueryIready) {
+            const ireadyTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('iready'))
+                : [
+                      'iready_production_calpads_v4_2',
+                      'iReady_production_calpads_v4_2',
+                      'iready_production_calpads',
+                      'iready_production',
+                      'iready',
+                      'iReady',
+                      'IREADY'
+                  ]
+            for (const testTableName of ireadyTableNames) {
+                try {
+                    const dataset = client.dataset(datasetId)
+                    const table = dataset.table(testTableName)
+                    const [exists] = await table.exists()
+                    if (exists) {
+                        ireadyTableId = `${projectId}.${datasetId}.${testTableName}`
+                        break
+                    }
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        // Try to find cers_iab table
+        let cersIabTableId: string | null = null
+        if (shouldQueryCersIab) {
+            const cersIabTableNames = specificTables
+                ? specificTables.filter((t) => t.toLowerCase().includes('cers'))
+                : ['cers_iab', 'CERS_IAB', 'cers_iab_production']
+            for (const testTableName of cersIabTableNames) {
+                try {
+                    const dataset = client.dataset(datasetId)
+                    const table = dataset.table(testTableName)
+                    const [exists] = await table.exists()
+                    if (exists) {
+                        cersIabTableId = `${projectId}.${datasetId}.${testTableName}`
+                        break
+                    }
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        if (!nweaTableId && !cersIabTableId && !starTableId && !ireadyTableId) {
+            const requestedList = requestedAssessments ? requestedAssessments.join(', ') : 'any'
             return NextResponse.json(
                 {
                     success: false,
-                    error: `Neither NWEA, STAR, nor cers_iab table found in dataset ${datasetId}`
+                    error: `No assessment tables found in dataset ${datasetId} for requested assessments: ${requestedList}`
                 },
                 { status: 404 }
             )
         }
 
+        // Normalize district/school names for deduplication
+        // This function normalizes names to handle case differences and variations
+        function normalizeName(name: string): string {
+            if (!name) return ''
+            // Trim whitespace and convert to lowercase for comparison
+            return name.trim().toLowerCase()
+        }
+
+        // Map normalized name -> canonical name (prefer title case)
+        const normalizedToCanonical: Record<string, string> = {}
+
+        // Helper to get or create canonical name
+        function getCanonicalName(name: string): string {
+            if (!name) return ''
+            const normalized = normalizeName(name)
+            if (!normalized) return ''
+
+            // If we've seen this normalized name before, return the canonical version
+            if (normalizedToCanonical[normalized]) {
+                const existingCanonical = normalizedToCanonical[normalized]
+                const trimmedName = name.trim()
+
+                // Prefer title case over all caps or all lowercase
+                const existingIsAllCaps = existingCanonical === existingCanonical.toUpperCase() && existingCanonical !== existingCanonical.toLowerCase()
+                const newIsTitleCase = trimmedName !== trimmedName.toUpperCase() && trimmedName !== trimmedName.toLowerCase()
+
+                // If existing is all caps and new is title case, update canonical
+                if (existingIsAllCaps && newIsTitleCase) {
+                    normalizedToCanonical[normalized] = trimmedName
+                    return trimmedName
+                }
+
+                return existingCanonical
+            }
+
+            // Create canonical name (use trimmed original)
+            const canonical = name.trim()
+            normalizedToCanonical[normalized] = canonical
+            return canonical
+        }
+
         // Extract unique districts and schools from all tables
+        // Use normalized names as keys, but store canonical names
         const districtSet = new Set<string>()
         const schoolSet = new Set<string>()
         const districtSchoolMap: Record<string, string[]> = {}
 
         // Query NWEA table if it exists
         if (nweaTableId) {
+            // Check which columns exist in the table
+            let hasLearningCenter = false
+            let hasDistrictName = false
+            try {
+                const tableName = nweaTableId.split('.').pop()!
+                const [table] = await client.dataset(datasetId).table(tableName).getMetadata()
+                const fields = table.schema?.fields || []
+                hasLearningCenter = fields.some(
+                    (field: { name?: string }) => field.name?.toLowerCase() === 'learning_center' || field.name?.toLowerCase() === 'learningcenter'
+                )
+                hasDistrictName = fields.some(
+                    (field: { name?: string }) =>
+                        field.name?.toLowerCase() === 'districtname' ||
+                        field.name?.toLowerCase() === 'district_name' ||
+                        field.name?.toLowerCase() === 'district'
+                )
+            } catch (error) {
+                console.warn(`Could not check table schema: ${error}`)
+            }
+
+            // Use learning_center if it exists, otherwise fall back to SchoolName
+            // BigQuery column names: learning_center (lowercase with underscore), SchoolName (PascalCase)
+            const schoolColumn = hasLearningCenter ? `COALESCE(learning_center, SchoolName)` : `SchoolName`
+
+            // Build WHERE clause - only require school column to have values
+            // Pull all DistrictName values (including NULL) to get all possible districts
+            const whereClause = `WHERE ${schoolColumn} IS NOT NULL`
+
             const nweaSql = `
                 SELECT DISTINCT
                     DistrictName,
-                    SchoolName
+                    ${schoolColumn} AS SchoolName
                 FROM \`${nweaTableId}\`
-                WHERE DistrictName IS NOT NULL
+                ${whereClause}
             `
 
             const nweaOptions = {
@@ -154,30 +277,161 @@ export async function GET(req: NextRequest) {
                 const [nweaJob] = await client.createQueryJob(nweaOptions)
                 const [nweaRows] = await nweaJob.getQueryResults()
 
-                for (const row of nweaRows) {
-                    const districtName = String(row.DistrictName || row.districtname || row.District_Name || row.district_name || '').trim()
-                    const schoolName = String(row.SchoolName || row.schoolname || row.School_Name || row.school_name || '').trim()
+                console.log(`[districts-schools] Processing NWEA table: ${nweaTableId}`)
+                console.log(`[districts-schools] NWEA using columns: District='DistrictName', School='${schoolColumn}'`)
+                console.log(`[districts-schools] NWEA rows returned: ${nweaRows.length}`)
 
-                    if (districtName) {
-                        districtSet.add(districtName)
-                        if (schoolName) {
-                            if (!districtSchoolMap[districtName]) {
-                                districtSchoolMap[districtName] = []
+                for (const row of nweaRows) {
+                    // NWEA table uses DistrictName column - get all possible values including NULL
+                    const districtName = row.DistrictName != null ? String(row.DistrictName).trim() : null
+                    // Check for learning_center first (lowercase with underscore), then fall back to SchoolName
+                    const schoolName = String(row.learning_center || row.SchoolName || '').trim()
+
+                    if (schoolName) {
+                        // Add district name if it exists, otherwise use dataset name for charter schools
+                        const effectiveDistrictName = districtName || (hasLearningCenter ? datasetId : null)
+
+                        // Only add district if we have a valid name
+                        if (effectiveDistrictName) {
+                            // Normalize and get canonical district name
+                            const canonicalDistrict = getCanonicalName(effectiveDistrictName)
+                            districtSet.add(canonicalDistrict)
+
+                            // Normalize school name for deduplication
+                            const normalizedSchool = normalizeName(schoolName)
+                            const canonicalSchool = schoolName.trim() // Use original as canonical
+
+                            if (!districtSchoolMap[canonicalDistrict]) {
+                                districtSchoolMap[canonicalDistrict] = []
                             }
-                            if (!districtSchoolMap[districtName].includes(schoolName)) {
-                                districtSchoolMap[districtName].push(schoolName)
+
+                            // Check if school already exists (case-insensitive)
+                            const existingSchools = districtSchoolMap[canonicalDistrict].map((s) => normalizeName(s))
+                            if (!existingSchools.includes(normalizedSchool)) {
+                                districtSchoolMap[canonicalDistrict].push(canonicalSchool)
                             }
-                            schoolSet.add(schoolName)
                         }
+                        schoolSet.add(schoolName.trim())
                     }
                 }
-                console.log(`Found ${nweaRows.length} rows from NWEA table`)
+                console.log(`[districts-schools] NWEA results: ${districtSet.size} districts, ${schoolSet.size} schools`)
             } catch (error) {
                 console.warn(`Error querying NWEA table: ${error}`)
             }
         }
 
-        // Query STAR table if it exists (and NWEA was not found)
+        // Query iReady table if it exists
+        if (ireadyTableId) {
+            try {
+                // Check which columns exist in the iReady table
+                const tableName = ireadyTableId.split('.').pop()!
+                const [table] = await client.dataset(datasetId).table(tableName).getMetadata()
+                const fields = table.schema?.fields || []
+
+                const hasDistrictName = fields.some(
+                    (field: { name?: string }) =>
+                        field.name?.toLowerCase() === 'districtname' ||
+                        field.name?.toLowerCase() === 'district_name' ||
+                        field.name?.toLowerCase() === 'district'
+                )
+                const hasSchool = fields.some(
+                    (field: { name?: string }) =>
+                        field.name?.toLowerCase() === 'school' || field.name?.toLowerCase() === 'schoolname' || field.name?.toLowerCase() === 'school_name'
+                )
+                const hasLearningCenter = fields.some(
+                    (field: { name?: string }) => field.name?.toLowerCase() === 'learning_center' || field.name?.toLowerCase() === 'learningcenter'
+                )
+
+                // Build SQL based on available columns
+                let districtColumn: string
+                let schoolColumn: string
+                let whereClause: string
+
+                if (hasDistrictName) {
+                    // Standard case: use DistrictName
+                    districtColumn = 'DistrictName'
+                    // For schools, prioritize learning_center if available
+                    if (hasLearningCenter) {
+                        schoolColumn = 'COALESCE(learning_center, SchoolName, School_Name, school)'
+                    } else {
+                        schoolColumn = 'COALESCE(SchoolName, School_Name, school)'
+                    }
+                    whereClause = 'WHERE DistrictName IS NOT NULL'
+                } else if (hasSchool) {
+                    // Charter school case: use School as district identifier
+                    districtColumn = 'School'
+                    // Use learning_center for schools if available
+                    if (hasLearningCenter) {
+                        schoolColumn = 'learning_center'
+                        whereClause = 'WHERE School IS NOT NULL AND learning_center IS NOT NULL'
+                    } else {
+                        // Fallback: use School as both district and school (distinct values)
+                        schoolColumn = 'School'
+                        whereClause = 'WHERE School IS NOT NULL'
+                    }
+                } else {
+                    // Fallback: try common column names
+                    districtColumn = 'COALESCE(DistrictName, District_Name, districtname, district_name)'
+                    schoolColumn = 'COALESCE(SchoolName, School_Name, schoolname, school_name, learning_center)'
+                    whereClause = 'WHERE ' + districtColumn + ' IS NOT NULL'
+                }
+
+                const ireadySql = `
+                    SELECT DISTINCT
+                        ${districtColumn} AS DistrictName,
+                        ${schoolColumn} AS SchoolName
+                    FROM \`${ireadyTableId}\`
+                    ${whereClause}
+                `
+
+                const ireadyOptions = {
+                    query: ireadySql,
+                    useQueryCache: true,
+                    useLegacySql: false,
+                    priority: 'INTERACTIVE' as const
+                }
+
+                const [ireadyJob] = await client.createQueryJob(ireadyOptions)
+                const [ireadyRows] = await ireadyJob.getQueryResults()
+
+                console.log(`[districts-schools] Processing iReady table: ${ireadyTableId}`)
+                console.log(`[districts-schools] iReady using columns: District='${districtColumn}', School='${schoolColumn}'`)
+                console.log(`[districts-schools] iReady rows returned: ${ireadyRows.length}`)
+
+                for (const row of ireadyRows) {
+                    const districtName = String(row.DistrictName || '').trim()
+                    const schoolName = String(row.SchoolName || '').trim()
+
+                    if (districtName) {
+                        // Normalize and get canonical district name
+                        const canonicalDistrict = getCanonicalName(districtName)
+                        districtSet.add(canonicalDistrict)
+
+                        if (schoolName && schoolName !== districtName) {
+                            // Only add school if it's different from district (for charter schools using School as district)
+                            // Normalize school name for deduplication
+                            const normalizedSchool = normalizeName(schoolName)
+                            const canonicalSchool = schoolName.trim() // Use original as canonical
+
+                            if (!districtSchoolMap[canonicalDistrict]) {
+                                districtSchoolMap[canonicalDistrict] = []
+                            }
+
+                            // Check if school already exists (case-insensitive)
+                            const existingSchools = districtSchoolMap[canonicalDistrict].map((s) => normalizeName(s))
+                            if (!existingSchools.includes(normalizedSchool)) {
+                                districtSchoolMap[canonicalDistrict].push(canonicalSchool)
+                            }
+                            schoolSet.add(canonicalSchool)
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn(`Error querying iReady table: ${error}`)
+            }
+        }
+
+        // Query STAR table if it exists
         if (starTableId) {
             // STAR uses District_Name and School_Name (with underscores)
             const starSql = `
@@ -199,25 +453,38 @@ export async function GET(req: NextRequest) {
                 const [starJob] = await client.createQueryJob(starOptions)
                 const [starRows] = await starJob.getQueryResults()
 
+                console.log(`[districts-schools] Processing STAR table: ${starTableId}`)
+                console.log(`[districts-schools] STAR using columns: District='District_Name', School='School_Name'`)
+                console.log(`[districts-schools] STAR rows returned: ${starRows.length}`)
+
                 for (const row of starRows) {
                     // STAR uses District_Name and School_Name, but we alias them as DistrictName/SchoolName in SQL
                     const districtName = String(row.DistrictName || row.District_Name || '').trim()
                     const schoolName = String(row.SchoolName || row.School_Name || '').trim()
 
                     if (districtName) {
-                        districtSet.add(districtName)
+                        // Normalize and get canonical district name
+                        const canonicalDistrict = getCanonicalName(districtName)
+                        districtSet.add(canonicalDistrict)
+
                         if (schoolName) {
-                            if (!districtSchoolMap[districtName]) {
-                                districtSchoolMap[districtName] = []
+                            // Normalize school name for deduplication
+                            const normalizedSchool = normalizeName(schoolName)
+                            const canonicalSchool = schoolName.trim() // Use original as canonical
+
+                            if (!districtSchoolMap[canonicalDistrict]) {
+                                districtSchoolMap[canonicalDistrict] = []
                             }
-                            if (!districtSchoolMap[districtName].includes(schoolName)) {
-                                districtSchoolMap[districtName].push(schoolName)
+
+                            // Check if school already exists (case-insensitive)
+                            const existingSchools = districtSchoolMap[canonicalDistrict].map((s) => normalizeName(s))
+                            if (!existingSchools.includes(normalizedSchool)) {
+                                districtSchoolMap[canonicalDistrict].push(canonicalSchool)
                             }
-                            schoolSet.add(schoolName)
+                            schoolSet.add(canonicalSchool)
                         }
                     }
                 }
-                console.log(`Found ${starRows.length} rows from STAR table`)
             } catch (error) {
                 console.warn(`Error querying STAR table: ${error}`)
             }
@@ -246,24 +513,39 @@ export async function GET(req: NextRequest) {
                 const [cersIabJob] = await client.createQueryJob(cersIabOptions)
                 const [cersIabRows] = await cersIabJob.getQueryResults()
 
+                console.log(`[districts-schools] Processing CERS_IAB table: ${cersIabTableId}`)
+                console.log(
+                    `[districts-schools] CERS_IAB using columns: District='COALESCE(DistrictName, districtname)', School='COALESCE(SchoolName, schoolname)'`
+                )
+                console.log(`[districts-schools] CERS_IAB rows returned: ${cersIabRows.length}`)
+
                 for (const row of cersIabRows) {
                     const districtName = String(row.DistrictName || row.districtname || row.District_Name || row.district_name || '').trim()
                     const schoolName = String(row.SchoolName || row.schoolname || row.School_Name || row.school_name || '').trim()
 
                     if (districtName) {
-                        districtSet.add(districtName)
+                        // Normalize and get canonical district name
+                        const canonicalDistrict = getCanonicalName(districtName)
+                        districtSet.add(canonicalDistrict)
+
                         if (schoolName) {
-                            if (!districtSchoolMap[districtName]) {
-                                districtSchoolMap[districtName] = []
+                            // Normalize school name for deduplication
+                            const normalizedSchool = normalizeName(schoolName)
+                            const canonicalSchool = schoolName.trim() // Use original as canonical
+
+                            if (!districtSchoolMap[canonicalDistrict]) {
+                                districtSchoolMap[canonicalDistrict] = []
                             }
-                            if (!districtSchoolMap[districtName].includes(schoolName)) {
-                                districtSchoolMap[districtName].push(schoolName)
+
+                            // Check if school already exists (case-insensitive)
+                            const existingSchools = districtSchoolMap[canonicalDistrict].map((s) => normalizeName(s))
+                            if (!existingSchools.includes(normalizedSchool)) {
+                                districtSchoolMap[canonicalDistrict].push(canonicalSchool)
                             }
-                            schoolSet.add(schoolName)
+                            schoolSet.add(canonicalSchool)
                         }
                     }
                 }
-                console.log(`Found ${cersIabRows.length} rows from cers_iab table`)
             } catch (error) {
                 console.warn(`Error querying cers_iab table: ${error}`)
             }
@@ -275,14 +557,30 @@ export async function GET(req: NextRequest) {
         const sourceTables = []
         if (nweaTableId) sourceTables.push('NWEA')
         if (starTableId) sourceTables.push('STAR')
+        if (ireadyTableId) sourceTables.push('iReady')
         if (cersIabTableId) sourceTables.push('cers_iab')
-        console.log(`Found ${districts.length} districts and ${schools.length} schools total (from ${sourceTables.join(', ')} tables)`)
+
+        // Detailed logging
+        console.log('[districts-schools API] Query Results:', {
+            datasetId,
+            sourceTables: sourceTables.join(', '),
+            districtsFound: districts.length,
+            schoolsFound: schools.length,
+            districts: districts,
+            districtSchoolMapKeys: Object.keys(districtSchoolMap),
+            districtSchoolMapDetails: Object.entries(districtSchoolMap).map(([district, schools]) => ({
+                district,
+                schoolCount: schools.length,
+                schools: schools.slice(0, 5) // Show first 5 schools per district
+            }))
+        })
 
         return NextResponse.json({
             success: true,
             districts: districts,
             schools: schools,
-            districtSchoolMap: districtSchoolMap // Map of district -> schools for filtering
+            districtSchoolMap: districtSchoolMap, // Map of district -> schools for filtering
+            source: sourceTables.join(', ') // Include source info for debugging
         })
     } catch (error: unknown) {
         console.error('Error fetching districts and schools:', error)

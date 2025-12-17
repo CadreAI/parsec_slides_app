@@ -135,7 +135,7 @@ def get_scopes(star_base, cfg):
     # School scopes
     school_col = "school_name" if "school_name" in star_base.columns else "schoolname"
     
-    if selected_schools:
+    if selected_schools and len(selected_schools) > 0:
         # Filter to selected schools only
         for raw_school in selected_schools:
             if raw_school not in star_base[school_col].values:
@@ -146,12 +146,9 @@ def get_scopes(star_base, cfg):
             folder = scope_label.replace(" ", "_").replace("/", "_").replace("&", "and")
             scopes.append((scope_df, scope_label, folder))
     else:
-        # All schools
-        for raw_school in sorted(star_base[school_col].dropna().unique()):
-            scope_df = star_base[star_base[school_col] == raw_school].copy()
-            scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-            folder = scope_label.replace(" ", "_").replace("/", "_").replace("&", "and")
-            scopes.append((scope_df, scope_label, folder))
+        # If no schools selected (empty array), don't generate school-level charts
+        # This happens when "District Only" mode is enabled
+        print(f"[Scope Filter] No schools selected - skipping school-level charts (district only mode)")
     
     return scopes
 

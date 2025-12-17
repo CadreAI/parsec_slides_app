@@ -141,7 +141,7 @@ def draw_score_bar(ax, score_df, labels, n_map=None):
                 f"{v:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=10,
+                fontsize=14,
                 fontweight="bold",
                 color="#434343",
             )
@@ -168,22 +168,23 @@ def draw_score_bar(ax, score_df, labels, n_map=None):
 
 
 def draw_insight_card(ax, metrics, title):
-    """Draw insight text box"""
+    """Draw insight text box (shows current values, not deltas)"""
     ax.axis("off")
     if metrics and metrics.get("t_prev"):
         t_prev, t_curr = metrics["t_prev"], metrics["t_curr"]
-        high_delta = metrics.get("high_delta", metrics.get("hi_delta", 0))
-        lo_delta = metrics.get("lo_delta", 0)
-        score_delta = metrics.get("score_delta", 0)
+        # Show current values, not deltas
+        high_now = metrics.get("high_now", metrics.get("hi_now", 0))
+        lo_now = metrics.get("lo_now", 0)
+        score_now = metrics.get("score_now", 0)
         
         insight_lines = [
-            f"Change from {t_prev} to {t_curr}:",
-            f"Δ Mid/Above: {high_delta:+.1f} ppts",
-            f"Δ 2+ Below: {lo_delta:+.1f} ppts",
-            f"Δ Avg Scale Score: {score_delta:+.1f} pts",
+            f"Current values ({t_curr}):",
+            f"Mid/Above: {high_now:.1f} ppts",
+            f"2+ Below: {lo_now:.1f} ppts",
+            f"Avg Scale Score: {score_now:.1f} pts",
         ]
     else:
-        insight_lines = ["Not enough history for change insights"]
+        insight_lines = ["Not enough history for insights"]
     
     ax.text(
         0.5,

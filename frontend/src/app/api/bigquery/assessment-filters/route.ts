@@ -1,3 +1,4 @@
+import { auth } from '@clerk/nextjs/server'
 import { BigQuery } from '@google-cloud/bigquery'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -19,10 +20,19 @@ import { NextRequest, NextResponse } from 'next/server'
  */
 export async function GET(req: NextRequest) {
     try {
+        const { userId } = await auth()
+        if (!userId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+        }
+
         const projectId = req.nextUrl.searchParams.get('projectId')
         const datasetId = req.nextUrl.searchParams.get('datasetId')
         const assessments = req.nextUrl.searchParams.get('assessments') || ''
         const location = req.nextUrl.searchParams.get('location') || 'US'
+        const tablePathsParam = req.nextUrl.searchParams.get('tablePaths')
+
+        // Parse specific table paths if provided
+        const specificTablePaths = tablePathsParam ? tablePathsParam.split(',').map((t) => t.trim()) : null
 
         if (!projectId || !datasetId) {
             return NextResponse.json(
@@ -43,10 +53,9 @@ export async function GET(req: NextRequest) {
             const serviceAccountPath = resolveServiceAccountCredentialsPath()
             if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
                 process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
-                console.log(`[Assessment Filters] Using service account credentials: ${serviceAccountPath}`)
             }
-        } catch (credError) {
-            console.warn('[Assessment Filters] Could not resolve credentials, will try Application Default Credentials:', credError)
+        } catch (_credError) {
+            // Credentials will use ADC if not found
         }
 
         const client = new BigQuery({
@@ -78,7 +87,19 @@ export async function GET(req: NextRequest) {
 
         // Query each requested assessment
         for (const assessmentId of requestedAssessments) {
-            const tablePatterns = assessmentTableMap[assessmentId] || []
+            let tablePatterns = assessmentTableMap[assessmentId] || []
+
+            // If specific table paths are provided, filter to relevant tables for this assessment
+            if (specificTablePaths) {
+                const relevantTables = specificTablePaths.filter((path) => {
+                    const tableName = path.split('.').pop() || path
+                    return tableName.toLowerCase().includes(assessmentId.toLowerCase())
+                })
+                if (relevantTables.length > 0) {
+                    tablePatterns = relevantTables.map((path) => path.split('.').pop() || path)
+                }
+            }
+
             let foundTable: string | null = null
 
             // Find the table for this assessment
@@ -345,8 +366,6 @@ export async function GET(req: NextRequest) {
                 }
             })
         }
-
-        console.log(`[Assessment Filters] Found ${allSubjects.size} subjects and ${allQuarters.size} quarters from data`)
 
         return NextResponse.json({
             success: true,

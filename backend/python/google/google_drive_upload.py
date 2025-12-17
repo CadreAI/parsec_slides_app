@@ -37,6 +37,7 @@ def create_drive_folder(folder_name: str, parent_folder_id: str = None) -> str:
         print(f"[Drive] Creating folder: {folder_name}")
         folder = drive_service.files().create(
             body=folder_metadata,
+            supportsAllDrives=True,  # Required for shared drives
             fields='id, name, webViewLink'
         ).execute()
         
@@ -71,7 +72,11 @@ def move_file_to_folder(file_id: str, folder_id: str) -> bool:
         drive_service = get_drive_client()
         
         # Get current parents of the file
-        file = drive_service.files().get(fileId=file_id, fields='parents').execute()
+        file = drive_service.files().get(
+            fileId=file_id,
+            fields='parents',
+            supportsAllDrives=True
+        ).execute()
         previous_parents = ",".join(file.get('parents', []))
         
         # Move the file to the new folder
@@ -79,7 +84,8 @@ def move_file_to_folder(file_id: str, folder_id: str) -> bool:
             fileId=file_id,
             addParents=folder_id,
             removeParents=previous_parents,
-            fields='id, parents'
+            fields='id, parents',
+            supportsAllDrives=True
         ).execute()
         
         print(f"[Drive] ✓ Moved file {file_id} to folder {folder_id}")
@@ -163,6 +169,7 @@ def upload_image_to_drive(
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
+            supportsAllDrives=True,  # Required for shared drives
             fields='id, webViewLink, webContentLink'
         ).execute()
         
@@ -177,11 +184,15 @@ def upload_image_to_drive(
             try:
                 drive_service.permissions().create(
                     fileId=file_id,
-                    body={'role': 'reader', 'type': 'anyone'}
+                    body={'role': 'reader', 'type': 'anyone'},
+                    supportsAllDrives=True  # Required for Shared Drive files
                 ).execute()
                 print(f"[Drive Upload] Made {file_name} publicly accessible")
             except HttpError as e:
                 print(f"[Drive Upload] Warning: Could not make {file_name} public: {e}")
+                # If we can't make it public, the Slides API won't be able to access it
+                # Log this as a critical warning
+                print(f"[Drive Upload] ⚠️ CRITICAL: File {file_id} is not public - Slides API may fail to load image")
         
         # Return public URL (use webContentLink for direct image access)
         public_url = f"https://drive.google.com/uc?export=view&id={file_id}"

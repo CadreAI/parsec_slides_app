@@ -3,128 +3,339 @@ SQL query builders for BigQuery
 """
 from typing import List, Optional, Dict
 
+# EXCLUDE_COLS can be imported from config if needed
+EXCLUDE_COLS = {}
 
-def sql_nwea(
-    table_id: str,
-    filters: Optional[Dict] = None,
-    apply_grade_filter: bool = False
-) -> str:
+
+def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_column: Optional[str] = None, filters: Optional[Dict] = None) -> str:
     """
     Build SQL query for NWEA data
     
     Args:
         table_id: BigQuery table ID (project.dataset.table)
-        filters: Optional filters dict with districts, years, schools, grades
-        apply_grade_filter: If True, apply grade filter in SQL. If False, fetch all grades
-                           (False for district aggregates, True for school-level queries)
+        exclude_cols: Optional list of additional columns to exclude from config
+        year_column: Optional year column name ('Year' or 'AcademicYear'). If None, will use OR condition for both.
+        filters: Optional filters dict with years and quarters (other filters applied in Python)
     
     Returns:
         SQL query string
     """
     filters = filters or {}
-    where_conditions = []
     
-    # Year filter
-    if filters.get('years') and len(filters['years']) > 0:
-        year_list = ', '.join(map(str, filters['years']))
-        where_conditions.append(f"Year IN ({year_list})")
+    extra_excludes = EXCLUDE_COLS.get("nwea", [])
+    if exclude_cols:
+        extra_excludes = extra_excludes + exclude_cols
+    
+    # Determine which Growth columns to include based on selected quarters
+    quarters = filters.get('quarters', [])
+    if not isinstance(quarters, list):
+        quarters = []
+    
+    # Map quarters to their Growth column prefixes (columns to INCLUDE, not exclude)
+    # Note: Winter needs FallToWinter for Section 5 (Fall→Winter growth charts)
+    growth_column_prefixes = {
+        'Fall': ['FallToFall', 'FallToWinter', 'FallToSpring'],
+        'Winter': ['FallToWinter', 'WinterToWinter', 'WinterToSpring'],
+        'Spring': ['SpringToSpring']
+    }
+    
+    # Growth column suffixes for each type
+    growth_suffixes = [
+        'ProjectedGrowth',
+        'ObservedGrowth',
+        'ObservedGrowthSE',
+        'MetProjectedGrowth',
+        'ConditionalGrowthIndex',
+        'ConditionalGrowthPercentile',
+        'GrowthQuintile'
+    ]
+    
+    # Build all possible growth columns for selected quarters
+    columns_to_include = []
+    for quarter in quarters:
+        quarter_normalized = str(quarter).strip().capitalize()
+        if quarter_normalized in growth_column_prefixes:
+            prefixes = growth_column_prefixes[quarter_normalized]
+            for prefix in prefixes:
+                for suffix in growth_suffixes:
+                    columns_to_include.append(f"{prefix}{suffix}")
+    
+    # Map quarters to their Typical Growth columns (columns to INCLUDE, not exclude)
+    # Note: Winter needs TypicalFallToWinterGrowth for Section 5 (Fall→Winter growth charts)
+    typical_growth_columns = {
+        'Fall': ['TypicalFallToFallGrowth', 'TypicalFallToWinterGrowth', 'TypicalFallToSpringGrowth'],
+        'Winter': ['TypicalFallToWinterGrowth', 'TypicalWinterToWinterGrowth', 'TypicalWinterToSpringGrowth'],
+        'Spring': ['TypicalSpringToSpringGrowth']
+    }
+    
+    # Collect all Typical Growth columns that should be INCLUDED (not excluded)
+    typical_columns_to_include = []
+    for quarter in quarters:
+        quarter_normalized = str(quarter).strip().capitalize()
+        if quarter_normalized in typical_growth_columns:
+            typical_columns_to_include.extend(typical_growth_columns[quarter_normalized])
+    
+    # All possible Typical Growth columns
+    all_typical_growth = [
+        'TypicalFallToFallGrowth',
+        'TypicalFallToWinterGrowth',
+        'TypicalFallToSpringGrowth',
+        'TypicalWinterToWinterGrowth',
+        'TypicalWinterToSpringGrowth',
+        'TypicalSpringToSpringGrowth'
+    ]
+    
+    # All possible Growth columns (ProjectedGrowth, ObservedGrowth, etc.)
+    all_growth_columns = []
+    all_growth_prefixes = ['FallToFall', 'FallToWinter', 'FallToSpring', 'WinterToWinter', 'WinterToSpring', 'SpringToSpring']
+    for prefix in all_growth_prefixes:
+        for suffix in growth_suffixes:
+            all_growth_columns.append(f"{prefix}{suffix}")
+    
+    # Build the Growth exclusion list (exclude all except the ones we want to include)
+    growth_excludes = []
+    if columns_to_include:
+        # Exclude all growth columns EXCEPT the ones we want
+        growth_excludes = [col for col in all_growth_columns if col not in columns_to_include]
     else:
-        # Default: last 3 years
-        where_conditions.append("""Year >= (
+        # If no quarters selected, exclude all growth columns
+        growth_excludes = all_growth_columns
+    
+    # Build the Typical Growth exclusion list (exclude all except the ones we want to include)
+    typical_growth_excludes = []
+    if typical_columns_to_include:
+        # Exclude all typical growth columns EXCEPT the ones we want
+        typical_growth_excludes = [col for col in all_typical_growth if col not in typical_columns_to_include]
+    else:
+        # If no quarters selected, exclude all typical growth columns
+        typical_growth_excludes = all_typical_growth
+    
+    # Format growth excludes for SQL
+    growth_excludes_sql = ""
+    if growth_excludes:
+        growth_excludes_sql = ",\n        ".join(growth_excludes)
+    
+    # Format typical growth excludes for SQL
+    typical_growth_excludes_sql = ""
+    if typical_growth_excludes:
+        typical_growth_excludes_sql = ",\n        ".join(typical_growth_excludes)
+    
+    dynamic_excludes = ",\n        ".join(extra_excludes) if extra_excludes else ""
+    
+    # Build year filter based on provided years or default to last 3 years
+    if filters.get('years') and len(filters['years']) > 0:
+        # Use selected years
+        year_list = ', '.join(map(str, filters['years']))
+        if year_column:
+            # Use specified column
+            year_filter = f"{year_column} IN ({year_list})"
+        else:
+            # Use OR condition to handle both Year and AcademicYear
+            year_filter = f"""(
+        -- Try Year column first (NWEA typically uses Year)
+        (Year IN ({year_list}))
+        -- Fallback to AcademicYear if Year doesn't exist (some tables use AcademicYear)
+        OR (AcademicYear IN ({year_list}))
+    )"""
+    else:
+        # Default: last 3 years (matching the provided SQL pattern)
+        if year_column:
+            # Use specified column
+            year_filter = f"{year_column} >= (\n        CASE\n            WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7\n                THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1\n            ELSE EXTRACT(YEAR FROM CURRENT_DATE())\n        END\n    ) - 3"
+        else:
+            # Use OR condition to handle both Year and AcademicYear
+            # This will work if at least one column exists
+            year_filter = """(
+        -- Try Year column first (NWEA typically uses Year)
+        (Year >= (
             CASE
                 WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
                     THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1
                 ELSE EXTRACT(YEAR FROM CURRENT_DATE())
             END
-        ) - 3""")
-    
-    # Note: DistrictName column doesn't exist in NWEA table, so district filtering
-    # must be done in Python after data retrieval based on school-to-district mapping
-    
-    # School filter (column name is "School" not "SchoolName")
-    if filters.get('schools') and len(filters['schools']) > 0:
-        school_list = "', '".join(filters['schools'])
-        where_conditions.append(f"School IN ('{school_list}')")
-    
-    # Grade filter: Apply in SQL only for school-level queries (not district aggregates)
-    if apply_grade_filter and filters.get('grades') and len(filters['grades']) > 0:
-        grade_list = ', '.join(map(str, filters['grades']))
-        where_conditions.append(f"Grade IN ({grade_list})")
-        print(f"[SQL Builder] Applying grade filter in SQL: {filters['grades']}")
-    
-    where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
-    
-    sql = f"""
-        SELECT *
+        ) - 3)
+        -- Fallback to AcademicYear if Year doesn't exist (some tables use AcademicYear)
+        OR (AcademicYear >= (
+            CASE
+                WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
+                    THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1
+                ELSE EXTRACT(YEAR FROM CURRENT_DATE())
+            END
+        ) - 3)
+    )"""
+
+    return f"""
+        SELECT DISTINCT *
         EXCEPT (
+
+        -- Comment the feilds below that you would like to include in the results
+
+        -- For example, if you want to include relavant Growth Windows in your analysis, 
+
+        -- just comment the line and it will be included in the output.
+
         RapidGuessingPercentage,
+
+        -- Lexile and Quantile Scores if you actually use these in an analysis
+
         LexileScore,
+
         LexileMin,
+
         LexileMax,
+
         QuantileScore,
+
         QuantileMin,
+
         QuantileMax,
-        WISelectedAYFall,
-        WISelectedAYWinter,
-        WISelectedAYSpring,
-        WIPreviousAYFall,
-        WIPreviousAYWinter,
-        WIPreviousAYSpring,
-        Goal5Name,
-        Goal5RitScore,
-        Goal5StdErr,
-        Goal5Range,
-        Goal5Adjective,
-        Goal6Name,
-        Goal6RitScore,
-        Goal6StdErr,
-        Goal6Range,
-        Goal6Adjective,
-        Goal7Name,
-        Goal7RitScore,
-        Goal7StdErr,
-        Goal7Range,
-        Goal7Adjective,
-        Goal8Name,
-        Goal8RitScore,
-        Goal8StdErr,
-        Goal8Range,
-        Goal8Adjective,
-        AccommodationCategories,
-        Accommodations,
-        ProjectedProficiencyStudy1,
-        ProjectedProficiencyLevel1,
-        ProjectedProficiencyStudy3,
-        ProjectedProficiencyLevel3,
-        ProjectedProficiencyStudy4,
-        ProjectedProficiencyLevel4,
-        ProjectedProficiencyStudy5,
-        ProjectedProficiencyLevel5,
-        ProjectedProficiencyStudy6,
-        ProjectedProficiencyLevel6,
-        ProjectedProficiencyStudy7,
-        ProjectedProficiencyLevel7,
-        ProjectedProficiencyStudy8,
-        ProjectedProficiencyLevel8,
-        ProjectedProficiencyStudy9,
-        ProjectedProficiencyLevel9,
-        ProjectedProficiencyStudy10,
-        ProjectedProficiencyLevel10,
-        InstructionalDayWeight,
-        Match,
-        MatchYear,
-        MatchWindow,
-        WindowOrder
-      ),
-      CASE
-        WHEN Accommodations IS NOT NULL THEN 'Yes'
-        ELSE 'No'
-      END AS TestedWithAccommodations
-    FROM 
-        `{table_id}`
-    {where_clause}
-    """
+
     
-    return sql.strip()
 
+        -- Weeks of Instruction
 
+        WISelectedAYFall,
+
+        WISelectedAYWinter,
+
+        WISelectedAYSpring,
+
+        WIPreviousAYFall,
+
+        WIPreviousAYWinter,
+
+        WIPreviousAYSpring,
+
+        
+
+        -- Domains not applicable to Math and Reading
+
+        Goal5Name,
+
+        Goal5RitScore,
+
+        Goal5StdErr,
+
+        Goal5Range,
+
+        Goal5Adjective,
+
+        Goal6Name,
+
+        Goal6RitScore,
+
+        Goal6StdErr,
+
+        Goal6Range,
+
+        Goal6Adjective,
+
+        Goal7Name,
+
+        Goal7RitScore,
+
+        Goal7StdErr,
+
+        Goal7Range,
+
+        Goal7Adjective,
+
+        Goal8Name,
+
+        Goal8RitScore,
+
+        Goal8StdErr,
+
+        Goal8Range,
+
+        Goal8Adjective,
+
+        AccommodationCategories,
+
+        Accommodations,
+
+    
+
+        --Growth columns by Window. Dynamically included based on selected quarters
+{f'{chr(10)}        {growth_excludes_sql},' if growth_excludes_sql else ''}
+
+        --Typical Growth by Window. Dynamically included based on selected quarters
+{f'{chr(10)}        {typical_growth_excludes_sql},' if typical_growth_excludes_sql else ''}
+
+        
+
+        -- Projected Prof Studies. Only Study 2 included because it is SBAC. Add others if interest (ACT, SAT, etc.)
+
+        ProjectedProficiencyStudy1,
+
+        ProjectedProficiencyLevel1,
+
+        ProjectedProficiencyStudy3,
+
+        ProjectedProficiencyLevel3,
+
+        ProjectedProficiencyStudy4,
+
+        ProjectedProficiencyLevel4,
+
+        ProjectedProficiencyStudy5,
+
+        ProjectedProficiencyLevel5,
+
+        ProjectedProficiencyStudy6,
+
+        ProjectedProficiencyLevel6,
+
+        ProjectedProficiencyStudy7,
+
+        ProjectedProficiencyLevel7,
+
+        ProjectedProficiencyStudy8,
+
+        ProjectedProficiencyLevel8,
+
+        ProjectedProficiencyStudy9,
+
+        ProjectedProficiencyLevel9,
+
+        ProjectedProficiencyStudy10,
+
+        ProjectedProficiencyLevel10,
+
+        InstructionalDayWeight,
+
+        
+
+        -- These create LOTS of duplicate rows and were only created for 
+
+        -- Matched Cohort Analysis on the Dashboards. Comment out with caution
+
+        Match,
+
+        MatchYear,
+
+        MatchWindow,
+
+        WindowOrder{',' if dynamic_excludes else ''}{dynamic_excludes}
+
+      ),
+
+      CASE
+
+        WHEN Accommodations IS NOT NULL THEN 'Yes'
+
+        ELSE 'No'
+
+      END AS TestedWithAccommodations,
+
+    
+
+    -- You will need to update the table below with a new partner table
+
+    FROM 
+
+        `{table_id}`
+
+    WHERE {year_filter}
+
+    """

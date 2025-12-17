@@ -9,7 +9,8 @@ from datetime import datetime
 def sql_iready(
     table_id: str,
     exclude_cols: Optional[List[str]] = None,
-    filters: Optional[Dict] = None
+    filters: Optional[Dict] = None,
+    year_column: Optional[str] = None
 ) -> str:
     """
     Build SQL query for iReady data
@@ -18,6 +19,7 @@ def sql_iready(
         table_id: BigQuery table ID (project.dataset.table)
         exclude_cols: Optional list of columns to exclude from the query
         filters: Optional filters dict with years (other filters applied in Python)
+        year_column: Optional year column name ('Year' or 'AcademicYear'). If None, uses COALESCE.
     
     Returns:
         SQL query string with year filtering in SQL
@@ -63,13 +65,21 @@ def sql_iready(
     # Build WHERE conditions
     where_conditions = ["Enrolled = 'Enrolled'"]
     
-    # Year filter (iReady uses AcademicYear column)
+    # Year filter (iReady might use AcademicYear or Year column)
+    # Use detected column or COALESCE as fallback
+    if year_column:
+        # Use detected column name
+        year_col_name = year_column
+    else:
+        # Fallback to COALESCE (will fail if neither column exists, but that's expected)
+        year_col_name = "COALESCE(AcademicYear, Year)"
+    
     if filters.get('years') and len(filters['years']) > 0:
         year_list = ', '.join(map(str, filters['years']))
-        where_conditions.append(f"AcademicYear IN ({year_list})")
+        where_conditions.append(f"{year_col_name} IN ({year_list})")
     else:
         # Default: last 3 years (matching the data ingestion script pattern)
-        where_conditions.append("""AcademicYear >= (
+        where_conditions.append(f"""{year_col_name} >= (
             CASE
                 WHEN EXTRACT(MONTH FROM CURRENT_DATE()) >= 7
                     THEN EXTRACT(YEAR FROM CURRENT_DATE()) + 1

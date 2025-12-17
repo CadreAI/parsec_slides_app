@@ -10,7 +10,7 @@ const DEFAULT_FILTERS = {
 
 interface FormData {
     subjects: string[]
-    quarters: string[]
+    quarters: string | string[]
     [key: string]: unknown
 }
 
@@ -19,7 +19,8 @@ export function useAssessmentFilters(
     projectId?: string,
     datasetId?: string,
     location?: string,
-    setFormData?: React.Dispatch<React.SetStateAction<FormData>>
+    setFormData?: React.Dispatch<React.SetStateAction<FormData>>,
+    selectedTables?: Record<string, string>
 ) {
     const [availableSubjects, setAvailableSubjects] = useState<string[]>([])
     const [availableQuarters, setAvailableQuarters] = useState<string[]>([])
@@ -29,6 +30,8 @@ export function useAssessmentFilters(
     const [isLoadingFilters, setIsLoadingFilters] = useState(false)
 
     useEffect(() => {
+        const abortController = new AbortController()
+
         const fetchAssessmentFilters = async () => {
             if (assessments.length === 0) {
                 setAvailableSubjects([])
@@ -45,8 +48,20 @@ export function useAssessmentFilters(
 
                 // Fetch from actual data tables if we have projectId and datasetId
                 if (projectId && datasetId && assessments.length > 0) {
+                    // Add table paths to query params if provided
+                    const tablePathsParam =
+                        selectedTables && assessments.length > 0
+                            ? '&tablePaths=' +
+                              encodeURIComponent(
+                                  assessments
+                                      .map((a) => selectedTables[a])
+                                      .filter(Boolean)
+                                      .join(',')
+                              )
+                            : ''
                     const res = await fetch(
-                        `/api/bigquery/assessment-filters?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(datasetId)}&assessments=${encodeURIComponent(assessmentsParam)}&location=${encodeURIComponent(location || 'US')}`
+                        `/api/bigquery/assessment-filters?projectId=${encodeURIComponent(projectId)}&datasetId=${encodeURIComponent(datasetId)}&assessments=${encodeURIComponent(assessmentsParam)}&location=${encodeURIComponent(location || 'US')}${tablePathsParam}`,
+                        { signal: abortController.signal }
                     )
                     if (res.ok) {
                         const data = await res.json()
@@ -64,13 +79,18 @@ export function useAssessmentFilters(
                             if (setFormData) {
                                 setFormData((prev: FormData) => {
                                     const filteredSubjects = (prev.subjects || []).filter((s: string) => newSubjects.includes(s))
-                                    const filteredQuarters = (prev.quarters || []).filter((q: string) => newQuarters.includes(q))
+                                    // Handle both string and string[] for quarters
+                                    const prevQuarters = Array.isArray(prev.quarters) ? prev.quarters : prev.quarters ? [prev.quarters] : []
+                                    const filteredQuarters = prevQuarters.filter((q: string) => newQuarters.includes(q))
+                                    const filteredQuartersValue =
+                                        filteredQuarters.length > 0 ? (filteredQuarters.length === 1 ? filteredQuarters[0] : filteredQuarters) : ''
 
-                                    if (filteredSubjects.length !== (prev.subjects || []).length || filteredQuarters.length !== (prev.quarters || []).length) {
+                                    const prevQuartersArray = Array.isArray(prev.quarters) ? prev.quarters : prev.quarters ? [prev.quarters] : []
+                                    if (filteredSubjects.length !== (prev.subjects || []).length || filteredQuarters.length !== prevQuartersArray.length) {
                                         return {
                                             ...prev,
                                             subjects: filteredSubjects,
-                                            quarters: filteredQuarters
+                                            quarters: filteredQuartersValue
                                         }
                                     }
                                     return prev
@@ -89,6 +109,11 @@ export function useAssessmentFilters(
                 setSupportsStudentGroups(DEFAULT_FILTERS.supportsStudentGroups)
                 setSupportsRace(DEFAULT_FILTERS.supportsRace)
             } catch (error) {
+                // Ignore abort errors - these are intentional cancellations
+                if (error instanceof Error && error.name === 'AbortError') {
+                    console.log('[useAssessmentFilters] Request aborted (expected behavior)')
+                    return
+                }
                 console.error('Error fetching assessment filters:', error)
                 setAvailableSubjects(DEFAULT_FILTERS.subjects)
                 setAvailableQuarters(DEFAULT_FILTERS.quarters)
@@ -100,8 +125,21 @@ export function useAssessmentFilters(
             }
         }
         fetchAssessmentFilters()
+
+        // Cleanup: abort the request if dependencies change or component unmounts
+        return () => {
+            abortController.abort()
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [assessments.join(','), projectId, datasetId, location])
+    }, [
+        assessments.join(','),
+        projectId,
+        datasetId,
+        location,
+        Object.values(selectedTables || {})
+            .sort()
+            .join(',')
+    ])
 
     return {
         availableSubjects,

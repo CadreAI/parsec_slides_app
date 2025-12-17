@@ -126,9 +126,39 @@ def _save_and_render(
     Save the figure if a path is provided, then either show (DEV_MODE)
     or close to keep batch runs non-interactive.
     Precedence: explicit dev_mode arg > helper_functions.DEV_MODE
+    
+    Ensures file is fully written and flushed to disk before returning.
     """
     if out_path is not None:
+        # Ensure parent directory exists
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Save the figure
         fig.savefig(out_path, dpi=200, bbox_inches="tight")
+        
+        # Explicitly flush the figure to ensure it's written to disk
+        fig.canvas.draw_idle()
+        fig.canvas.flush_events()
+        
+        # Verify file exists and has content (with retry)
+        import time
+        max_retries = 5
+        retry_delay = 0.1  # 100ms
+        
+        for attempt in range(max_retries):
+            if out_path.exists() and out_path.stat().st_size > 0:
+                break
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+        
+        # Final verification
+        if not out_path.exists():
+            raise IOError(f"Chart file was not created: {out_path}")
+        if out_path.stat().st_size == 0:
+            raise IOError(f"Chart file is empty: {out_path}")
+    
     effective_dev = DEV_MODE if dev_mode is None else bool(dev_mode)
     if effective_dev:
         plt.show(block=False)

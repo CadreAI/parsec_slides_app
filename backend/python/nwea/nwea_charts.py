@@ -20,8 +20,6 @@ from matplotlib.gridspec import GridSpec
 import matplotlib as mpl
 from matplotlib import transforms as mtransforms
 from matplotlib import lines as mlines
-import sys
-from pathlib import Path
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
@@ -192,7 +190,7 @@ def plot_dual_subject_dashboard(df, scope_label, folder, output_dir, window_filt
     out_dir.mkdir(parents=True, exist_ok=True)
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
-    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_section1_{window_filter.lower()}_trends.png"
+    out_path = out_dir / f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section1_{window_filter.lower()}_trends.png"
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Chart saved to: {out_path}")
@@ -373,14 +371,35 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
     out_dir.mkdir(parents=True, exist_ok=True)
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}-section0_pred_vs_actual_{folder}.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section0_pred_vs_actual_{folder}.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 0: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder, section=0)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Spring",
+        "subjects": subjects,
+        "year": first_metrics.get('year'),
+        "predicted_vs_actual": {
+            subj: {
+                "predicted_pct": {level: float(proj_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["proj_order"]},
+                "actual_pct": {level: float(act_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["act_order"]},
+                "predicted_met_exceed": float(subj_payload[subj]["metrics"]["proj_met"]),
+                "actual_met_exceed": float(subj_payload[subj]["metrics"]["act_met"]),
+                "delta": float(subj_payload[subj]["metrics"]["delta"])
+            }
+            for subj in subjects
+            for proj_pct, act_pct in [(subj_payload[subj]["proj_pct"], subj_payload[subj]["act_pct"])]
+        }
+    }
+    track_chart(out_name, out_path, scope=folder, section=0, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 2 — Student Group Performance Trends
@@ -552,29 +571,29 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         if metrics and metrics.get("t_prev"):
             t_prev = metrics["t_prev"]
             t_curr = metrics["t_curr"]
+            # Show current values, not deltas
+            hi_now = metrics.get("hi_now", 0)
+            lo_now = metrics.get("lo_now", 0)
+            score_now = metrics.get("score_now", 0)
             
             def _pct_for_bucket(bucket_name, tlabel):
                 return pct_df[(pct_df["time_label"] == tlabel) & (pct_df["achievementquintile"] == bucket_name)]["pct"].sum()
             
             high_now = _pct_for_bucket("High", t_curr)
-            high_prev = _pct_for_bucket("High", t_prev)
-            high_delta = high_now - high_prev
-            hi_delta = metrics["hi_delta"]
-            lo_delta = metrics["lo_delta"]
-            score_delta = metrics["score_delta"]
             
-            title_line = "Change calculations from " + f"{t_prev} to {t_curr}:\n"
-            line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-            line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-            line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
-            insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
+            insight_lines = [
+                f"Current values ({t_curr}):",
+                f"High: {high_now:.1f} ppts",
+                f"Avg+HiAvg+High: {hi_now:.1f} ppts",
+                f"Low: {lo_now:.1f} ppts",
+                f"Avg RIT: {score_now:.1f} pts",
+            ]
         else:
-            insight_lines = ["Not enough history for change insights"]
+            insight_lines = ["Not enough history for insights"]
         
-        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="medium", color="#333333",
+        ax3.text(0.5, 0.5, "\n".join(insight_lines), fontsize=10, fontweight="medium", color="#333333",
                 ha="center", va="center", wrap=True, usetex=False,
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     fig.suptitle(f"{title_label} • {group_name} • {window_filter} Year-to-Year Trends",
                 fontsize=20, fontweight="bold", y=1)
@@ -588,14 +607,40 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     safe_group = group_name.replace(" ", "_").replace("/", "_")
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
-    out_name = f"{prefix}{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope_label.replace(' ', '_')}_NWEA_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 2: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder_name, section=2)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": metrics_list,
+        "time_orders": time_orders,
+        "pct_data": [
+            {
+                "subject": subj,
+                "data": pct_df.to_dict('records') if not pct_df.empty else []
+            }
+            for subj, pct_df in zip(subjects, pct_dfs)
+        ],
+        "score_data": [
+            {
+                "subject": subj,
+                "data": score_df.to_dict('records') if not score_df.empty else []
+            }
+            for subj, score_df in zip(subjects, score_dfs)
+        ]
+    }
+    track_chart(out_name, out_path, scope=folder_name, section=2, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # Model Functions (Section 6)
@@ -613,7 +658,7 @@ def filter_fall_course_grades(df, subject):
     else:
         d = d[d["course"].astype(str).str.contains("read", case=False, na=False)]
     d["grade"] = pd.to_numeric(d["grade"], errors="coerce")
-    d = d[d["grade"].isin([3, 4, 5, 6, 7, 8, 11])]
+    # Removed grade filter - now includes all grades (previously filtered to [3, 4, 5, 6, 7, 8, 11] for CAASPP)
     d = d[d["cers_overall_performanceband"].notna()]
     d["year"] = pd.to_numeric(d["year"], errors="coerce")
     return d
@@ -988,23 +1033,24 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
         
         high_now = _pct_for_bucket_left("High", t_curr)
         high_prev = _pct_for_bucket_left("High", t_prev)
-        high_delta = high_now - high_prev
-        hi_delta = metrics_left["hi_delta"]
-        lo_delta = metrics_left["lo_delta"]
-        score_delta = metrics_left["score_delta"]
+        # Show current values, not deltas (deltas still calculated in metrics)
+        hi_now = metrics_left.get("hi_now", 0)
+        lo_now = metrics_left.get("lo_now", 0)
+        score_now = metrics_left.get("score_now", 0)
         
-        title_line = "Change calculations from previous to current year\n"
-        line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-        line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-        line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-        line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
-        insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
+        insight_lines = [
+            f"Current values ({t_curr}):",
+            f"High: {high_now:.1f} ppts",
+            f"Avg+HiAvg+High: {hi_now:.1f} ppts",
+            f"Low: {lo_now:.1f} ppts",
+            f"Avg RIT: {score_now:.1f} pts",
+        ]
     else:
-        insight_lines = ["Not enough history for change insights"]
+        insight_lines = ["Not enough history for insights"]
     
-    ax5.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
+    ax5.text(0.5, 0.5, "\n".join(insight_lines), fontsize=8, fontweight="normal", color="#434343",
             ha="center", va="center", wrap=True, usetex=False,
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     # Only create cohort insights subplot if cohort data exists
     if has_cohort_data:
@@ -1019,23 +1065,24 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             
             high_now = _pct_for_bucket_right("High", t_curr)
             high_prev = _pct_for_bucket_right("High", t_prev)
-            high_delta = high_now - high_prev
-            hi_delta = metrics_right["hi_delta"]
-            lo_delta = metrics_right["lo_delta"]
-            score_delta = metrics_right["score_delta"]
+            # Show current values, not deltas (deltas still calculated in metrics)
+            hi_now = metrics_right.get("hi_now", 0)
+            lo_now = metrics_right.get("lo_now", 0)
+            score_now = metrics_right.get("score_now", 0)
             
-            title_line = "Change calculations from previous to current year\n"
-            line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-            line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-            line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
-            insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
+            insight_lines = [
+                f"Current values ({t_curr}):",
+                f"High: {high_now:.1f} ppts",
+                f"Avg+HiAvg+High: {hi_now:.1f} ppts",
+                f"Low: {lo_now:.1f} ppts",
+                f"Avg RIT: {score_now:.1f} pts",
+            ]
         else:
-            insight_lines = ["Insufficient cohort data\n(need multiple years)"]
+            insight_lines = ["Insufficient cohort data"]
         
-        ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=9, fontweight="normal", color="#434343",
+        ax6.text(0.5, 0.5, "\n".join(insight_lines), fontsize=8, fontweight="normal", color="#434343",
                 ha="center", va="center", wrap=True, usetex=False,
-                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
     fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
                 fontsize=20, fontweight="bold", y=1)
@@ -1046,15 +1093,40 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     scope = scope_label or (cfg.get("district_name", ["Districtwide"])[0] if school_raw is None else hf._safe_normalize_school_name(school_raw, cfg))
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
-    out_name = f"{prefix}{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope.replace(' ', '_')}_NWEA_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     # Print absolute path as string for reliable parsing
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder_name, section=3)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": int(current_grade),
+        "subject": course_str,
+        "metrics": metrics_left,
+        "time_order": time_order_left,
+        "pct_data": {
+            "overall": pct_df_left.to_dict('records') if not pct_df_left.empty else []
+        },
+        "score_data": {
+            "overall": score_df_left.to_dict('records') if not score_df_left.empty else []
+        }
+    }
+    
+    if has_cohort_data:
+        chart_data["cohort_metrics"] = metrics_right
+        chart_data["cohort_time_order"] = time_order_right
+        chart_data["pct_data"]["cohort"] = pct_df_right.to_dict('records') if not pct_df_right.empty else []
+        chart_data["score_data"]["cohort"] = score_df_right.to_dict('records') if not score_df_right.empty else []
+    
+    track_chart(out_name, out_path, scope=folder_name, section=3, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 4 — Overall Growth Trends by Site (CGP + CGI)
@@ -1138,6 +1210,23 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     for y in [42, 50, 58]:
         ax.axhline(y, linestyle="--", color="#6B7280", linewidth=1.2)
     
+    # Calculate dynamic y-axis limits for CGP (with padding)
+    cgp_max = np.nanmax(y_cgp) if len(y_cgp) > 0 else 100
+    cgp_min = np.nanmin(y_cgp) if len(y_cgp) > 0 else 0
+    cgp_ylim_max = max(100, cgp_max * 1.1)  # At least 100, or 10% above max
+    cgp_ylim_min = max(0, cgp_min * 0.9) if cgp_min < 0 else 0  # Allow negative if needed, otherwise 0
+    
+    # Calculate dynamic y-axis limits for CGI (with padding)
+    cgi_max = np.nanmax(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else 2.5
+    cgi_min = np.nanmin(y_cgi) if len(y_cgi) > 0 and not np.all(np.isnan(y_cgi)) else -2.5
+    cgi_padding = max(0.5, abs(cgi_max - cgi_min) * 0.2)  # 20% padding or at least 0.5
+    cgi_ylim_max = cgi_max + cgi_padding
+    cgi_ylim_min = cgi_min - cgi_padding
+    
+    # Extend background shading if needed (but keep original colors up to 100)
+    if cgp_ylim_max > 100:
+        ax.axhspan(100, cgp_ylim_max, facecolor="#0381a2", alpha=0.3, zorder=0)
+    
     bars = ax.bar(x_vals, y_cgp, color="#0381a2", edgecolor="white", linewidth=1.2, zorder=3)
     for rect, yv in zip(bars, y_cgp):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2, f"{yv:.1f}",
@@ -1146,13 +1235,13 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     ax.set_ylabel("Median Fall→Fall CGP")
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist())
-    ax.set_ylim(0, 100)
+    ax.set_ylim(cgp_ylim_min, cgp_ylim_max)
     ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     
     ax2 = ax.twinx()
-    ax2.set_ylim(-2.5, 2.5)
+    ax2.set_ylim(cgi_ylim_min, cgi_ylim_max)
     ax2.patch.set_alpha(0)
     blend = mtransforms.BlendedGenericTransform(ax.transData, ax2.transData)
     x0, x1 = ax.get_xlim()
@@ -1176,7 +1265,14 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
                    fontweight="bold", color="#ffa800")
     
     ax2.set_ylabel("Avg Fall→Fall CGI")
-    ax2.set_yticks([-2, -1, 0, 1, 2])
+    # Set ticks dynamically based on range
+    cgi_range = cgi_ylim_max - cgi_ylim_min
+    if cgi_range <= 5:
+        ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 1))
+    elif cgi_range <= 10:
+        ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 2))
+    else:
+        ax2.set_yticks(np.arange(np.floor(cgi_ylim_min), np.ceil(cgi_ylim_max) + 1, 5))
     ax.set_title(f"{subject_str}", fontweight="bold", fontsize=14, pad=10)
 
 def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, subjects=None):
@@ -1195,12 +1291,41 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     fig.suptitle(f"{scope_label} • Fall→Fall Growth (All Students)", fontsize=20, fontweight="bold", y=0.99)
     
     axes = []
+    comparison_data = {}  # Store comparison data for each subject
+    
     for i, subject_str in enumerate(subjects):
         ax = fig.add_subplot(gs[0, i])
         axes.append(ax)
         sub_df = cgp_trend[(cgp_trend["scope_label"] == scope_label) & (cgp_trend["subject"] == subject_str)]
         if not sub_df.empty:
             _plot_cgp_trend(sub_df, subject_str, scope_label, ax=ax)
+            
+            # Calculate comparison between most recent year and previous year
+            sub_df_sorted = sub_df.sort_values("time_label").copy()
+            if len(sub_df_sorted) >= 2:
+                recent = sub_df_sorted.iloc[-1]
+                previous = sub_df_sorted.iloc[-2]
+                
+                cgp_recent = recent["median_cgp"]
+                cgp_prev = previous["median_cgp"]
+                cgp_change = cgp_recent - cgp_prev
+                cgp_pct_change = (cgp_change / cgp_prev * 100) if cgp_prev != 0 else 0
+                
+                cgi_recent = recent.get("mean_cgi", np.nan)
+                cgi_prev = previous.get("mean_cgi", np.nan)
+                cgi_change = cgi_recent - cgi_prev if pd.notna(cgi_recent) and pd.notna(cgi_prev) else np.nan
+                
+                comparison_data[subject_str] = {
+                    "recent_year": recent["time_label"],
+                    "prev_year": previous["time_label"],
+                    "cgp_recent": cgp_recent,
+                    "cgp_prev": cgp_prev,
+                    "cgp_change": cgp_change,
+                    "cgp_pct_change": cgp_pct_change,
+                    "cgi_recent": cgi_recent,
+                    "cgi_prev": cgi_prev,
+                    "cgi_change": cgi_change,
+                }
         
         subj_norm = subject_str.strip().casefold()
         d = scope_df.copy()
@@ -1229,6 +1354,33 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     fig.legend(handles=legend_handles, labels=["Median CGP", "Mean CGI"], loc="upper center",
               bbox_to_anchor=(0.5, 0.94), ncol=2, frameon=False, handlelength=2, handletextpad=0.5, columnspacing=1.2)
     
+    # Add comparison box at the bottom spanning both columns
+    if comparison_data:
+        ax_compare = fig.add_subplot(gs[2, :])
+        ax_compare.axis("off")
+        
+        comparison_lines = ["Year-to-Year Comparison:"]
+        comparison_lines.append("")
+        
+        for subject_str in subjects:
+            if subject_str in comparison_data:
+                comp = comparison_data[subject_str]
+                
+                # CGP comparison
+                cgp_dir = "↑" if comp["cgp_change"] > 0 else "↓" if comp["cgp_change"] < 0 else "→"
+                comparison_lines.append(f"{subject_str} - Median CGP: {cgp_dir} {abs(comp['cgp_change']):.1f} pts")
+                
+                # CGI comparison (if available)
+                if pd.notna(comp["cgi_change"]):
+                    cgi_dir = "↑" if comp["cgi_change"] > 0 else "↓" if comp["cgi_change"] < 0 else "→"
+                    comparison_lines.append(f"{subject_str} - Mean CGI: {cgi_dir} {abs(comp['cgi_change']):.2f} pts")
+        
+        # Display comparison text
+        comparison_text = "\n".join(comparison_lines)
+        ax_compare.text(0.5, 0.5, comparison_text, fontsize=10, fontweight="normal", color="#333333",
+                        ha="center", va="center", wrap=True, usetex=False,
+                        bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
+    
     charts_dir = Path(output_dir)
     folder_name = "_district" if scope_label == cfg.get("district_name", ["District (All Students)"])[0] else scope_label.replace(" ", "_")
     out_dir = charts_dir / folder_name
@@ -1236,11 +1388,22 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     safe_scope = scope_label.replace(" ", "_")
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if folder_name == "_district" else "SCHOOL_"
-    out_name = f"{prefix}{safe_scope}_section4_cgp_fall_to_fall_dualpanel.png"
+    out_name = f"{prefix}{safe_scope}_NWEA_section4_cgp_fall_to_fall_dualpanel.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(out_name, out_path, scope=folder_name, section=4)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Fall",
+        "subjects": subjects,
+        "cgp_data": {
+            subj: cgp_trend[(cgp_trend["scope_label"] == scope_label) & (cgp_trend["subject"] == subj)].to_dict('records') if not cgp_trend.empty else []
+            for subj in subjects
+        }
+    }
+    track_chart(out_name, out_path, scope=folder_name, section=4, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close()
@@ -1302,13 +1465,34 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6A_2025_pred_vs_actual_{folder}.png"
+    out_path = out_dir / f"NWEA_section6A_2025_pred_vs_actual_{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(f"section6A_2025_pred_vs_actual_{folder}.png", out_path, scope=folder, section=6)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "year": 2025,
+        "type": "predicted_vs_actual",
+        "subjects": ["Reading", "Mathematics"],
+        "data": {}
+    }
+    for subject in ["Reading", "Mathematics"]:
+        r = results.get(subject)
+        if r:
+            y_true, y_pred, labs = r  # results contains (y_true, y_pred, labs)
+            pct_pred = {lab: float(pct) for lab, pct in zip(labs, _pct(y_pred, labs))}
+            pct_actual = {lab: float(pct) for lab, pct in zip(labs, _pct(y_true, labs))}
+            chart_data["data"][subject] = {
+                "predicted": pct_pred,
+                "actual": pct_actual
+            }
+    track_chart(f"section6A_2025_pred_vs_actual_{folder}.png", out_path, scope=folder, section=6, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close(fig)
+    
+    return str(out_path)
 
 def _plot_projection_2026(scope_label, folder, output_dir, results, preview=False):
     """Plot 2026 projected CAASPP"""
@@ -1348,13 +1532,30 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
     
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6B_2026_projection_{folder}.png"
+    out_path = out_dir / f"NWEA_section6B_2026_projection_{folder}.png"
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved: {str(out_path.absolute())}")
-    track_chart(f"section6B_2026_projection_{folder}.png", out_path, scope=folder, section=6)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "year": 2026,
+        "type": "projection",
+        "subjects": ["Reading", "Mathematics"],
+        "data": {}
+    }
+    for subject in ["Reading", "Mathematics"]:
+        r = results.get(subject)
+        if r:
+            y_pred, labs = r
+            pct_dict = {lab: float(pct) for lab, pct in zip(labs, _pct(y_pred, labs))}
+            chart_data["data"][subject] = {"projected": pct_dict}
+    track_chart(f"section6B_2026_projection_{folder}.png", out_path, scope=folder, section=6, chart_data=chart_data)
     if preview:
         plt.show()
     plt.close(fig)
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # Main Execution
@@ -1591,7 +1792,7 @@ def main(nwea_data=None):
         scope_df = scope_df.copy()
         scope_df["year"] = pd.to_numeric(scope_df["year"], errors="coerce")
         
-        # Normalize grades (K -> 0) for chart generation
+        # Normalize grades (K -> 0, -1 -> pre-k) for chart generation
         def normalize_grade_val(grade_val):
             if pd.isna(grade_val):
                 return None
@@ -1599,7 +1800,9 @@ def main(nwea_data=None):
             if grade_str == "K" or grade_str == "KINDERGARTEN":
                 return 0
             try:
-                return int(float(grade_str))
+                grade_num = int(float(grade_str))
+                # -1 represents pre-k
+                return grade_num
             except:
                 return None
         
@@ -1615,6 +1818,16 @@ def main(nwea_data=None):
         unique_grades = sorted([g for g in scope_df["grade_normalized"].dropna().unique() if g is not None])
         
         print(f"  [Section 3] Found {len(unique_grades)} grade(s) in filtered data: {unique_grades}")
+        
+        # Use consolidated charts if more than 3 grades
+        use_consolidated = len(unique_grades) > 3
+        
+        if use_consolidated:
+            # Generate consolidated chart with all grades arranged horizontally
+            print(f"  [Section 3] Using consolidated horizontal layout for {len(unique_grades)} grades")
+            # For now, generate individual charts but we'll add consolidated function later
+            # TODO: Create plot_nwea_consolidated_blended_dashboard function
+            pass
         
         for g in unique_grades:
             # Filter scope_df to this specific grade for chart generation
@@ -1743,7 +1956,7 @@ def generate_nwea_charts(
     nwea_data: list = None
 ) -> list:
     """
-    Generate NWEA charts (wrapper function for Flask backend)
+    Generate NWEA charts (router function - directs to Winter or Fall modules based on quarter selection)
     
     Args:
         partner_name: Partner name
@@ -1756,51 +1969,115 @@ def generate_nwea_charts(
     Returns:
         List of chart file paths
     """
-    # Reset global chart tracking state at the start of each request
-    # This prevents collisions when multiple requests run concurrently
     global chart_links, _chart_tracking_set
     chart_links = []
     _chart_tracking_set = set()
     
-    # Set up config
     cfg = config or {}
     if chart_filters:
         cfg['chart_filters'] = chart_filters
     
-    # Set dev mode from config
     hf.DEV_MODE = cfg.get('dev_mode', False)
     
-    # Create mock args object to pass to main logic
-    class Args:
-        def __init__(self):
-            self.partner = partner_name
-            self.data_dir = data_dir if nwea_data is None else None  # Only use data_dir if no data provided
-            self.output_dir = output_dir
-            self.dev_mode = 'true' if hf.DEV_MODE else 'false'
-            self.config = json.dumps(cfg) if cfg else '{}'
+    chart_filters_check = cfg.get('chart_filters', {})
+    selected_quarters = chart_filters_check.get("quarters", [])
+    all_chart_paths = []
     
-    args = Args()
+    # Normalize selected_quarters to handle both list and single value
+    if isinstance(selected_quarters, str):
+        selected_quarters = [selected_quarters]
+    elif not isinstance(selected_quarters, list):
+        selected_quarters = []
     
-    # Temporarily override sys.argv to call main()
-    import sys
-    old_argv = sys.argv
-    try:
-        sys.argv = [
-            'nwea_charts.py',
-            '--partner', args.partner,
-            '--output-dir', args.output_dir,
-            '--dev-mode', args.dev_mode,
-            '--config', args.config
-        ]
-        # Add --data-dir only if needed (when nwea_data is None)
-        if args.data_dir:
-            sys.argv.extend(['--data-dir', args.data_dir])
+    # If no quarters are explicitly selected, default to Fall for backward compatibility
+    if not selected_quarters:
+        selected_quarters = ["Fall"]
+        print("\n[NWEA Router] No quarters specified in chart_filters - defaulting to Fall")
+    
+    normalized_quarters = [str(q).lower() for q in selected_quarters]
+    has_winter = "winter" in normalized_quarters
+    has_fall = "fall" in normalized_quarters
+    has_spring = "spring" in normalized_quarters
+    
+    print(f"\n[NWEA Router] Selected quarters from chart_filters: {selected_quarters}")
+    print(f"[NWEA Router] Normalized quarters: {normalized_quarters}")
+    print(f"[NWEA Router] has_winter={has_winter}, has_fall={has_fall}, has_spring={has_spring}")
+    
+    # Route to Winter module if Winter is selected
+    if has_winter:
+        from .nwea_winter import generate_nwea_winter_charts
+        print("\n[NWEA Router] Winter detected - routing to nwea_winter.py...")
+        try:
+            winter_charts = generate_nwea_winter_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                nwea_data=nwea_data
+            )
+            if winter_charts:
+                all_chart_paths.extend(winter_charts)
+                print(f"[NWEA Router] Generated {len(winter_charts)} Winter charts")
+        except Exception as e:
+            print(f"[NWEA Router] Error generating Winter charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
         
-        chart_paths = main(nwea_data=nwea_data)
-    finally:
-        sys.argv = old_argv
+        # If ONLY Winter is selected (no Fall, no Spring), return early
+        if has_winter and not has_fall and not has_spring:
+            print("\n[NWEA Router] Only Winter selected - returning early, skipping Fall/Spring chart generation.")
+            return all_chart_paths
     
-    return chart_paths
+    # Route to Spring module if Spring is selected
+    if has_spring:
+        from .nwea_spring import generate_nwea_spring_charts
+        print("\n[NWEA Router] Spring detected - routing to nwea_spring.py...")
+        try:
+            spring_charts = generate_nwea_spring_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                nwea_data=nwea_data
+            )
+            if spring_charts:
+                all_chart_paths.extend(spring_charts)
+                print(f"[NWEA Router] Generated {len(spring_charts)} Spring charts")
+        except Exception as e:
+            print(f"[NWEA Router] Error generating Spring charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    
+    # Route to Fall module if Fall is selected
+    if has_fall:
+        from .nwea_fall import generate_nwea_fall_charts
+        print("\n[NWEA Router] Fall detected - routing to nwea_fall.py...")
+        try:
+            fall_charts = generate_nwea_fall_charts(
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                nwea_data=nwea_data
+            )
+            if fall_charts:
+                all_chart_paths.extend(fall_charts)
+                print(f"[NWEA Router] Generated {len(fall_charts)} Fall charts")
+        except Exception as e:
+            print(f"[NWEA Router] Error generating Fall charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    else:
+        if not has_winter and not has_spring:
+            print("\n[NWEA Router] No Fall, Spring, or Winter selected - skipping chart generation.")
+    
+    return all_chart_paths
 
 
 if __name__ == "__main__":

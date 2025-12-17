@@ -1,26 +1,34 @@
 'use client'
 
+import { AssessmentScopeSelector } from '@/components/AssessmentScopeSelector'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
-import { Progress } from '@/components/ui/progress'
-import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAssessmentFilters } from '@/hooks/useAssessmentFilters'
 import { useAssessmentTables } from '@/hooks/useAssessmentTables'
 import { useAvailableAssessments } from '@/hooks/useAvailableAssessments'
 import { useDatasets } from '@/hooks/useDatasets'
-import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { useFormOptions } from '@/hooks/useFormOptions'
+import { useRaceOptions } from '@/hooks/useRaceOptions'
+import { useStudentGroupOptions } from '@/hooks/useStudentGroupOptions'
 import { useStudentGroups } from '@/hooks/useStudentGroups'
-import { getDistrictOptions, getSchoolOptions } from '@/utils/formHelpers'
+import { getQuarterBackendValue } from '@/utils/quarterLabels'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
+
+// Helper function to format grade display labels
+function getGradeDisplayLabel(grade: string): string {
+    if (grade === '-1') return 'Pre-K'
+    if (grade === 'K' || grade === '0') return 'Kindergarten'
+    return `Grade ${grade}`
+}
 
 // Partner configuration - maps partner_name to their districts and schools
 const PARTNER_CONFIG: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
@@ -36,7 +44,6 @@ export default function CreateSlide() {
     const router = useRouter()
     const [isIngesting, setIsIngesting] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
-    const [slideProgress, setSlideProgress] = useState({ value: 0, step: '' })
     const [formData, setFormData] = useState({
         // Partner & Data Configuration
         partnerName: '',
@@ -46,49 +53,97 @@ export default function CreateSlide() {
         customDataSources: {} as Record<string, string>,
         // Slide Configuration
         deckName: '',
-        districtName: '',
-        schools: [] as string[],
+        // Per-assessment scopes: { 'NWEA': { districts: [], schools: [] }, 'iReady': { ... } }
+        assessmentScopes: {} as Record<string, { districts: string[]; schools: string[]; districtOnly?: boolean }>,
         grades: [] as string[],
         years: [] as string[],
-        quarters: [] as string[],
+        quarters: '' as string,
         subjects: [] as string[],
         studentGroups: [] as string[],
         race: [] as string[],
         assessments: [] as string[],
-        slidePrompt: ''
+        slidePrompt: '',
+        enableAIInsights: true, // Toggle for AI analytics/insights
+        themeColor: '#0094bd' // Default Parsec blue color
     })
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
-    const { grades: GRADES, years: YEARS } = useFormOptions(formData.projectId, formData.partnerName, formData.location)
+    const {
+        grades: GRADES,
+        years: YEARS,
+        isLoading: isLoadingFormOptions
+    } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
     const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
-    const { availableDistricts, availableSchools, districtSchoolMap, isLoadingDistrictsSchools } = useDistrictsAndSchools(
-        formData.partnerName,
-        formData.projectId,
-        formData.location
-    )
-    const { availableAssessments, assessmentTables, isLoadingAssessmentTables } = useAssessmentTables(
+    // Note: District/school fetching is now done per-assessment (see AssessmentScopeSelector component below)
+    const { availableAssessments, assessmentTables, variants, isLoadingAssessmentTables } = useAssessmentTables(
         formData.partnerName,
         formData.projectId,
         formData.location,
-        setFormData
+        setFormData,
+        true
     )
     const { availableSubjects, availableQuarters, supportsGrades, supportsStudentGroups, supportsRace, isLoadingFilters } = useAssessmentFilters(
         formData.assessments,
         formData.projectId,
         formData.partnerName,
         formData.location,
-        setFormData
+        undefined,
+        formData.customDataSources
+    )
+    const { raceOptions: dynamicRaceOptions, isLoadingRace } = useRaceOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
+    )
+    const { studentGroupOptions: dynamicStudentGroupOptions, isLoadingStudentGroups } = useStudentGroupOptions(
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments,
+        formData.customDataSources
     )
 
-    // Helper functions
-    const districtOptions = getDistrictOptions(availableDistricts, formData.partnerName, PARTNER_CONFIG)
-    const schoolOptions = getSchoolOptions(formData.districtName, districtSchoolMap, availableSchools, formData.partnerName, PARTNER_CONFIG)
+    // Combined loading state to prevent stale UI
+    const isLoadingChoices =
+        isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace || isLoadingStudentGroups
+
+    // Note: District/school selection is now done per-assessment
+    // See AssessmentScopeSelector component below
 
     const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
         setFormData((prev) => {
             const currentArray = (prev[name as keyof typeof prev] as string[]) || []
+
+            // Special handling for assessments - initialize or remove scope
+            if (name === 'assessments') {
+                const newAssessments = checked ? [...currentArray, value] : currentArray.filter((item) => item !== value)
+
+                const newScopes = { ...prev.assessmentScopes }
+
+                if (checked) {
+                    // Initialize scope for new assessment
+                    newScopes[value] = {
+                        districts: [],
+                        schools: [],
+                        districtOnly: false
+                    }
+                } else {
+                    // Remove scope for deselected assessment
+                    delete newScopes[value]
+                }
+
+                return {
+                    ...prev,
+                    [name]: newAssessments,
+                    assessmentScopes: newScopes
+                }
+            }
+
+            // Default handling for other checkboxes
             if (checked) {
                 return {
                     ...prev,
@@ -115,18 +170,40 @@ export default function CreateSlide() {
         setFormData((prev) => ({
             ...prev,
             partnerName: partner,
-            districtName: '',
+            districts: [],
             schools: [],
-            quarters: []
+            quarters: ''
         }))
     }
+
+    const handlePartnerComboboxChange = (partner: string) => {
+        setFormData((prev) => ({
+            ...prev,
+            partnerName: partner,
+            districts: [],
+            schools: [],
+            quarters: ''
+        }))
+    }
+
+    // Helper function to reset scope and filters when data changes
+    const resetScopeAndFilters = () => ({
+        // Keep assessmentScopes intact - they are managed separately per assessment
+        grades: [],
+        quarters: '',
+        subjects: [],
+        studentGroups: [],
+        race: []
+    })
 
     const handleDataSourceToggle = (sourceId: string) => {
         setFormData((prev) => ({
             ...prev,
             selectedDataSources: prev.selectedDataSources.includes(sourceId)
                 ? prev.selectedDataSources.filter((id) => id !== sourceId)
-                : [...prev.selectedDataSources, sourceId]
+                : [...prev.selectedDataSources, sourceId],
+            // Reset scope selections and filters when assessments change
+            ...resetScopeAndFilters()
         }))
     }
 
@@ -136,6 +213,18 @@ export default function CreateSlide() {
             customDataSources: {
                 ...prev.customDataSources,
                 [sourceId]: value
+            },
+            // Reset scope selections and filters when variant changes
+            ...resetScopeAndFilters()
+        }))
+    }
+
+    const handleAssessmentScopeChange = (assessmentId: string, scope: { districts: string[]; schools: string[]; districtOnly?: boolean }) => {
+        setFormData((prev) => ({
+            ...prev,
+            assessmentScopes: {
+                ...prev.assessmentScopes,
+                [assessmentId]: scope
             }
         }))
     }
@@ -144,19 +233,31 @@ export default function CreateSlide() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
 
+        // Debug: Log current formData state at submit time
+        console.log('[Frontend] handleSubmit - Current formData.themeColor:', formData.themeColor)
+
         if (!formData.partnerName.trim()) {
             toast.error('Please enter a partner name')
-            return
-        }
-
-        if (!formData.districtName.trim()) {
-            toast.error('Please select a district')
             return
         }
 
         if (formData.assessments.length === 0) {
             toast.error('Please select at least one assessment first')
             return
+        }
+
+        // Validate that each assessment has scope selected (districts or schools)
+        for (const assessmentId of formData.assessments) {
+            const scope = formData.assessmentScopes[assessmentId]
+            if (!scope) {
+                toast.error(`Please configure scope for ${assessmentId}`)
+                return
+            }
+            // Must have either districts, schools, or district-only mode enabled
+            if (scope.districts.length === 0 && scope.schools.length === 0 && !scope.districtOnly) {
+                toast.error(`Please select at least one district or school for ${assessmentId}`)
+                return
+            }
         }
 
         if (formData.selectedDataSources.length === 0) {
@@ -179,8 +280,7 @@ export default function CreateSlide() {
         setIsIngesting(true)
 
         try {
-            // Step 1: Ingest data and generate charts
-            toast.info('Step 1/2: Ingesting data and generating charts...')
+            toast.info('Queueing your deck generation task...')
 
             // Build sources object
             const sources: Record<string, string> = {}
@@ -190,8 +290,26 @@ export default function CreateSlide() {
                 sources[sourceId] = customTable || defaultSource?.defaultTable || ''
             })
 
-            // Use selected districts from scope selection
-            const districtList = formData.districtName ? [formData.districtName] : ['Parsec Academy']
+            // Aggregate scopes from all assessments
+            const aggregatedDistricts = new Set<string>()
+            const aggregatedSchools = new Set<string>()
+            let hasDistrictOnlyMode = false
+
+            formData.assessments.forEach((assessmentId) => {
+                const scope = formData.assessmentScopes[assessmentId]
+                if (scope) {
+                    scope.districts.forEach((d) => aggregatedDistricts.add(d))
+                    scope.schools.forEach((s) => aggregatedSchools.add(s))
+                    if (scope.districtOnly) {
+                        hasDistrictOnlyMode = true
+                    }
+                }
+            })
+
+            const districtList = Array.from(aggregatedDistricts).sort()
+            const schoolList = Array.from(aggregatedSchools).sort()
+
+            console.log('[Frontend] Aggregated scopes:', { districtList, schoolList, hasDistrictOnlyMode, assessmentScopes: formData.assessmentScopes })
 
             // Build config object
             const config = {
@@ -218,137 +336,72 @@ export default function CreateSlide() {
                     charts_dir: './charts',
                     config_dir: '.'
                 },
-                // Chart generation filters
-                chart_filters: {
-                    grades:
-                        formData.grades.length > 0
-                            ? formData.grades
-                                  .map((g) => {
-                                      if (g === 'K') return 0
-                                      const parsed = parseInt(g)
-                                      return isNaN(parsed) ? null : parsed
-                                  })
-                                  .filter((g) => g !== null)
-                            : undefined,
-                    years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
-                    quarters: formData.quarters.length > 0 ? formData.quarters : undefined,
-                    subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
-                    student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
-                    race: formData.race.length > 0 ? formData.race : undefined
-                },
-                // Scope selection: only generate charts for selected schools/districts
-                selected_schools: formData.schools.length > 0 ? formData.schools : [],
-                include_district_scope: !!formData.districtName // Include district scope if district is selected
+                // Scope selection: aggregated from all assessment scopes
+                selected_schools: hasDistrictOnlyMode ? [] : schoolList, // Empty if any assessment has district-only mode
+                include_district_scope: districtList.length > 0, // Include district scope if any districts selected
+                // Store per-assessment scopes for future granular filtering (not yet implemented in backend)
+                assessment_scopes: formData.assessmentScopes
             }
 
-            // Call the data ingestion API
-            const ingestRes = await fetch('/api/data/ingest', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ config })
-            })
-
-            const ingestData = await ingestRes.json()
-
-            if (!ingestRes.ok) {
-                throw new Error(ingestData.error || ingestData.details || 'Failed to ingest data')
+            // Build chart filters
+            const chartFilters = {
+                grades:
+                    formData.grades.length > 0
+                        ? formData.grades
+                              .map((g) => {
+                                  if (g === 'K') return 0
+                                  const parsed = parseInt(g)
+                                  return isNaN(parsed) ? null : parsed
+                              })
+                              .filter((g) => g !== null)
+                        : undefined,
+                years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
+                quarters: formData.quarters ? [formData.quarters] : undefined,
+                subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
+                student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
+                race: formData.race.length > 0 ? formData.race : undefined
             }
-
-            const chartCount = ingestData.charts?.length || 0
-            const charts = ingestData.charts || []
-
-            toast.success(`Step 1 complete! Generated ${chartCount} charts.`)
-
-            // Step 2: Create slide deck
-            toast.info('Step 2/2: Creating slide deck...')
-            setSlideProgress({ value: 0, step: 'Initializing...' })
 
             const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`
-
-            // Use selectedDataSources for assessments (they're now combined)
-            const assessmentsToUse = formData.assessments.length > 0 ? formData.assessments : formData.selectedDataSources
 
             // Hardcoded Google Drive folder
             const driveFolderUrl = 'https://drive.google.com/drive/folders/1CUOM-Sz6ulyzD2mTREdcYoBXUJLrgngw'
 
-            // Estimate total steps for progress tracking
-            const totalCharts = charts.length
-            const estimatedSteps = Math.max(10, 5 + Math.ceil(totalCharts * 0.5)) // Base steps + chart processing
-            let currentStep = 0
-
-            const updateProgress = (step: string, increment: number = 1) => {
-                currentStep += increment
-                const progress = Math.min(Math.round((currentStep / estimatedSteps) * 100), 95) // Cap at 95% until complete
-                setSlideProgress({ value: progress, step })
+            // Call the new task API endpoint
+            const requestBody = {
+                partnerName: formData.partnerName,
+                config: config,
+                chartFilters: chartFilters,
+                title: presentationTitle,
+                driveFolderUrl: driveFolderUrl,
+                enableAIInsights: formData.enableAIInsights,
+                userPrompt: formData.slidePrompt || undefined,
+                description: `Deck for ${districtList.length > 0 ? districtList.join(', ') : schoolList.length > 0 ? schoolList.join(', ') : formData.partnerName}`,
+                themeColor: formData.themeColor // Always send the actual value from formData
             }
+            console.log('[Frontend] FormData themeColor:', formData.themeColor)
+            console.log('[Frontend] Sending themeColor in request:', requestBody.themeColor)
 
-            // Simulate progress updates during API call
-            const progressInterval = setInterval(() => {
-                if (currentStep < estimatedSteps - 1) {
-                    // Gradually increase progress to show activity
-                    const simulatedProgress = Math.min(currentStep + 0.3, estimatedSteps - 1)
-                    const progress = Math.round((simulatedProgress / estimatedSteps) * 100)
-                    setSlideProgress((prev) => ({
-                        value: Math.max(prev.value, Math.min(progress, 95)),
-                        step: prev.step || 'Processing...'
-                    }))
-                }
-            }, 300)
-
-            updateProgress('Creating presentation...', 1)
-            setTimeout(() => updateProgress('Uploading charts to Drive...', 2), 500)
-            setTimeout(() => updateProgress('Creating slides...', 2), 1000)
-            setTimeout(() => updateProgress('Adding charts to slides...', 2), 1500)
-
-            // Call the API route to create the presentation
-            const res = await fetch('/api/slides/create', {
+            const res = await fetch('/api/tasks/create-deck-with-slides', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: presentationTitle,
-                    assessments: assessmentsToUse,
-                    charts: charts.length > 0 ? charts : undefined,
-                    driveFolderUrl: driveFolderUrl,
-                    schoolName: 'Parsec Academy',
-                    quarters: formData.quarters,
-                    partnerName: formData.partnerName,
-                    userPrompt: formData.slidePrompt || undefined, // User prompt for decision LLM
-                    deckName: formData.deckName,
-                    districtName: formData.districtName,
-                    schools: formData.schools,
-                    projectId: formData.projectId,
-                    location: formData.location,
-                    selectedDataSources: formData.selectedDataSources,
-                    customDataSources: formData.customDataSources,
-                    chartFilters: {
-                        grades: formData.grades,
-                        years: formData.years,
-                        quarters: formData.quarters,
-                        subjects: formData.subjects,
-                        studentGroups: formData.studentGroups,
-                        race: formData.race
-                    }
-                })
+                body: JSON.stringify(requestBody)
             })
-
-            clearInterval(progressInterval)
-            updateProgress('Finalizing...', estimatedSteps - currentStep)
 
             const data = await res.json()
 
             if (!res.ok) {
-                const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error || 'Failed to create presentation'
+                const errorMsg = data.error || 'Failed to queue task'
                 console.error('API Error:', data)
                 throw new Error(errorMsg)
             }
 
-            console.log('Presentation created:', data.presentationId)
-            setSlideProgress({ value: 100, step: 'Complete!' })
-            toast.success(`✅ Complete! Presentation created. View it here: ${data.presentationUrl}`)
+            toast.success('Task queued successfully! Returning to dashboard...')
 
+            // Redirect to dashboard
             setTimeout(() => {
                 router.push('/dashboard')
-            }, 2000)
+            }, 1000)
         } catch (error: unknown) {
             console.error('Error:', error)
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -356,7 +409,6 @@ export default function CreateSlide() {
         } finally {
             setIsCreating(false)
             setIsIngesting(false)
-            setSlideProgress({ value: 0, step: '' })
         }
     }
 
@@ -403,86 +455,15 @@ export default function CreateSlide() {
                                         <Label htmlFor="partnerName">
                                             Partner Name <span className="text-destructive">*</span>
                                         </Label>
-                                        <Select
-                                            id="partnerName"
+                                        <Combobox
+                                            options={partnerOptions}
                                             value={formData.partnerName}
-                                            onChange={handlePartnerChange}
-                                            required
+                                            onChange={handlePartnerComboboxChange}
+                                            placeholder={isLoadingDatasets ? 'Loading datasets...' : 'Select a dataset/partner...'}
+                                            searchPlaceholder="Search datasets..."
                                             disabled={isLoadingDatasets}
-                                        >
-                                            <option value="">{isLoadingDatasets ? 'Loading datasets...' : 'Select a dataset/partner...'}</option>
-                                            {partnerOptions.map((partner) => (
-                                                <option key={partner.value} value={partner.value}>
-                                                    {partner.label}
-                                                </option>
-                                            ))}
-                                        </Select>
+                                        />
                                         {isLoadingDatasets && <p className="text-muted-foreground text-xs">Fetching datasets from BigQuery...</p>}
-                                        {!isLoadingDatasets && partnerOptions.length === 1 && (
-                                            <p className="text-muted-foreground text-xs">Enter a GCP Project ID above to load available datasets</p>
-                                        )}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="projectId">GCP Project ID</Label>
-                                        <Input
-                                            id="projectId"
-                                            value={formData.projectId}
-                                            onChange={(e) => setFormData((prev) => ({ ...prev, projectId: e.target.value }))}
-                                            placeholder="parsecgo"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Scope Selection */}
-                            <div className="space-y-4 border-b pb-4">
-                                <h3 className="text-lg font-semibold">Scope Selection</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label>
-                                            District <span className="text-destructive">*</span>
-                                        </Label>
-                                        <Select
-                                            id="districtName"
-                                            value={formData.districtName}
-                                            onChange={(e) => {
-                                                setFormData((prev) => ({
-                                                    ...prev,
-                                                    districtName: e.target.value,
-                                                    schools: []
-                                                }))
-                                            }}
-                                            required
-                                            disabled={isLoadingDistrictsSchools || !formData.partnerName}
-                                        >
-                                            <option value="">{isLoadingDistrictsSchools ? 'Loading districts...' : 'Select a district...'}</option>
-                                            {districtOptions.map((district: string) => (
-                                                <option key={district} value={district}>
-                                                    {district}
-                                                </option>
-                                            ))}
-                                        </Select>
-                                        {isLoadingDistrictsSchools && <p className="text-muted-foreground text-xs">Fetching districts from NWEA table...</p>}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>
-                                            School(s) <span className="text-destructive">*</span>
-                                        </Label>
-                                        <MultiSelect
-                                            options={schoolOptions}
-                                            selected={formData.schools}
-                                            onChange={(selected) => setFormData((prev) => ({ ...prev, schools: selected }))}
-                                            placeholder={
-                                                isLoadingDistrictsSchools
-                                                    ? 'Loading schools...'
-                                                    : !formData.districtName
-                                                      ? 'Select district first...'
-                                                      : 'Select school(s)...'
-                                            }
-                                            disabled={isLoadingDistrictsSchools || !formData.partnerName || !formData.districtName}
-                                        />
-                                        {isLoadingDistrictsSchools && <p className="text-muted-foreground text-xs">Fetching schools from NWEA table...</p>}
-                                        {isLoadingDistrictsSchools && <p className="text-muted-foreground text-xs">Fetching schools from NWEA table...</p>}
                                     </div>
                                 </div>
                             </div>
@@ -540,11 +521,76 @@ export default function CreateSlide() {
                                                             </Label>
                                                         </div>
                                                         {isSelected && (
-                                                            <Input
-                                                                value={customTable || defaultTable}
-                                                                onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
-                                                                placeholder={defaultTable}
-                                                                className="ml-6 mt-1 h-8 font-mono text-xs"
+                                                            <div className="ml-6 mt-2">
+                                                                {/* Case 1: Multiple variants - show radio buttons */}
+                                                                {variants[source.id] && variants[source.id].length > 1 && (
+                                                                    <div className="space-y-1.5">
+                                                                        {variants[source.id].map((variant, idx) => (
+                                                                            <div key={variant.table_name} className="flex items-center space-x-2">
+                                                                                <input
+                                                                                    type="radio"
+                                                                                    id={`${source.id}-variant-${idx}`}
+                                                                                    name={`${source.id}-variant`}
+                                                                                    value={variant.full_path}
+                                                                                    checked={formData.customDataSources[source.id] === variant.full_path}
+                                                                                    onChange={() => handleCustomDataSourceChange(source.id, variant.full_path)}
+                                                                                    className="h-3.5 w-3.5 cursor-pointer"
+                                                                                />
+                                                                                <label
+                                                                                    htmlFor={`${source.id}-variant-${idx}`}
+                                                                                    className="flex-1 cursor-pointer font-mono text-xs text-gray-700"
+                                                                                >
+                                                                                    {variant.full_path}
+                                                                                    {variant.is_default && (
+                                                                                        <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                                                                                            Default
+                                                                                        </span>
+                                                                                    )}
+                                                                                </label>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Case 2: Single variant - show as read-only */}
+                                                                {variants[source.id] && variants[source.id].length === 1 && (
+                                                                    <Input
+                                                                        value={variants[source.id][0].full_path}
+                                                                        readOnly
+                                                                        className="h-8 cursor-not-allowed bg-gray-50 font-mono text-xs"
+                                                                    />
+                                                                )}
+
+                                                                {/* Case 3: No variants (fallback to manual input) */}
+                                                                {(!variants[source.id] || variants[source.id].length === 0) && (
+                                                                    <>
+                                                                        <Input
+                                                                            value={customTable || defaultTable}
+                                                                            onChange={(e) => handleCustomDataSourceChange(source.id, e.target.value)}
+                                                                            placeholder={defaultTable}
+                                                                            className="h-8 font-mono text-xs"
+                                                                        />
+                                                                        {variants[source.id] && variants[source.id].length === 0 && (
+                                                                            <p className="text-destructive mt-1 text-xs">
+                                                                                ⚠️ No table variants found. Please contact the Dev Team.
+                                                                            </p>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Per-Assessment Scope Selection */}
+                                                        {isSelected && formData.assessmentScopes[source.id] && (
+                                                            <AssessmentScopeSelector
+                                                                assessmentId={source.id}
+                                                                partnerName={formData.partnerName}
+                                                                projectId={formData.projectId}
+                                                                location={formData.location}
+                                                                customDataSource={formData.customDataSources[source.id]}
+                                                                scope={formData.assessmentScopes[source.id]}
+                                                                onScopeChange={handleAssessmentScopeChange}
+                                                                partnerConfig={PARTNER_CONFIG}
                                                             />
                                                         )}
                                                     </div>
@@ -557,6 +603,35 @@ export default function CreateSlide() {
                                         {isLoadingFilters && formData.assessments.length > 0 && (
                                             <p className="text-muted-foreground text-xs">Loading available filters...</p>
                                         )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Scope selection is now done per-assessment within each assessment checkbox above */}
+
+                            {/* Quarter Selection - Buttons */}
+                            {formData.assessments.length > 0 && availableQuarters.length > 0 && (
+                                <div className="space-y-4 border-b pb-4">
+                                    <h3 className="text-lg font-semibold">
+                                        Type of Slides <span className="text-destructive">*</span>
+                                    </h3>
+                                    <div className="flex gap-4">
+                                        {['BOY', 'MOY', 'EOY'].map((quarter) => {
+                                            const backendValue = getQuarterBackendValue(quarter)
+                                            const isSelected = formData.quarters === backendValue
+                                            return (
+                                                <Button
+                                                    key={quarter}
+                                                    type="button"
+                                                    variant={isSelected ? 'default' : 'outline'}
+                                                    onClick={() => setFormData((prev) => ({ ...prev, quarters: backendValue }))}
+                                                    disabled={isLoadingChoices}
+                                                    className={`flex-1 ${isSelected ? 'bg-primary text-primary-foreground' : ''}`}
+                                                >
+                                                    {quarter}
+                                                </Button>
+                                            )
+                                        })}
                                     </div>
                                 </div>
                             )}
@@ -575,11 +650,13 @@ export default function CreateSlide() {
                                                     Grade(s) <span className="text-destructive">*</span>
                                                 </Label>
                                                 <MultiSelect
+                                                    key={`grades-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                     options={GRADES}
                                                     selected={formData.grades}
                                                     onChange={(selected) => setFormData((prev) => ({ ...prev, grades: selected }))}
-                                                    placeholder="Select grade(s)..."
-                                                    disabled={isLoadingFilters}
+                                                    placeholder={isLoadingChoices ? 'Loading grades...' : 'Select grade(s)...'}
+                                                    disabled={isLoadingChoices}
+                                                    getDisplayLabel={getGradeDisplayLabel}
                                                 />
                                             </div>
                                         )}
@@ -588,71 +665,47 @@ export default function CreateSlide() {
                                                 Year(s) <span className="text-destructive">*</span>
                                             </Label>
                                             <MultiSelect
+                                                key={`years-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                 options={YEARS}
                                                 selected={formData.years}
                                                 onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
-                                                placeholder="Select at least 2 year(s)..."
-                                                disabled={isLoadingFilters}
+                                                placeholder={isLoadingChoices ? 'Loading years...' : 'Select at least 2 year(s)...'}
+                                                disabled={isLoadingChoices}
                                             />
                                             {formData.years.length > 0 && formData.years.length < 2 && (
                                                 <p className="text-destructive text-sm">Please select at least 2 years</p>
                                             )}
                                         </div>
                                     </div>
-                                    {(availableQuarters.length > 0 || availableSubjects.length > 0) && (
+                                    {availableSubjects.length > 0 && (
                                         <div className="grid grid-cols-2 gap-4">
-                                            {availableQuarters.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <Label>
-                                                        Quarter(s) <span className="text-destructive">*</span>
-                                                    </Label>
-                                                    <MultiSelect
-                                                        options={availableQuarters}
-                                                        selected={formData.quarters}
-                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, quarters: selected }))}
-                                                        placeholder="Select quarter(s)..."
-                                                        disabled={isLoadingFilters}
-                                                    />
-                                                </div>
-                                            )}
-                                            {availableSubjects.length > 0 && (
-                                                <div className="space-y-2">
-                                                    <Label>
-                                                        Subject(s) <span className="text-destructive">*</span>
-                                                    </Label>
-                                                    <MultiSelect
-                                                        options={availableSubjects}
-                                                        selected={formData.subjects}
-                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
-                                                        placeholder="Select subject(s)..."
-                                                        disabled={isLoadingFilters}
-                                                    />
-                                                </div>
-                                            )}
+                                            <div className="space-y-2">
+                                                <Label>
+                                                    Subject(s) <span className="text-destructive">*</span>
+                                                </Label>
+                                                <MultiSelect
+                                                    key={`subjects-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
+                                                    options={availableSubjects}
+                                                    selected={formData.subjects}
+                                                    onChange={(selected) => setFormData((prev) => ({ ...prev, subjects: selected }))}
+                                                    placeholder={isLoadingChoices ? 'Loading subjects...' : 'Select subject(s)...'}
+                                                    disabled={isLoadingChoices}
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                     {(supportsStudentGroups || supportsRace) && (
                                         <div className="grid grid-cols-2 gap-4">
-                                            {supportsStudentGroups && (
+                                            {supportsStudentGroups && dynamicStudentGroupOptions.length > 1 && (
                                                 <div className="space-y-2">
                                                     <Label>Student Groups</Label>
                                                     <MultiSelect
-                                                        options={
-                                                            studentGroupOptions.length > 0
-                                                                ? studentGroupOptions.filter((group) => !raceOptions.includes(group))
-                                                                : [
-                                                                      'All Students',
-                                                                      'English Learners',
-                                                                      'Students with Disabilities',
-                                                                      'Socioeconomically Disadvantaged',
-                                                                      'Foster',
-                                                                      'Homeless'
-                                                                  ]
-                                                        }
+                                                        key={`student-groups-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
+                                                        options={dynamicStudentGroupOptions}
                                                         selected={formData.studentGroups}
                                                         onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
-                                                        placeholder="Select student group(s)..."
-                                                        disabled={isLoadingFilters}
+                                                        placeholder={isLoadingChoices ? 'Loading student groups...' : 'Select student group(s)...'}
+                                                        disabled={isLoadingChoices}
                                                     />
                                                 </div>
                                             )}
@@ -660,9 +713,10 @@ export default function CreateSlide() {
                                                 <div className="space-y-2">
                                                     <Label>Race/Ethnicity</Label>
                                                     <MultiSelect
+                                                        key={`race-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
                                                         options={
-                                                            raceOptions.length > 0
-                                                                ? raceOptions
+                                                            dynamicRaceOptions.length > 0
+                                                                ? dynamicRaceOptions
                                                                 : [
                                                                       'Hispanic or Latino',
                                                                       'White',
@@ -676,8 +730,8 @@ export default function CreateSlide() {
                                                         }
                                                         selected={formData.race}
                                                         onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
-                                                        placeholder="Select race/ethnicity..."
-                                                        disabled={isLoadingFilters}
+                                                        placeholder={isLoadingChoices ? 'Loading race/ethnicity...' : 'Select race/ethnicity...'}
+                                                        disabled={isLoadingChoices}
                                                     />
                                                 </div>
                                             )}
@@ -689,34 +743,77 @@ export default function CreateSlide() {
                             {/* Slide Content */}
                             <div className="space-y-4">
                                 <h3 className="text-lg font-semibold">Slide Content</h3>
-                                <div className="space-y-2">
-                                    <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
-                                    <Textarea
-                                        id="slidePrompt"
-                                        value={formData.slidePrompt}
-                                        onChange={handleTextareaChange}
-                                        placeholder="Enter any additional information for the slides..."
-                                        rows={4}
-                                    />
+                                <div className="space-y-4">
+                                    <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id="enableAIInsights"
+                                            checked={formData.enableAIInsights}
+                                            onChange={(e) => {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    enableAIInsights: e.target.checked
+                                                }))
+                                            }}
+                                        />
+                                        <Label htmlFor="enableAIInsights" className="cursor-pointer text-sm font-normal">
+                                            Enable AI Analytics & Insights (included in slide notes)
+                                        </Label>
+                                    </div>
+                                    {!formData.enableAIInsights && (
+                                        <p className="text-muted-foreground text-xs">
+                                            ⚡ AI analytics disabled - charts will be generated faster without AI analysis
+                                        </p>
+                                    )}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="themeColor">Theme Color</Label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="color"
+                                                id="themeColor"
+                                                value={formData.themeColor}
+                                                onChange={(e) => {
+                                                    const newColor = e.target.value
+                                                    console.log('[Frontend] Color picker changed to:', newColor)
+                                                    setFormData((prev) => {
+                                                        console.log('[Frontend] Updating themeColor from', prev.themeColor, 'to', newColor)
+                                                        return { ...prev, themeColor: newColor }
+                                                    })
+                                                }}
+                                                className="h-10 w-20 cursor-pointer rounded border border-gray-300"
+                                            />
+                                            <Input
+                                                type="text"
+                                                value={formData.themeColor}
+                                                onChange={(e) => {
+                                                    const newColor = e.target.value
+                                                    console.log('[Frontend] Color text input changed to:', newColor)
+                                                    setFormData((prev) => {
+                                                        console.log('[Frontend] Updating themeColor from', prev.themeColor, 'to', newColor)
+                                                        return { ...prev, themeColor: newColor }
+                                                    })
+                                                }}
+                                                placeholder="#0094bd"
+                                                className="w-32"
+                                            />
+                                        </div>
+                                        <p className="text-muted-foreground text-xs">
+                                            Select a color for the top bar and cover slide background (default: Parsec blue)
+                                        </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="slidePrompt">Slide Information (Optional)</Label>
+                                        <Textarea
+                                            id="slidePrompt"
+                                            value={formData.slidePrompt}
+                                            onChange={handleTextareaChange}
+                                            placeholder="Enter any additional information for the slides..."
+                                            rows={4}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </CardContent>
                     </Card>
-
-                    {/* Progress Bar */}
-                    {isCreating && slideProgress.value > 0 && (
-                        <Card className="mb-6">
-                            <CardContent className="pt-6">
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="font-medium">{slideProgress.step}</span>
-                                        <span className="text-muted-foreground">{slideProgress.value}%</span>
-                                    </div>
-                                    <Progress value={slideProgress.value} max={100} />
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )}
 
                     {/* Submit Button */}
                     <div className="flex justify-end gap-4">

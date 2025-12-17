@@ -105,26 +105,56 @@ def get_scopes(nwea_base, cfg):
     if include_district:
         scopes.append((nwea_base.copy(), district_label, "_district"))
     
-    # Only add school scopes if schoolname column exists and has data
-    if "schoolname" in nwea_base.columns:
-        available_schools = sorted(nwea_base["schoolname"].dropna().unique())
+    # Determine which column to use for schools
+    # Check learning_center first (for charter schools), then schoolname, then school
+    school_col = None
+    if "learning_center" in nwea_base.columns:
+        school_col = "learning_center"
+        print(f"[Scope Filter] Using 'learning_center' column for school scopes")
+    elif "schoolname" in nwea_base.columns:
+        school_col = "schoolname"
+        print(f"[Scope Filter] Using 'schoolname' column for school scopes")
+    elif "school" in nwea_base.columns:
+        school_col = "school"
+        print(f"[Scope Filter] Using 'school' column for school scopes")
+    
+    # Only add school scopes if a school column exists and has data
+    if school_col:
+        available_schools = sorted(nwea_base[school_col].dropna().unique())
+        print(f"[Scope Filter] Found {len(available_schools)} unique schools in '{school_col}' column: {available_schools}")
         
         # Filter schools based on selection if provided
         if selected_schools and len(selected_schools) > 0:
+            print(f"[Scope Filter] Selected schools from config: {selected_schools}")
             # Normalize selected school names for matching
             selected_schools_normalized = [hf._safe_normalize_school_name(s, cfg) for s in selected_schools]
-            schools_to_process = [
-                school for school in available_schools
-                if hf._safe_normalize_school_name(school, cfg) in selected_schools_normalized
-            ]
+            print(f"[Scope Filter] Normalized selected schools: {selected_schools_normalized}")
+            
+            # Also try direct matching (case-insensitive) in addition to normalized matching
+            schools_to_process = []
+            for school in available_schools:
+                normalized_school = hf._safe_normalize_school_name(school, cfg)
+                # Check normalized match
+                if normalized_school in selected_schools_normalized:
+                    schools_to_process.append(school)
+                # Also check direct case-insensitive match
+                elif any(school.lower() == selected.lower() or selected.lower() in school.lower() or school.lower() in selected.lower() 
+                        for selected in selected_schools):
+                    schools_to_process.append(school)
+            
+            print(f"[Scope Filter] Matched {len(schools_to_process)} schools: {schools_to_process}")
             if len(schools_to_process) == 0:
-                print(f"[Scope Filter] No matching schools found for selected schools: {selected_schools}")
+                print(f"[Scope Filter] ⚠️  No matching schools found!")
+                print(f"[Scope Filter]   Selected: {selected_schools}")
+                print(f"[Scope Filter]   Available: {available_schools}")
+                print(f"[Scope Filter]   Normalized selected: {selected_schools_normalized}")
+                print(f"[Scope Filter]   Normalized available: {[hf._safe_normalize_school_name(s, cfg) for s in available_schools]}")
         else:
             # If no schools selected, don't generate school-level charts
             schools_to_process = []
         
         for raw_school in schools_to_process:
-            scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
+            scope_df = nwea_base[nwea_base[school_col] == raw_school].copy()
             if len(scope_df) > 0:  # Only add if there's data
                 scope_label = hf._safe_normalize_school_name(raw_school, cfg)
                 scopes.append((scope_df, scope_label, scope_label.replace(" ", "_")))
@@ -150,7 +180,19 @@ def prep_nwea_for_charts(df, subject_str, window_filter="Fall"):
     # helper_functions already imported at top
     
     d = df.copy()
+    
+    # Debug: Check available testwindow values before filtering
+    if "testwindow" in d.columns:
+        available_windows = d["testwindow"].astype(str).str.upper().unique()
+        print(f"[prep_nwea_for_charts] Filtering for window: {window_filter.upper()}")
+        print(f"[prep_nwea_for_charts] Available testwindow values: {sorted(available_windows)}")
+        print(f"[prep_nwea_for_charts] Rows before window filter: {len(d)}")
+    
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()].copy()
+    
+    # Debug: Check rows after filtering
+    if "testwindow" in df.columns:
+        print(f"[prep_nwea_for_charts] Rows after window filter: {len(d)}")
     
     subj_norm = subject_str.strip().casefold()
     if "math" in subj_norm:

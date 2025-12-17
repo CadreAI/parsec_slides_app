@@ -1,6 +1,5 @@
 """
-Google Slides creation module
-Contains all slide creation logic and utilities
+Slides module for creating Google Slides presentations
 """
 from .slide_creator import create_slides_presentation
 

@@ -15,8 +15,6 @@ import numpy as np
 from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-import sys
-from pathlib import Path
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
@@ -357,8 +355,28 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
     out_name = f"{scope_label}_section0_pred_vs_actual.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
-    track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": "Spring",
+        "subjects": list(subj_payload.keys()),
+        "predicted_vs_actual": {
+            subj: {
+                "predicted_pct": {level: float(proj_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["proj_order"]},
+                "actual_pct": {level: float(act_pct.get(level, 0)) for level in subj_payload[subj]["metrics"]["act_order"]},
+                "predicted_met_exceed": float(subj_payload[subj]["metrics"]["proj_met"]),
+                "actual_met_exceed": float(subj_payload[subj]["metrics"]["act_met"]),
+                "delta": float(subj_payload[subj]["metrics"]["delta"])
+            }
+            for subj in subj_payload.keys()
+            for proj_pct, act_pct in [(subj_payload[subj]["proj_pct"], subj_payload[subj]["act_pct"])]
+        }
+    }
+    track_chart(f"Section 0: Predicted vs Actual", out_path, scope=scope_label, section=0, chart_data=chart_data)
     print(f"Saved Section 0: {out_path}")
+    
+    return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 1 - Fall Performance Trends (Dual Subject Dashboard)
@@ -664,25 +682,30 @@ def plot_star_subject_dashboard_by_group(
                 return curr - prev
             
             if pct_df is not None and not pct_df.empty:
-                high_delta = _bucket_delta("4 - Standard Exceeded", pct_df)
-                hi_delta = sum(
-                    _bucket_delta(b, pct_df)
-                    for b in ["4 - Standard Exceeded", "3 - Standard Met"]
-                )
-                lo_delta = _bucket_delta("1 - Standard Not Met", pct_df)
-                score_delta = metrics["score_delta"]
+                # Show current values, not deltas (deltas still calculated in metrics)
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df.loc[
+                        (pct_df["time_label"] == tlabel) &
+                        (pct_df["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                t_curr = metrics["t_curr"]
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = metrics.get("score_now", 0)
                 
                 insight_lines = [
-                    "Comparison of current and prior year",
-                    rf"$\Delta$ Exceed: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Meet or Exceed: $\mathbf{{{hi_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Not Met: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Unified Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    f"Current values ({t_curr}):",
+                    f"Exceed: {high_now:.1f} ppts",
+                    f"Meet or Exceed: {hi_now:.1f} ppts",
+                    f"Not Met: {lo_now:.1f} ppts",
+                    f"Avg Unified Scale Score: {score_now:.1f} pts",
                 ]
             else:
-                insight_lines = ["(No pct_df for insight calculation)"]
+                insight_lines = []
         else:
-            insight_lines = ["Not enough history for change insights"]
+            insight_lines = ["Not enough history for insights"]
         
         axes[2][i].text(
             0.5, 0.5, "\n".join(insight_lines),
@@ -704,7 +727,31 @@ def plot_star_subject_dashboard_by_group(
     out_name = f"{scope_label.replace(' ', '_')}_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
-    track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2)
+    
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": metrics_list,
+        "time_orders": time_orders,
+        "pct_data": [
+            {
+                "subject": subj,
+                "data": pct_df.to_dict('records') if pct_df is not None and not pct_df.empty else []
+            }
+            for subj, pct_df in zip(subjects, pct_dfs)
+        ],
+        "score_data": [
+            {
+                "subject": subj,
+                "data": score_df.to_dict('records') if score_df is not None and not score_df.empty else []
+            }
+            for subj, score_df in zip(subjects, score_dfs)
+        ]
+    }
+    track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2, chart_data=chart_data)
     print(f"Saved Section 2: {out_path}")
     return str(out_path)
 
@@ -951,7 +998,27 @@ def plot_star_blended_dashboard(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 3: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=3)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": current_grade,
+        "subject": subject_str,
+        "metrics": metrics_left,
+        "pct_data": {
+            "overall": pct_df_left.to_dict('records') if not pct_df_left.empty else []
+        },
+        "score_data": {
+            "overall": score_df_left.to_dict('records') if not score_df_left.empty else []
+        }
+    }
+    
+    if not pct_df_right.empty and not score_df_right.empty:
+        chart_data["cohort_metrics"] = metrics_right
+        chart_data["pct_data"]["cohort"] = pct_df_right.to_dict('records')
+        chart_data["score_data"]["cohort"] = score_df_right.to_dict('records')
+    
+    track_chart(out_name, str(out_path), scope=scope_label, section=3, chart_data=chart_data)
     
     return str(out_path)
 
@@ -1050,7 +1117,22 @@ def plot_star_growth_by_site(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 4: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=4)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "subject": subject_str,
+        "school_data": {
+            school: {
+                "pct_data": data["pct_df"].to_dict('records') if not data["pct_df"].empty else [],
+                "score_data": data["score_df"].to_dict('records') if not data["score_df"].empty else [],
+                "metrics": data["metrics"],
+                "time_order": data["time_order"]
+            }
+            for school, data in school_data.items()
+        }
+    }
+    track_chart(out_name, str(out_path), scope=scope_label, section=4, chart_data=chart_data)
     
     return str(out_path)
 
@@ -1227,11 +1309,15 @@ def plot_star_sgp_growth(
     
     ax4 = fig.add_subplot(gs[1, 1])
     ax4.axis("off")
-    if metrics_cohort and metrics_cohort.get("hi_delta") is not None:
+    if metrics_cohort and metrics_cohort.get("hi_now") is not None:
+        # Show current values, not deltas (deltas still calculated in metrics)
+        hi_now = metrics_cohort.get("hi_now", 0)
+        score_now = metrics_cohort.get("score_now", 0)
+        t_curr = metrics_cohort.get("t_curr", "Current")
         lines = [
-            "Cohort Insights:",
-            rf"$\Delta$ Meet/Exceed: $\mathbf{{{metrics_cohort['hi_delta']:+.1f}}}$ ppts",
-            rf"$\Delta$ Avg Score: $\mathbf{{{metrics_cohort['score_delta']:+.1f}}}$ pts",
+            f"Cohort Insights ({t_curr}):",
+            f"Meet/Exceed: {hi_now:.1f} ppts",
+            f"Avg Score: {score_now:.1f} pts",
         ]
         ax4.text(0.5, 0.5, "\n".join(lines), ha="center", va="center", fontsize=11,
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc"))
@@ -1253,7 +1339,22 @@ def plot_star_sgp_growth(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 5: {out_path}")
     
-    track_chart(out_name, str(out_path), scope=scope_label, section=5)
+    # Prepare chart data for saving
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "grade": current_grade,
+        "subject": subject_str,
+        "grade_metrics": metrics_grade,
+        "cohort_metrics": metrics_cohort,
+        "sgp_data": {
+            "grade_trend": sgp_df_grade.to_dict('records') if not sgp_df_grade.empty else [],
+            "cohort_trend": cohort_df.to_dict('records') if not cohort_df.empty else []
+        },
+        "time_order": time_order,
+        "cohort_labels": cohort_labels
+    }
+    track_chart(out_name, str(out_path), scope=scope_label, section=5, chart_data=chart_data)
     
     return str(out_path)
 
@@ -1289,48 +1390,43 @@ def plot_star_consolidated_cohort_all_grades(
         print(f"[Consolidated Section 3] No cohort data for {scope_label} - {subject_str}")
         return None
     
-    # Split grades into groups of 3
+    # Generate one chart per grade (no grouping)
     sorted_grades = sorted(grade_data.keys())
-    grade_groups = [sorted_grades[i:i+3] for i in range(0, len(sorted_grades), 3)]
-    
     chart_paths = []
     
-    # Create one chart per group of 3 grades
-    for group_idx, grade_group in enumerate(grade_groups):
-        # Create figure with subplots for 3 grades
-        n_grades_in_group = len(grade_group)
-        fig = plt.figure(figsize=(16, 4 * n_grades_in_group), dpi=300)
-        gs = fig.add_gridspec(nrows=n_grades_in_group, ncols=2, height_ratios=[1] * n_grades_in_group)
-        fig.subplots_adjust(hspace=0.4, wspace=0.3)
+    # Create one chart per grade
+    for grade in sorted_grades:
+        # Single grade chart - use standard layout
+        fig = plt.figure(figsize=(16, 9), dpi=300)
+        gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[1, 0.6])
+        fig.subplots_adjust(wspace=0.3)
         
         legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
         
-        for idx, grade in enumerate(grade_group):
-            data = grade_data[grade]
-            pct_df = data["pct_df"]
-            score_df = data["score_df"]
-            metrics = data["metrics"]
-            
-            # Stacked bar chart
-            ax1 = fig.add_subplot(gs[idx, 0])
-            draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER)
-            ax1.set_title(f"Grade {grade} - Cohort Trends", fontsize=12, fontweight="bold")
-            
-            # Score bar chart
-            ax2 = fig.add_subplot(gs[idx, 1])
-            n_map = None
-            if "N_total" in pct_df.columns:
-                n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
-                n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
-            draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map)
-            ax2.set_title("Average Unified Scale Score", fontsize=10, fontweight="bold")
+        # Process single grade
+        data = grade_data[grade]
+        pct_df = data["pct_df"]
+        score_df = data["score_df"]
+        metrics = data["metrics"]
+        
+        # Standard layout: stacked bar on left, score bar on right
+        ax1 = fig.add_subplot(gs[0, 0])
+        draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER)
+        ax1.set_title(f"Grade {grade} - Cohort Trends", fontsize=12, fontweight="bold")
+        
+        ax2 = fig.add_subplot(gs[0, 1])
+        n_map = None
+        if "N_total" in pct_df.columns:
+            n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
+            n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
+        draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map)
+        ax2.set_title(f"Grade {grade} Avg Score", fontsize=10, fontweight="bold")
         
         fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center", bbox_to_anchor=(0.5, 0.98),
                   ncol=len(hf.STAR_ORDER), frameon=False, fontsize=9)
         
-        # Create title with grade range
-        grade_range = f"Grades {min(grade_group)}-{max(grade_group)}" if len(grade_group) > 1 else f"Grade {grade_group[0]}"
-        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} Cohort Trends ({grade_range})",
+        # Create title for single grade
+        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} Cohort Trends (Grade {grade})",
                     fontsize=18, fontweight="bold", y=0.995)
         
         # Save
@@ -1339,14 +1435,28 @@ def plot_star_consolidated_cohort_all_grades(
         prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
         
         safe_subj = subject_str.replace(" ", "_").lower()
-        grade_suffix = f"grades_{min(grade_group)}_{max(grade_group)}" if len(grade_group) > 1 else f"grade_{grade_group[0]}"
-        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_consolidated_{grade_suffix}_{safe_subj}_{window_filter.lower()}_cohort.png"
+        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section3_grade_{grade}_{safe_subj}_{window_filter.lower()}_cohort.png"
         out_path = out_dir / out_name
         
         hf._save_and_render(fig, out_path, dev_mode=preview)
-        print(f"Saved Consolidated Section 3 (Part {group_idx + 1}/{len(grade_groups)}): {out_path}")
+        print(f"Saved Section 3 Grade {grade}: {out_path}")
         
-        track_chart(out_name, str(out_path), scope=scope_label, section=3)
+        # Prepare chart_data for consolidated chart
+        chart_data = {
+            "scope": scope_label,
+            "window_filter": window_filter,
+            "subject": subject_str,
+            "grades": [grade],
+            "grade_data": {
+                grade: {
+                    "metrics": grade_data[grade]["metrics"],
+                    "pct_data": grade_data[grade]["pct_df"].to_dict('records') if not grade_data[grade]["pct_df"].empty else [],
+                    "score_data": grade_data[grade]["score_df"].to_dict('records') if not grade_data[grade]["score_df"].empty else []
+                }
+            }
+        }
+        
+        track_chart(out_name, str(out_path), scope=scope_label, section=3, chart_data=chart_data)
         chart_paths.append(str(out_path))
     
     return chart_paths[0] if len(chart_paths) == 1 else chart_paths
@@ -1375,56 +1485,61 @@ def plot_star_consolidated_sgp_all_grades(
         print(f"[Consolidated Section 5] No SGP data for {scope_label} - {subject_str}")
         return None
     
-    # Split grades into groups of 3
+    # Generate one chart per grade (no grouping)
     sorted_grades = sorted(grade_data.keys())
-    grade_groups = [sorted_grades[i:i+3] for i in range(0, len(sorted_grades), 3)]
-    
     chart_paths = []
     
-    # Create one chart per group of 3 grades
-    for group_idx, grade_group in enumerate(grade_groups):
-        # Create figure - one row per grade (max 3)
-        n_grades_in_group = len(grade_group)
-        fig = plt.figure(figsize=(16, 3 * n_grades_in_group), dpi=300)
-        gs = fig.add_gridspec(nrows=n_grades_in_group, ncols=1, height_ratios=[1] * n_grades_in_group)
-        fig.subplots_adjust(hspace=0.3)
+    # Create one chart per grade
+    for grade in sorted_grades:
+        # Single grade chart - use standard layout
+        fig = plt.figure(figsize=(16, 6), dpi=300)
+        gs = fig.add_gridspec(nrows=1, ncols=1)
+        fig.subplots_adjust()
         
-        for idx, grade in enumerate(grade_group):
-            data = grade_data[grade]
-            sgp_df = data["sgp_df"]
-            metrics = data["metrics"]
-            
-            ax = fig.add_subplot(gs[idx, 0])
-            
-            x_labels = sgp_df["time_label"].tolist()
-            x = np.arange(len(x_labels))
-            y = sgp_df["avg_sgp"].tolist()
-            
-            ax.plot(x, y, marker="o", linewidth=2, markersize=8, color="#2E86AB", label=f"Grade {grade}")
-            ax.fill_between(x, y, alpha=0.2, color="#2E86AB")
-            
-            # Add value labels
-            for i, (xi, yi) in enumerate(zip(x, y)):
-                ax.text(xi, yi + 2, f"{yi:.1f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
-            
-            ax.set_xticks(x)
-            ax.set_xticklabels(x_labels, rotation=45, ha="right")
-            ax.set_ylabel("Average SGP", fontsize=11, fontweight="bold")
-            ax.set_title(f"Grade {grade} - SGP Trend", fontsize=12, fontweight="bold")
-            ax.grid(axis="y", alpha=0.2)
-            ax.spines["top"].set_visible(False)
-            ax.spines["right"].set_visible(False)
-            
-            # Add n-counts
-            if "N_total" in sgp_df.columns:
-                n_map = dict(zip(sgp_df["time_label"].astype(str), sgp_df["N_total"]))
-                for i, label in enumerate(x_labels):
-                    n_val = n_map.get(str(label), 0)
-                    ax.text(i, ax.get_ylim()[0] + 2, f"n={n_val}", ha="center", fontsize=8, style="italic")
+        # Process single grade
+        data = grade_data[grade]
+        sgp_df = data["sgp_df"]
+        metrics = data["metrics"]
         
-        # Create title with grade range
-        grade_range = f"Grades {min(grade_group)}-{max(grade_group)}" if len(grade_group) > 1 else f"Grade {grade_group[0]}"
-        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} SGP Growth ({grade_range})",
+        ax = fig.add_subplot(gs[0, 0])
+        
+        x_labels = sgp_df["time_label"].tolist()
+        x = np.arange(len(x_labels))
+        y = sgp_df["avg_sgp"].tolist()
+        
+        ax.plot(x, y, marker="o", linewidth=2, markersize=8, color="#2E86AB", label=f"Grade {grade}")
+        ax.fill_between(x, y, alpha=0.2, color="#2E86AB")
+        
+        # Add value labels with clearer formatting
+        for i, (xi, yi) in enumerate(zip(x, y)):
+            ax.text(xi, yi + 2, f"{yi:.1f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
+        
+        ax.set_xticks(x)
+        ax.set_xticklabels(x_labels, rotation=45, ha="right")
+        ax.set_ylabel("Average SGP", fontsize=11, fontweight="bold")
+        ax.set_title(f"Grade {grade} SGP", fontsize=11, fontweight="bold", pad=8)
+        
+        # Add latest SGP value prominently
+        if len(y) > 0:
+            latest_sgp = y[-1]
+            ax.text(0.5, 0.95, f"Latest: {latest_sgp:.1f}", 
+                   transform=ax.transAxes, ha="center", va="top",
+                   fontsize=10, fontweight="bold",
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+        
+        ax.grid(axis="y", alpha=0.2)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        
+        # Add n-counts
+        if "N_total" in sgp_df.columns:
+            n_map = dict(zip(sgp_df["time_label"].astype(str), sgp_df["N_total"]))
+            for i, label in enumerate(x_labels):
+                n_val = n_map.get(str(label), 0)
+                ax.text(i, ax.get_ylim()[0] + 2, f"n={n_val}", ha="center", fontsize=8, style="italic")
+        
+        # Create title for single grade
+        fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} SGP Growth (Grade {grade})",
                     fontsize=18, fontweight="bold", y=0.995)
         
         # Save
@@ -1433,14 +1548,27 @@ def plot_star_consolidated_sgp_all_grades(
         prefix = "DISTRICT_" if folder == "_district" else "SCHOOL_"
         
         safe_subj = subject_str.replace(" ", "_").lower()
-        grade_suffix = f"grades_{min(grade_group)}_{max(grade_group)}" if len(grade_group) > 1 else f"grade_{grade_group[0]}"
-        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section5_consolidated_{grade_suffix}_{safe_subj}_{window_filter.lower()}_sgp.png"
+        out_name = f"{prefix}{scope_label.replace(' ', '_')}_section5_grade_{grade}_{safe_subj}_{window_filter.lower()}_sgp.png"
         out_path = out_dir / out_name
         
         hf._save_and_render(fig, out_path, dev_mode=preview)
-        print(f"Saved Consolidated Section 5 (Part {group_idx + 1}/{len(grade_groups)}): {out_path}")
+        print(f"Saved Section 5 Grade {grade}: {out_path}")
         
-        track_chart(out_name, str(out_path), scope=scope_label, section=5)
+        # Prepare chart_data for consolidated SGP chart
+        chart_data = {
+            "scope": scope_label,
+            "window_filter": window_filter,
+            "subject": subject_str,
+            "grades": [grade],
+            "sgp_data": {
+                grade: {
+                    "metrics": data["metrics"],
+                    "sgp_trend": sgp_df.to_dict('records') if not sgp_df.empty else []
+                }
+            }
+        }
+        
+        track_chart(out_name, str(out_path), scope=scope_label, section=5, chart_data=chart_data)
         chart_paths.append(str(out_path))
     
     return chart_paths[0] if len(chart_paths) == 1 else chart_paths
@@ -1452,291 +1580,12 @@ def plot_star_consolidated_sgp_all_grades(
 
 def main(star_data=None):
     """
-    Main function to generate STAR charts
-    
-    Args:
-        star_data: Optional list of dicts or DataFrame with STAR data.
-                   If None, will load from CSV using args.data_dir
+    Main router function - routes to appropriate quarter-specific module based on selection.
+    This function should not be called directly - use generate_star_charts() instead.
     """
-    global chart_links, _chart_tracking_set
-    chart_links = []
-    _chart_tracking_set = set()
-    
-    parser = argparse.ArgumentParser(description='Generate STAR charts')
-    parser.add_argument('--partner', required=True, help='Partner name')
-    parser.add_argument('--data-dir', required=False, help='Data directory path')
-    parser.add_argument('--output-dir', required=True, help='Output directory path')
-    parser.add_argument('--dev-mode', default='false', help='Development mode')
-    parser.add_argument('--config', default='{}', help='Config JSON string')
-    
-    args = parser.parse_args()
-    
-    cfg = load_config_from_args(args.config)
-    hf.DEV_MODE = args.dev_mode.lower() in ('true', '1', 'yes', 'on')
-    
-    chart_filters = cfg.get("chart_filters", {})
-    
-    # Load data
-    if star_data is not None:
-        star_base = load_star_data(star_data=star_data, cfg=cfg)
-    else:
-        if not args.data_dir:
-            raise ValueError("Either star_data must be provided or --data-dir must be specified")
-        star_base = load_star_data(data_dir=args.data_dir, cfg=cfg)
-    
-    # Get selected quarters (for determining which charts to generate)
-    selected_quarters = ["Fall"]
-    if chart_filters and chart_filters.get("quarters") and len(chart_filters["quarters"]) > 0:
-        selected_quarters = chart_filters["quarters"]
-    
-    # Get scopes
-    scopes = get_scopes(star_base, cfg)
-    
-    chart_paths = []
-    
-    # Section 0: Predicted vs Actual CAASPP
-    print("\n[Section 0] Generating Predicted vs Actual CAASPP...")
-    for scope_df, scope_label, folder in scopes:
-        try:
-            payload = {}
-            for subj in ["Reading", "Mathematics"]:
-                if not should_generate_subject(subj, chart_filters):
-                    continue
-                proj, act, metrics, year = _prep_section0_star(scope_df, subj)
-                if proj is None:
-                    continue
-                payload[subj] = {"proj_pct": proj, "act_pct": act, "metrics": metrics}
-            if payload:
-                _plot_section0_star(scope_label, folder, payload, args.output_dir, preview=hf.DEV_MODE)
-        except Exception as e:
-            print(f"Error generating Section 0 chart for {scope_label}: {e}")
-            if hf.DEV_MODE:
-                import traceback
-                traceback.print_exc()
-            continue
-    
-    # Section 1: Fall Performance Trends
-    print("\n[Section 1] Generating Fall Performance Trends...")
-    # If multiple quarters selected, generate one chart per scope (shows all quarters if possible)
-    # Otherwise generate per quarter
-    if len(selected_quarters) > 1:
-        # Generate one chart per scope (will show latest quarter or combine)
-        for scope_df, scope_label, folder in scopes:
-            try:
-                # Use the first quarter as primary, but chart will show trends across time
-                chart_path = plot_star_dual_subject_dashboard(
-                    scope_df,
-                    scope_label,
-                    folder,
-                    args.output_dir,
-                    window_filter=selected_quarters[0],  # Use first quarter
-                    preview=hf.DEV_MODE
-                )
-                if chart_path:
-                    chart_paths.append(chart_path)
-            except Exception as e:
-                print(f"Error generating chart for {scope_label}: {e}")
-                if hf.DEV_MODE:
-                    import traceback
-                    traceback.print_exc()
-                continue
-    else:
-        # Single quarter - generate normally
-        for quarter in selected_quarters:
-            for scope_df, scope_label, folder in scopes:
-                try:
-                    chart_path = plot_star_dual_subject_dashboard(
-                        scope_df,
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        window_filter=quarter,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating chart for {scope_label} ({quarter}): {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
-    
-    # Section 2: Student Group Performance Trends
-    print("\n[Section 2] Generating Student Group Performance Trends...")
-    student_groups_cfg = cfg.get("student_groups", {})
-    group_order = cfg.get("student_group_order", {})
-    
-    # Limit to most important student groups if too many
-    max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
-    sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99))
-    groups_to_plot = sorted_groups[:max_groups]
-    
-    for scope_df, scope_label, folder in scopes:
-        for group_name, group_def in groups_to_plot:
-            if group_def.get("type") == "all":
-                continue
-            if not should_generate_student_group(group_name, chart_filters):
-                continue
-            print(f"  [Generate] {group_name}")
-            # Use first quarter only if multiple quarters selected (reduces charts)
-            quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
-            for quarter in quarters_to_use:
-                try:
-                    chart_path = plot_star_subject_dashboard_by_group(
-                        scope_df.copy(), scope_label, folder, args.output_dir,
-                        window_filter=quarter, group_name=group_name, group_def=group_def,
-                        cfg=cfg, preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"  Error generating Section 2 chart for {scope_label} - {group_name} ({quarter}): {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
-    
-    # Section 3: Overall + Cohort Trends
-    print("\n[Section 3] Generating Overall + Cohort Trends...")
-    selected_grades = chart_filters.get("grades", [])
-    if not selected_grades:
-        # Default: grades 3-8
-        selected_grades = list(range(3, 9))
-    
-    anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
-    
-    # Use consolidated charts if 3+ grades selected (reduces chart count significantly)
-    use_consolidated = len(selected_grades) >= 3
-    
-    for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
-            if not should_generate_subject(subj, chart_filters):
-                continue
-            # Use first quarter only if multiple quarters selected (reduces charts significantly)
-            quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
-            for quarter in quarters_to_use:
-                if use_consolidated:
-                    # Generate consolidated charts showing 3 grades per chart
-                    try:
-                        chart_result = plot_star_consolidated_cohort_all_grades(
-                            scope_df.copy(), scope_label, folder, args.output_dir,
-                            subject_str=subj, window_filter=quarter,
-                            cohort_year=anchor_year, selected_grades=selected_grades,
-                            cfg=cfg, preview=hf.DEV_MODE
-                        )
-                        if chart_result:
-                            # Handle both single path and list of paths
-                            if isinstance(chart_result, list):
-                                chart_paths.extend(chart_result)
-                            else:
-                                chart_paths.append(chart_result)
-                    except Exception as e:
-                        print(f"  Error generating consolidated Section 3 chart for {scope_label} - {subj} ({quarter}): {e}")
-                        if hf.DEV_MODE:
-                            import traceback
-                            traceback.print_exc()
-                        continue
-                else:
-                    # Generate individual charts per grade (for 1-2 grades)
-                    for grade in selected_grades:
-                        if not should_generate_grade(grade, chart_filters):
-                            continue
-                        try:
-                            chart_path = plot_star_blended_dashboard(
-                                scope_df.copy(), scope_label, folder, args.output_dir,
-                                subject_str=subj, current_grade=grade,
-                                window_filter=quarter, cohort_year=anchor_year,
-                                cfg=cfg, preview=hf.DEV_MODE
-                            )
-                            if chart_path:
-                                chart_paths.append(chart_path)
-                        except Exception as e:
-                            print(f"  Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
-                            if hf.DEV_MODE:
-                                import traceback
-                                traceback.print_exc()
-                            continue
-    
-    # Section 4: Overall Growth Trends by Site
-    print("\n[Section 4] Generating Overall Growth Trends by Site...")
-    for scope_df, scope_label, folder in scopes:
-        # Only generate for district scope (shows all schools)
-        if folder == "_district":
-            for subj in ["Reading", "Mathematics"]:
-                if not should_generate_subject(subj, chart_filters):
-                    continue
-                # Use first quarter only if multiple quarters selected
-                quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
-                for quarter in quarters_to_use:
-                    try:
-                        chart_path = plot_star_growth_by_site(
-                            scope_df.copy(), scope_label, folder, args.output_dir,
-                            subject_str=subj, window_filter=quarter,
-                            cfg=cfg, preview=hf.DEV_MODE
-                        )
-                        if chart_path:
-                            chart_paths.append(chart_path)
-                    except Exception as e:
-                        print(f"  Error generating Section 4 chart for {scope_label} - {subj} ({quarter}): {e}")
-                        if hf.DEV_MODE:
-                            import traceback
-                            traceback.print_exc()
-                        continue
-    
-    # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort
-    print("\n[Section 5] Generating STAR SGP Growth...")
-    # Use consolidated charts if 3+ grades selected
-    use_consolidated_sgp = len(selected_grades) >= 3
-    
-    for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
-            if not should_generate_subject(subj, chart_filters):
-                continue
-            # Use first quarter only if multiple quarters selected
-            quarters_to_use = selected_quarters[:1] if len(selected_quarters) > 1 else selected_quarters
-            for quarter in quarters_to_use:
-                if use_consolidated_sgp:
-                    # Generate consolidated charts showing 3 grades per chart
-                    try:
-                        chart_result = plot_star_consolidated_sgp_all_grades(
-                            scope_df.copy(), scope_label, folder, args.output_dir,
-                            subject_str=subj, window_filter=quarter,
-                            selected_grades=selected_grades, cfg=cfg, preview=hf.DEV_MODE
-                        )
-                        if chart_result:
-                            # Handle both single path and list of paths
-                            if isinstance(chart_result, list):
-                                chart_paths.extend(chart_result)
-                            else:
-                                chart_paths.append(chart_result)
-                    except Exception as e:
-                        print(f"  Error generating consolidated Section 5 chart for {scope_label} - {subj} ({quarter}): {e}")
-                        if hf.DEV_MODE:
-                            import traceback
-                            traceback.print_exc()
-                        continue
-                else:
-                    # Generate individual charts per grade (for 1-2 grades)
-                    for grade in selected_grades:
-                        if not should_generate_grade(grade, chart_filters):
-                            continue
-                        try:
-                            chart_path = plot_star_sgp_growth(
-                                scope_df.copy(), scope_label, folder, args.output_dir,
-                                subject_str=subj, current_grade=grade,
-                                window_filter=quarter, cfg=cfg, preview=hf.DEV_MODE
-                            )
-                            if chart_path:
-                                chart_paths.append(chart_path)
-                        except Exception as e:
-                            print(f"  Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj} ({quarter}): {e}")
-                            if hf.DEV_MODE:
-                                import traceback
-                                traceback.print_exc()
-                            continue
-    
-    return chart_paths
+    print("\n[STAR Router] This function should not be called directly.")
+    print("[STAR Router] Use generate_star_charts() wrapper function instead.")
+    return []
 
 
 def generate_star_charts(
@@ -1773,33 +1622,158 @@ def generate_star_charts(
     
     hf.DEV_MODE = cfg.get('dev_mode', dev_mode)
     
-    class Args:
-        def __init__(self):
-            self.partner = partner_name
-            self.data_dir = data_dir if star_data is None else None
-            self.output_dir = output_dir
-            self.dev_mode = 'true' if hf.DEV_MODE else 'false'
-            self.config = json.dumps(cfg) if cfg else '{}'
+    # Check which quarters are selected and route to appropriate module
+    chart_filters_check = cfg.get('chart_filters', {})
+    selected_quarters = chart_filters_check.get("quarters", [])
+    all_chart_paths = []
     
-    args = Args()
+    # Normalize selected_quarters to handle both list and single value
+    if isinstance(selected_quarters, str):
+        selected_quarters = [selected_quarters]
+    elif not isinstance(selected_quarters, list):
+        selected_quarters = []
     
-    old_argv = sys.argv
-    try:
-        sys.argv = [
-            'star_charts.py',
-            '--partner', args.partner,
-            '--output-dir', args.output_dir,
-            '--dev-mode', args.dev_mode,
-            '--config', args.config
-        ]
-        if args.data_dir:
-            sys.argv.extend(['--data-dir', args.data_dir])
+    # Debug: Print the raw chart_filters to see what we're getting
+    print(f"\n[STAR Router] DEBUG - chart_filters_check keys: {list(chart_filters_check.keys())}")
+    print(f"[STAR Router] DEBUG - chart_filters_check['quarters']: {chart_filters_check.get('quarters')}")
+    print(f"[STAR Router] DEBUG - selected_quarters after normalization: {selected_quarters}")
+    
+    # If no quarters specified, check if there are any other indicators
+    # Don't default to Fall automatically - this could mask Winter selection issues
+    if not selected_quarters:
+        print("\n[STAR Router] WARNING: No quarters specified in chart_filters!")
+        print("[STAR Router] This likely indicates quarters are not being passed correctly from frontend")
+        print("[STAR Router] Checking for any quarter indicators in chart_filters...")
         
-        chart_paths = main(star_data=star_data)
-    finally:
-        sys.argv = old_argv
+        # Check if there's a window_filter or testwindow field that might indicate the selection
+        if "window_filter" in chart_filters_check:
+            window_filter = chart_filters_check.get("window_filter", "").lower()
+            if "winter" in window_filter:
+                selected_quarters = ["Winter"]
+                print(f"[STAR Router] Found window_filter='{window_filter}' - using Winter")
+            elif "fall" in window_filter:
+                selected_quarters = ["Fall"]
+                print(f"[STAR Router] Found window_filter='{window_filter}' - using Fall")
+        else:
+            # Default to Fall only if no other indicators found
+            selected_quarters = ["Fall"]
+            print("[STAR Router] No quarter indicators found - defaulting to Fall for backward compatibility")
     
-    return chart_paths
+    print(f"\n[STAR Router] Selected quarters from chart_filters: {selected_quarters}")
+    print(f"[STAR Router] Full chart_filters: {chart_filters_check}")
+    
+    # Normalize quarters to handle case-insensitive matching
+    normalized_quarters = [str(q).strip() for q in selected_quarters]
+    normalized_quarters = [q for q in normalized_quarters if q]  # Remove empty strings
+    
+    # Check for Winter first (case-insensitive)
+    has_winter = any("winter" in str(q).lower() for q in normalized_quarters)
+    has_fall = any("fall" in str(q).lower() for q in normalized_quarters)
+    has_spring = any("spring" in str(q).lower() for q in normalized_quarters)
+    
+    print(f"[STAR Router] Normalized quarters: {normalized_quarters}")
+    print(f"[STAR Router] has_winter={has_winter}, has_fall={has_fall}, has_spring={has_spring}")
+    
+    # If Winter is selected but we still have Fall in the list, that's a problem
+    if has_winter and has_fall:
+        print(f"[STAR Router] WARNING: Both Winter and Fall detected in quarters: {normalized_quarters}")
+        print(f"[STAR Router] This may indicate a frontend issue - both quarters are being selected")
+    
+    # Route to Winter module if Winter is selected
+    if has_winter:
+        from .star_winter import generate_star_winter_charts
+        print("\n[STAR Router] Winter detected - routing to star_winter.py...")
+        try:
+            winter_charts = generate_star_winter_charts(
+                star_data=star_data,
+                config=cfg,
+                partner_name=partner_name,
+                data_dir=data_dir,
+                output_dir=output_dir,
+                chart_filters=chart_filters_check,
+                dev_mode=dev_mode
+            )
+            if winter_charts:
+                all_chart_paths.extend(winter_charts)
+                print(f"[STAR Router] Generated {len(winter_charts)} Winter charts")
+        except Exception as e:
+            print(f"[STAR Router] Error generating Winter charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+        
+        # If ONLY Winter is selected (no Fall, no Spring), return early
+        # Check both normalized and original lists to be safe
+        only_winter = (
+            (not has_fall and not has_spring) or
+            (len(normalized_quarters) == 1 and "winter" in normalized_quarters[0].lower()) or
+            (len(selected_quarters) == 1 and str(selected_quarters[0]).lower() == "winter")
+        )
+        
+        if only_winter:
+            print("\n[STAR Router] Only Winter selected - returning early (no Fall/Spring charts)")
+            print(f"[STAR Router] Confirmed: normalized_quarters={normalized_quarters}, has_fall={has_fall}, has_spring={has_spring}")
+            return all_chart_paths
+        else:
+            print(f"\n[STAR Router] Winter selected but other quarters also present - will generate both")
+            print(f"[STAR Router] normalized_quarters={normalized_quarters}, has_fall={has_fall}, has_spring={has_spring}")
+    
+    # Route to Spring module if Spring is selected
+    if has_spring:
+        from .star_spring import generate_star_spring_charts
+        print("\n[STAR Router] Spring detected - routing to star_spring.py...")
+        try:
+            spring_charts = generate_star_spring_charts(
+                star_data=star_data,
+                config=cfg,
+                partner_name=partner_name,
+                data_dir=data_dir,
+                output_dir=output_dir,
+                chart_filters=chart_filters_check,
+                dev_mode=dev_mode
+            )
+            if spring_charts:
+                all_chart_paths.extend(spring_charts)
+                print(f"[STAR Router] Generated {len(spring_charts)} Spring charts")
+        except Exception as e:
+            print(f"[STAR Router] Error generating Spring charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    
+    # Route to Fall module if Fall is selected
+    # BUT: Skip Fall if ONLY Winter or ONLY Spring was selected (already handled above)
+    if has_fall:
+        # Double-check: if Winter or Spring was selected and we're here, it means multiple quarters are selected
+        if has_winter or has_spring:
+            print(f"\n[STAR Router] Multiple quarters detected - will generate charts for all selected quarters")
+        
+        from .star_fall import generate_star_fall_charts
+        print("\n[STAR Router] Fall detected - routing to star_fall.py...")
+        try:
+            fall_charts = generate_star_fall_charts(
+                star_data=star_data,
+                config=cfg,
+                partner_name=partner_name,
+                data_dir=data_dir,
+                output_dir=output_dir,
+                chart_filters=chart_filters_check,
+                dev_mode=dev_mode
+            )
+            if fall_charts:
+                all_chart_paths.extend(fall_charts)
+                print(f"[STAR Router] Generated {len(fall_charts)} Fall charts")
+        except Exception as e:
+            print(f"[STAR Router] Error generating Fall charts: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+    else:
+        if not has_winter and not has_spring:
+            print("\n[STAR Router] No Fall, Spring, or Winter selected - skipping chart generation")
+    
+    print(f"\n[STAR Router] Total charts generated: {len(all_chart_paths)}")
+    return all_chart_paths
 
 
 if __name__ == "__main__":
