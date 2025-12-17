@@ -10,8 +10,7 @@ export interface AssessmentSource {
 const DEFAULT_ASSESSMENT_CONFIG: Record<string, Omit<AssessmentSource, 'id'>> = {
     nwea: { label: 'NWEA Map Growth', defaultTable: 'parsecgo.demodashboard.Nwea_production_calpads_v4_2' },
     iready: { label: 'iReady', defaultTable: 'parsecgo.demodashboard.iready_production_calpads_v4_2' },
-    star: { label: 'STAR', defaultTable: 'parsecgo.demodashboard.renaissance_production_calpads_v4_2' },
-    cers: { label: 'CERS', defaultTable: 'parsecgo.demodashboard.cers_production' }
+    star: { label: 'STAR', defaultTable: 'parsecgo.demodashboard.renaissance_production_calpads_v4_2' }
 }
 
 export function useAvailableAssessments() {
@@ -28,43 +27,52 @@ export function useAvailableAssessments() {
                     const data = await res.json()
                     if (data.success && data.assessment_details) {
                         // Build assessment sources from backend response
-                        const assessmentSources: AssessmentSource[] = Object.keys(data.assessment_details).map((id) => {
-                            const config = DEFAULT_ASSESSMENT_CONFIG[id] || {
-                                label: id.charAt(0).toUpperCase() + id.slice(1),
-                                defaultTable: `parsecgo.demodashboard.${id}_production`
-                            }
-                            return {
-                                id,
-                                ...config
-                            }
-                        })
+                        // Filter out CERS to hide it from users (backend support remains)
+                        const assessmentSources: AssessmentSource[] = Object.keys(data.assessment_details)
+                            .filter((id) => id !== 'cers')
+                            .map((id) => {
+                                const config = DEFAULT_ASSESSMENT_CONFIG[id] || {
+                                    label: id.charAt(0).toUpperCase() + id.slice(1),
+                                    defaultTable: `parsecgo.demodashboard.${id}_production`
+                                }
+                                return {
+                                    id,
+                                    ...config
+                                }
+                            })
                         setAssessments(assessmentSources)
                     } else {
                         // Fallback to defaults if backend doesn't return assessment_details
                         setAssessments(
-                            Object.entries(DEFAULT_ASSESSMENT_CONFIG).map(([id, config]) => ({
-                                id,
-                                ...config
-                            }))
+                            Object.entries(DEFAULT_ASSESSMENT_CONFIG)
+                                .filter(([id]) => id !== 'cers')
+                                .map(([id, config]) => ({
+                                    id,
+                                    ...config
+                                }))
                         )
                     }
                 } else {
                     // Fallback to defaults on error
                     setAssessments(
-                        Object.entries(DEFAULT_ASSESSMENT_CONFIG).map(([id, config]) => ({
-                            id,
-                            ...config
-                        }))
+                        Object.entries(DEFAULT_ASSESSMENT_CONFIG)
+                            .filter(([id]) => id !== 'cers')
+                            .map(([id, config]) => ({
+                                id,
+                                ...config
+                            }))
                     )
                 }
             } catch (error) {
                 console.error('Error fetching available assessments:', error)
                 // Fallback to defaults on error
                 setAssessments(
-                    Object.entries(DEFAULT_ASSESSMENT_CONFIG).map(([id, config]) => ({
-                        id,
-                        ...config
-                    }))
+                    Object.entries(DEFAULT_ASSESSMENT_CONFIG)
+                        .filter(([id]) => id !== 'cers')
+                        .map(([id, config]) => ({
+                            id,
+                            ...config
+                        }))
                 )
             } finally {
                 setIsLoading(false)
