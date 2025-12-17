@@ -9,7 +9,9 @@ from pathlib import Path
 # ---------------------------------------------------------------------
 # Global chart style
 # ---------------------------------------------------------------------
-plt.rcParams["font.family"] = ["Arial", "DejaVu Sans", "Helvetica", "sans-serif"]
+# Use fonts that are reliably available on Linux (e.g. Render workers).
+# Arial/Helvetica are often missing and cause noisy "findfont" warnings.
+plt.rcParams["font.family"] = ["DejaVu Sans", "sans-serif"]
 plt.rcParams.update(
     {
         "font.size": 15,
