@@ -1,7 +1,6 @@
-import { resolveServiceAccountCredentialsPath } from '@/lib/credentials'
 import { auth } from '@clerk/nextjs/server'
-import { BigQuery } from '@google-cloud/bigquery'
 import { NextRequest, NextResponse } from 'next/server'
+import { createBigQueryClient } from '@/lib/bigquery'
 
 /**
  * GET /api/bigquery/districts-schools
@@ -47,21 +46,7 @@ export async function GET(req: NextRequest) {
             )
         }
 
-        // Set up credentials
-        process.env.GOOGLE_CLOUD_PROJECT = projectId
-        try {
-            const serviceAccountPath = resolveServiceAccountCredentialsPath()
-            if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-                process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
-            }
-        } catch {
-            // Credentials will use ADC if not found
-        }
-
-        const client = new BigQuery({
-            projectId: projectId,
-            location: location
-        })
+        const client = createBigQueryClient(projectId, location)
 
         // Determine which tables to query based on requested assessments
         const shouldQueryNwea = !requestedAssessments || requestedAssessments.includes('nwea')

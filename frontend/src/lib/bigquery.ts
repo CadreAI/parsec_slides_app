@@ -4,32 +4,66 @@ import { BigQuery } from '@google-cloud/bigquery'
 
 let bqClient: BigQuery | null = null
 
+function getServiceAccountCredentialsFromEnv(): {
+    client_email: string
+    private_key: string
+} | null {
+    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+    if (!raw) return null
+
+    const trimmed = raw.trim()
+
+    function parseJson(s: string) {
+        const obj = JSON.parse(s) as { client_email?: string; private_key?: string }
+        if (!obj?.client_email || !obj?.private_key) return null
+        return {
+            client_email: obj.client_email,
+            // Vercel env vars often store newlines escaped
+            private_key: obj.private_key.replace(/\\n/g, '\n')
+        }
+    }
+
+    // Support either raw JSON or base64-encoded JSON
+    try {
+        if (trimmed.startsWith('{')) return parseJson(trimmed)
+        const decoded = Buffer.from(trimmed, 'base64').toString('utf8')
+        return parseJson(decoded)
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Create a BigQuery client for API routes that only have projectId/location.
+ * Prefers GOOGLE_SERVICE_ACCOUNT_JSON when present (no filesystem dependency).
+ */
+export function createBigQueryClient(projectId: string, location: string = 'US'): BigQuery {
+    process.env.GOOGLE_CLOUD_PROJECT = projectId
+
+    const envCreds = getServiceAccountCredentialsFromEnv()
+    if (envCreds) {
+        return new BigQuery({ projectId, location, credentials: envCreds })
+    }
+
+    // Fallback to file-based/ADC credentials for local dev
+    try {
+        const serviceAccountPath = resolveServiceAccountCredentialsPath()
+        if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+            process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
+        }
+    } catch {
+        // ADC or pre-set GOOGLE_APPLICATION_CREDENTIALS
+    }
+
+    return new BigQuery({ projectId, location })
+}
+
 /**
  * Get or create a BigQuery client instance
  */
 export function getBigQueryClient(cfg: PartnerConfig): BigQuery {
     if (!bqClient) {
-        process.env.GOOGLE_CLOUD_PROJECT = cfg.gcp.project_id
-
-        // Try to use explicit service account credentials if available
-        try {
-            const serviceAccountPath = resolveServiceAccountCredentialsPath()
-            // BigQuery client will automatically use GOOGLE_APPLICATION_CREDENTIALS
-            // if set, otherwise it uses Application Default Credentials
-            if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-                process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
-            }
-        } catch {
-            // If service account credentials not found, BigQuery will use
-            // Application Default Credentials (ADC) or GOOGLE_APPLICATION_CREDENTIALS
-            // if already set
-            console.log('[BigQuery] Using Application Default Credentials or GOOGLE_APPLICATION_CREDENTIALS')
-        }
-
-        bqClient = new BigQuery({
-            projectId: cfg.gcp.project_id,
-            location: cfg.gcp.location
-        })
+        bqClient = createBigQueryClient(cfg.gcp.project_id, cfg.gcp.location || 'US')
     }
     return bqClient
 }
@@ -39,33 +73,7 @@ export function getBigQueryClient(cfg: PartnerConfig): BigQuery {
  */
 export async function listDatasets(projectId: string, location?: string): Promise<string[]> {
     try {
-        // Create a temporary client just for listing datasets
-        // We need to set up credentials first
-        process.env.GOOGLE_CLOUD_PROJECT = projectId
-
-        // Try to resolve service account credentials
-        try {
-            const serviceAccountPath = resolveServiceAccountCredentialsPath()
-            if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-                process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
-                console.log(`[BigQuery] Using service account credentials: ${serviceAccountPath}`)
-            } else {
-                console.log(`[BigQuery] Using GOOGLE_APPLICATION_CREDENTIALS: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`)
-            }
-        } catch (credError) {
-            // If explicit credentials not found, check if GOOGLE_APPLICATION_CREDENTIALS is already set
-            if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-                console.log(`[BigQuery] Using existing GOOGLE_APPLICATION_CREDENTIALS: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`)
-            } else {
-                console.warn('[BigQuery] No service account credentials found, will try Application Default Credentials (ADC)')
-                console.warn(`[BigQuery] Credential resolution error: ${credError instanceof Error ? credError.message : String(credError)}`)
-            }
-        }
-
-        const client = new BigQuery({
-            projectId: projectId,
-            location: location || 'US'
-        })
+        const client = createBigQueryClient(projectId, location || 'US')
 
         const [datasets] = await client.getDatasets()
         const datasetIds = datasets
@@ -86,10 +94,11 @@ export async function listDatasets(projectId: string, location?: string): Promis
         if (errorMessage.includes('Could not load the default credentials') || errorMessage.includes('credentials')) {
             const helpfulMessage =
                 `BigQuery authentication failed. Please set up credentials using one of these methods:\n` +
-                `1. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to your service account JSON file path\n` +
-                `2. Set GOOGLE_SERVICE_ACCOUNT_CREDENTIALS_PATH environment variable\n` +
-                `3. Place service_account.json in google/service_account.json\n` +
-                `4. Configure Application Default Credentials (gcloud auth application-default login)\n\n` +
+                `1. Set GOOGLE_SERVICE_ACCOUNT_JSON environment variable to the full service account JSON (recommended for Vercel)\n` +
+                `2. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to your service account JSON file path\n` +
+                `3. Set GOOGLE_SERVICE_ACCOUNT_CREDENTIALS_PATH environment variable\n` +
+                `4. Place service_account.json in google/service_account.json\n` +
+                `5. Configure Application Default Credentials (gcloud auth application-default login)\n\n` +
                 `Original error: ${errorMessage}`
 
             console.error('Error listing datasets:', helpfulMessage)

@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
-import { BigQuery } from '@google-cloud/bigquery'
 import { NextRequest, NextResponse } from 'next/server'
+import { createBigQueryClient } from '@/lib/bigquery'
 
 /**
  * GET /api/bigquery/form-options
@@ -45,24 +45,7 @@ export async function GET(req: NextRequest) {
             )
         }
 
-        // Set up BigQuery client
-        process.env.GOOGLE_CLOUD_PROJECT = projectId
-
-        // Try to resolve service account credentials
-        try {
-            const { resolveServiceAccountCredentialsPath } = await import('@/lib/credentials')
-            const serviceAccountPath = resolveServiceAccountCredentialsPath()
-            if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-                process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
-            }
-        } catch {
-            // Credentials will use ADC if not found
-        }
-
-        const client = new BigQuery({
-            projectId: projectId,
-            location: location
-        })
+        const client = createBigQueryClient(projectId, location)
 
         const dataset = client.dataset(datasetId)
 
