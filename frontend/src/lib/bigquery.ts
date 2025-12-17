@@ -33,6 +33,25 @@ function getServiceAccountCredentialsFromEnv(): {
     }
 }
 
+export type BigQueryAuthMode = 'env_json' | 'file' | 'existing_env_path' | 'adc'
+
+export function getBigQueryAuthMode(): BigQueryAuthMode {
+    // If env JSON is present + parseable, we will use it
+    const envCreds = getServiceAccountCredentialsFromEnv()
+    if (envCreds) return 'env_json'
+
+    // If GOOGLE_APPLICATION_CREDENTIALS already points somewhere, BigQuery will use it
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return 'existing_env_path'
+
+    // If we can resolve a local service account file, we will set GOOGLE_APPLICATION_CREDENTIALS
+    try {
+        resolveServiceAccountCredentialsPath()
+        return 'file'
+    } catch {
+        return 'adc'
+    }
+}
+
 /**
  * Create a BigQuery client for API routes that only have projectId/location.
  * Prefers GOOGLE_SERVICE_ACCOUNT_JSON when present (no filesystem dependency).
@@ -42,6 +61,8 @@ export function createBigQueryClient(projectId: string, location: string = 'US')
 
     const envCreds = getServiceAccountCredentialsFromEnv()
     if (envCreds) {
+        // Safe diagnostic: confirms env var is present + parseable without leaking secret contents
+        console.log('[BigQuery] Auth: using GOOGLE_SERVICE_ACCOUNT_JSON (env credentials)')
         return new BigQuery({ projectId, location, credentials: envCreds })
     }
 
@@ -51,8 +72,14 @@ export function createBigQueryClient(projectId: string, location: string = 'US')
         if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
             process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
         }
+        console.log('[BigQuery] Auth: using service account file via GOOGLE_APPLICATION_CREDENTIALS')
     } catch {
         // ADC or pre-set GOOGLE_APPLICATION_CREDENTIALS
+        if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+            console.log('[BigQuery] Auth: using existing GOOGLE_APPLICATION_CREDENTIALS')
+        } else {
+            console.log('[BigQuery] Auth: using Application Default Credentials (ADC)')
+        }
     }
 
     return new BigQuery({ projectId, location })
