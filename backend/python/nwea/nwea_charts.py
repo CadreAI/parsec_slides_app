@@ -2058,8 +2058,9 @@ def generate_nwea_charts(
     
     # Route to Fall module if Fall is selected
     if has_fall:
-        from .nwea_fall import generate_nwea_fall_charts
-        print("\n[NWEA Router] Fall detected - routing to nwea_fall.py...")
+        # Legacy BOY script runner (subprocess)
+        from .nwea_boy_runner import generate_nwea_fall_charts
+        print("\n[NWEA Router] Fall detected - routing to nwea_boy.py (runner)...")
         try:
             fall_charts = generate_nwea_fall_charts(
                 partner_name=partner_name,
