@@ -1989,8 +1989,9 @@ def generate_iready_charts(
     
     # Route to Fall module if Fall is selected
     if has_fall:
-        from .iready_fall import generate_iready_fall_charts
-        print("\n[iReady Router] Fall detected - routing to iready_fall.py...")
+        # Legacy BOY script runner (subprocess)
+        from .iready_boy_runner import generate_iready_fall_charts
+        print("\n[iReady Router] Fall detected - routing to iready_boy.py (runner)...")
         try:
             fall_charts = generate_iready_fall_charts(
                 partner_name=partner_name,
