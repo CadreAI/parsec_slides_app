@@ -1,15 +1,18 @@
 """
-SQL query builders for BigQuery
-Note: iReady queries include year filtering in SQL, but other filters (grades, schools) are done in Python
+SQL query builders for BigQuery (iReady)
+
+Policy:
+- Always filter by years in SQL.
+- If schools are selected, also filter by schools in SQL to reduce result size.
 """
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
 def sql_iready(
     table_id: str,
     exclude_cols: Optional[List[str]] = None,
-    filters: Optional[Dict] = None,
+    filters: Optional[Dict[str, Any]] = None,
     year_column: Optional[str] = None
 ) -> str:
     """
@@ -25,6 +28,67 @@ def sql_iready(
         SQL query string with year filtering in SQL
     """
     filters = filters or {}
+
+    def _sql_escape(s: str) -> str:
+        return str(s).replace("'", "\\'")
+
+    def _sql_like_tokens_any(lower_expr: str, phrases: list[str]) -> Optional[str]:
+        """
+        Token-based fuzzy LIKE matcher.
+        - For each phrase (e.g. "ADDAMS ELEMENTARY SCHOOL"), build an AND of meaningful tokens.
+        - Combine phrases with OR.
+        This avoids brittle exact-substring matching when table values omit suffixes like "School".
+        """
+        import re
+
+        stop = {
+            "school",
+            "elementary",
+            "middle",
+            "high",
+            "academy",
+            "charter",
+            "k8",
+            "k-8",
+            "k12",
+            "k-12",
+            "of",
+            "the",
+        }
+
+        clauses: list[str] = []
+        for p in phrases or []:
+            if p is None:
+                continue
+            raw = str(p).strip().lower()
+            if not raw:
+                continue
+            # Normalize punctuation/whitespace
+            raw = re.sub(r"[^a-z0-9\s]+", " ", raw)
+            raw = re.sub(r"\s+", " ", raw).strip()
+            tokens = [t for t in raw.split() if t and t not in stop and len(t) >= 3]
+            if not tokens:
+                tokens = [raw]
+            ands = [f"{lower_expr} LIKE '%{_sql_escape(t)}%'" for t in tokens]
+            clauses.append("(" + " AND ".join(ands) + ")")
+
+        if not clauses:
+            return None
+        return "(" + " OR ".join(clauses) + ")"
+
+    def _sql_like_any(lower_expr: str, needles: list[str]) -> Optional[str]:
+        pats = [n.strip().lower() for n in needles if n is not None and str(n).strip()]
+        if not pats:
+            return None
+        ors = [f"{lower_expr} LIKE '%{_sql_escape(p)}%'" for p in pats]
+        return "(" + " OR ".join(ors) + ")"
+
+    available_cols = [str(c).lower() for c in (filters.get("available_columns") or [])]
+    def _pick_col(candidates: list[str]) -> Optional[str]:
+        for c in candidates:
+            if c.lower() in available_cols:
+                return c
+        return None
     
     # Base excludes from the i-Ready ingestion logic
     base_excludes = [
@@ -86,6 +150,18 @@ def sql_iready(
                 ELSE EXTRACT(YEAR FROM CURRENT_DATE())
             END
         ) - 3""")
+
+    # Optional school filter pushdown
+    schools = filters.get("schools") or []
+    if not isinstance(schools, list):
+        schools = []
+    if schools:
+        school_col = _pick_col(["SchoolName", "School_Name", "School", "learning_center", "Learning_Center"])
+        if school_col:
+            school_expr = f"LOWER(CAST({school_col} AS STRING))"
+            like_clause = _sql_like_tokens_any(school_expr, schools) or _sql_like_any(school_expr, schools)
+            if like_clause:
+                where_conditions.append(like_clause)
     
     where_clause = " AND ".join(where_conditions)
     

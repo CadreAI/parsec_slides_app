@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
  * GET /api/decks/[id]
  * Get a specific deck by ID
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { userId } = await auth()
 
@@ -16,7 +16,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
         const supabase = await getSupabaseClient()
 
-        const { data, error } = await supabase.from('decks').select('*').eq('id', params.id).eq('clerk_user_id', userId).single()
+        const { id } = await params
+        const { data, error } = await supabase.from('decks').select('*').eq('id', id).eq('clerk_user_id', userId).single()
 
         if (error) {
             console.error('[Decks API] Error fetching deck:', error)
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
  * PUT /api/decks/[id]
  * Update a deck
  */
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { userId } = await auth()
 
@@ -49,11 +50,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
         const body = await req.json()
         const supabase = await getSupabaseClient()
+        const { id } = await params
 
         // Remove clerk_user_id from body if present (shouldn't be changed)
         const { clerk_user_id: _clerk_user_id, ...updateData } = body
 
-        const { data, error } = await supabase.from('decks').update(updateData).eq('id', params.id).eq('clerk_user_id', userId).select().single()
+        const { data, error } = await supabase.from('decks').update(updateData).eq('id', id).eq('clerk_user_id', userId).select().single()
 
         if (error) {
             console.error('[Decks API] Error updating deck:', error)
@@ -72,7 +74,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
  * DELETE /api/decks/[id]
  * Delete a deck
  */
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { userId } = await auth()
 
@@ -81,8 +83,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         }
 
         const supabase = await getSupabaseClient()
+        const { id } = await params
 
-        const { error } = await supabase.from('decks').delete().eq('id', params.id).eq('clerk_user_id', userId)
+        const { error } = await supabase.from('decks').delete().eq('id', id).eq('clerk_user_id', userId)
 
         if (error) {
             console.error('[Decks API] Error deleting deck:', error)

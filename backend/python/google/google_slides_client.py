@@ -22,7 +22,10 @@ DEFAULT_SLIDES_FOLDER_ID = '0AAPtE6vMyRK8Uk9PVA'
 def _get_service_account_credentials():
     """
     Get service account credentials for Google APIs.
-    Uses the same logic as bigquery_client.py to find service account JSON.
+    Uses the same logic as bigquery_client.py to find service account credentials:
+      - GOOGLE_SERVICE_ACCOUNT_JSON env var (raw/base64)
+      - Render Secret File /etc/secrets/GOOGLE_SERVICE_ACCOUNT_JSON
+      - fallback to service_account.json path discovery
     
     Returns:
         Service account credentials
@@ -31,20 +34,27 @@ def _get_service_account_credentials():
         FileNotFoundError: If service account file not found
     """
     try:
-        from .bigquery_client import _find_credentials_path
-        creds_path = _find_credentials_path()
-        if creds_path:
-            print(f"[Google Slides] Loading service account credentials from: {creds_path}")
-            credentials = service_account.Credentials.from_service_account_file(
-                creds_path,
-                scopes=SCOPES
-            )
+        from .bigquery_client import _find_credentials_path, _load_service_account_info
+
+        # Priority 1: inline JSON (env var or Render Secret File)
+        sa_info = _load_service_account_info()
+        if sa_info:
+            print("[Google Slides] Loading service account credentials from GOOGLE_SERVICE_ACCOUNT_JSON")
+            credentials = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
             print(f"[Google Slides] Service account email: {credentials.service_account_email}")
             return credentials
-        else:
-            raise FileNotFoundError(
-                "Service account credentials not found. Please ensure service_account.json exists."
-            )
+
+        # Priority 2: file path discovery
+        creds_path = _find_credentials_path()
+        if creds_path:
+            print(f"[Google Slides] Loading service account credentials from file: {creds_path}")
+            credentials = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
+            print(f"[Google Slides] Service account email: {credentials.service_account_email}")
+            return credentials
+
+        raise FileNotFoundError(
+            "Service account credentials not found. Set GOOGLE_SERVICE_ACCOUNT_JSON or provide google/service_account.json."
+        )
     except Exception as e:
         print(f"[Google Slides] Error loading service account: {e}")
         raise

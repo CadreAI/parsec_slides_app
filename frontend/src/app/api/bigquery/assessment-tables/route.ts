@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
-import { BigQuery } from '@google-cloud/bigquery'
 import { NextRequest, NextResponse } from 'next/server'
+import { createBigQueryClient } from '@/lib/bigquery'
 
 /**
  * GET /api/bigquery/assessment-tables
@@ -41,25 +41,7 @@ export async function GET(req: NextRequest) {
             )
         }
 
-        // Set up BigQuery client
-        process.env.GOOGLE_CLOUD_PROJECT = projectId
-
-        // Try to resolve service account credentials
-        try {
-            const { resolveServiceAccountCredentialsPath } = await import('@/lib/credentials')
-            const serviceAccountPath = resolveServiceAccountCredentialsPath()
-            if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-                process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath
-                console.log(`[Assessment Tables] Using service account credentials: ${serviceAccountPath}`)
-            }
-        } catch {
-            console.warn('[Assessment Tables] Could not resolve credentials, will try Application Default Credentials')
-        }
-
-        const client = new BigQuery({
-            projectId: projectId,
-            location: location
-        })
+        const client = createBigQueryClient(projectId, location)
 
         const dataset = client.dataset(datasetId)
 

@@ -27,6 +27,7 @@ clerk-backend-api>=4.2.0
 
 # Utilities
 python-dotenv>=1.0.0
+PyYAML>=6.0.1
 
 celery[redis]>=5.3.6
 redis>=5.0.0

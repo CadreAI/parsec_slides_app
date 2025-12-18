@@ -1269,10 +1269,46 @@ def create_slides_presentation(
                         if current_urls:
                             print(f"[Slides]   Image URLs: {[url[:60] + '...' if len(url) > 60 else url for url in current_urls]}")
                         
-                        slides_service.presentations().batchUpdate(
-                            presentationId=presentation_id,
-                            body={'requests': chart_requests}
-                        ).execute()
+                        # Execute batchUpdate; if Google can't fetch an image URL yet, retry and/or drop the bad createImage request
+                        import time
+                        def _try_batch(requests_to_send):
+                            return slides_service.presentations().batchUpdate(
+                                presentationId=presentation_id,
+                                body={'requests': requests_to_send}
+                            ).execute()
+
+                        try:
+                            _try_batch(chart_requests)
+                        except HttpError as e:
+                            msg = str(e)
+                            is_image_fetch = ("createImage" in msg) and ("problem retrieving the image" in msg.lower())
+                            if not is_image_fetch:
+                                raise
+
+                            # First retry after a longer delay (Drive permission propagation)
+                            print(f"[Slides] ⚠ Image fetch error. Waiting 8 seconds and retrying slide {slide_index}...")
+                            time.sleep(8)
+                            try:
+                                _try_batch(chart_requests)
+                            except HttpError as e2:
+                                msg2 = str(e2)
+                                if ("createImage" not in msg2) or ("problem retrieving the image" not in msg2.lower()):
+                                    raise
+
+                                # Try removing the specific failing request index if present (e.g. "requests[6].createImage")
+                                m = re.search(r"requests\\[(\\d+)\\]\\.createImage", msg2)
+                                if m:
+                                    bad_idx = int(m.group(1))
+                                    if 0 <= bad_idx < len(chart_requests):
+                                        bad_req = chart_requests[bad_idx]
+                                        print(f"[Slides] ⚠ Dropping failing createImage request at index {bad_idx} and continuing.")
+                                        # Remove it and try again; leave the rest of the slide content intact.
+                                        pruned = [r for j, r in enumerate(chart_requests) if j != bad_idx]
+                                        _try_batch(pruned)
+                                    else:
+                                        raise
+                                else:
+                                    raise
                         print(f"[Slides] ✓ Added chart elements to slide {slide_index}")
                         
                         # Add speaker notes with analysis

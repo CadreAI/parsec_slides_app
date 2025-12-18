@@ -96,13 +96,14 @@ export async function GET(_req: NextRequest) {
             (error as { name?: string; message?: string })?.name === 'ClerkAPIResponseError' ||
             (error as { message?: string })?.message?.includes('Not Found')
         ) {
-            console.error('[Decks API] Clerk JWT template error:', error.message)
+            const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? 'Unknown error')
+            console.error('[Decks API] Clerk JWT template error:', message)
             return NextResponse.json(
                 {
                     error: 'Clerk JWT template not configured',
                     message: 'The "supabase" JWT template does not exist in Clerk. Please create it following the instructions in CLERK_SUPABASE_SETUP.md',
                     details: {
-                        error: (error as { message?: string })?.message || 'Unknown error',
+                        error: message,
                         fix: 'Go to Clerk Dashboard → JWT Templates → Create template named "supabase"'
                     }
                 },

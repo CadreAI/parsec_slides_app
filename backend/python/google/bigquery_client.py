@@ -2,10 +2,84 @@
 BigQuery client utilities for Python backend
 """
 import os
+import json
+import base64
 from typing import List
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from pathlib import Path
+
+
+def _load_service_account_info():
+    """
+    Load service account JSON from:
+      1) env var GOOGLE_SERVICE_ACCOUNT_JSON (raw JSON or base64 JSON)
+      2) Render Secret File at /etc/secrets/GOOGLE_SERVICE_ACCOUNT_JSON
+      3) File named GOOGLE_SERVICE_ACCOUNT_JSON in project root (Render can mount there)
+
+    Returns:
+        dict | None
+    """
+    raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if raw and raw.strip():
+        return _parse_service_account_json(raw.strip(), source="env:GOOGLE_SERVICE_ACCOUNT_JSON")
+
+    # Render Secret Files are available here
+    secret_path = Path("/etc/secrets/GOOGLE_SERVICE_ACCOUNT_JSON")
+    if secret_path.exists():
+        try:
+            return _parse_service_account_json(secret_path.read_text(encoding="utf-8"), source=str(secret_path))
+        except Exception as e:
+            print(f"[BigQuery] Warning: Failed reading Render secret file {secret_path}: {e}")
+
+    # Some platforms mount secret files into app root
+    root_path = Path.cwd() / "GOOGLE_SERVICE_ACCOUNT_JSON"
+    if root_path.exists():
+        try:
+            return _parse_service_account_json(root_path.read_text(encoding="utf-8"), source=str(root_path))
+        except Exception as e:
+            print(f"[BigQuery] Warning: Failed reading secret file {root_path}: {e}")
+
+    return None
+
+
+def _parse_service_account_json(raw: str, source: str = "unknown"):
+    """
+    Parse service account JSON string, supporting raw JSON or base64-encoded JSON.
+    Also normalizes private_key newlines.
+    """
+    txt = (raw or "").strip()
+    if not txt:
+        return None
+
+    def _normalize(obj):
+        if not isinstance(obj, dict):
+            return None
+        if obj.get("type") != "service_account":
+            return None
+        pk = obj.get("private_key")
+        if isinstance(pk, str):
+            obj["private_key"] = pk.replace("\\n", "\n")
+        return obj
+
+    try:
+        if txt.startswith("{"):
+            obj = json.loads(txt)
+            out = _normalize(obj)
+            if out:
+                print(f"[BigQuery] Using service account JSON from {source}")
+            return out
+
+        # try base64
+        decoded = base64.b64decode(txt).decode("utf-8")
+        obj = json.loads(decoded)
+        out = _normalize(obj)
+        if out:
+            print(f"[BigQuery] Using base64 service account JSON from {source}")
+        return out
+    except Exception as e:
+        print(f"[BigQuery] Warning: Could not parse GOOGLE_SERVICE_ACCOUNT_JSON from {source}: {e}")
+        return None
 
 
 def _find_credentials_path():
@@ -65,7 +139,18 @@ def get_bigquery_client(project_id: str, credentials_path: str = None):
     Returns:
         BigQuery client instance
     """
-    # If credentials_path not provided, try to find it automatically
+    # Priority 0: inline JSON credentials (env var or Render Secret File)
+    sa_info = _load_service_account_info()
+    if sa_info:
+        credentials = service_account.Credentials.from_service_account_info(
+            sa_info,
+            scopes=["https://www.googleapis.com/auth/bigquery"],
+        )
+        client = bigquery.Client(project=project_id, credentials=credentials)
+        print("[BigQuery] BigQuery client initialized with service account JSON (no file)")
+        return client
+
+    # If credentials_path not provided, try to find it automatically (file-based)
     if not credentials_path:
         credentials_path = _find_credentials_path()
     

@@ -188,14 +188,27 @@ def upload_image_to_drive(
                     supportsAllDrives=True  # Required for Shared Drive files
                 ).execute()
                 print(f"[Drive Upload] Made {file_name} publicly accessible")
+                # Verify the permission exists (some Shared Drives disallow "anyone" sharing)
+                perms = drive_service.permissions().list(
+                    fileId=file_id,
+                    fields="permissions(type,role)",
+                    supportsAllDrives=True,
+                ).execute()
+                perm_list = perms.get("permissions", []) if isinstance(perms, dict) else []
+                has_anyone = any(p.get("type") == "anyone" and p.get("role") == "reader" for p in perm_list if isinstance(p, dict))
+                if not has_anyone:
+                    print(f"[Drive Upload] ⚠️ CRITICAL: 'anyone' permission not present for {file_id}. Skipping URL return.")
+                    return None
             except HttpError as e:
                 print(f"[Drive Upload] Warning: Could not make {file_name} public: {e}")
                 # If we can't make it public, the Slides API won't be able to access it
                 # Log this as a critical warning
                 print(f"[Drive Upload] ⚠️ CRITICAL: File {file_id} is not public - Slides API may fail to load image")
+                return None
         
         # Return public URL (use webContentLink for direct image access)
-        public_url = f"https://drive.google.com/uc?export=view&id={file_id}"
+        # Use export=download to avoid any HTML "view" wrapper.
+        public_url = f"https://drive.google.com/uc?export=download&id={file_id}"
         print(f"[Drive Upload] ✓ Uploaded {file_name} -> {public_url}")
         return public_url
         

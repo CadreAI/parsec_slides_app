@@ -1,13 +1,22 @@
 """
-SQL query builders for BigQuery
+SQL query builders for BigQuery - NWEA
+
+Policy:
+- Always filter by years in SQL.
+- If schools are selected, also filter by schools in SQL to reduce result size.
 """
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 # EXCLUDE_COLS can be imported from config if needed
 EXCLUDE_COLS = {}
 
 
-def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_column: Optional[str] = None, filters: Optional[Dict] = None) -> str:
+def sql_nwea(
+    table_id: str,
+    exclude_cols: Optional[List[str]] = None,
+    year_column: Optional[str] = None,
+    filters: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Build SQL query for NWEA data
     
@@ -21,6 +30,24 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_colum
         SQL query string
     """
     filters = filters or {}
+
+    def _sql_escape(s: str) -> str:
+        return str(s).replace("'", "\\'")
+
+    def _sql_like_any(lower_expr: str, needles: list[str]) -> Optional[str]:
+        pats = [n.strip().lower() for n in needles if n is not None and str(n).strip()]
+        if not pats:
+            return None
+        ors = [f"{lower_expr} LIKE '%{_sql_escape(p)}%'" for p in pats]
+        return "(" + " OR ".join(ors) + ")"
+
+    available_cols = [str(c).lower() for c in (filters.get("available_columns") or [])]
+
+    def _pick_col(candidates: list[str]) -> Optional[str]:
+        for c in candidates:
+            if c.lower() in available_cols:
+                return c
+        return None
     
     extra_excludes = EXCLUDE_COLS.get("nwea", [])
     if exclude_cols:
@@ -163,6 +190,21 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_colum
             END
         ) - 3)
     )"""
+
+    # Optional school filter pushdown
+    schools = filters.get("schools") or []
+    if not isinstance(schools, list):
+        schools = []
+    school_clause = None
+    if schools:
+        school_col = _pick_col(["Learning_Center", "learning_center", "SchoolName", "School_Name", "School", "school"])
+        if school_col:
+            school_expr = f"LOWER(CAST({school_col} AS STRING))"
+            school_clause = _sql_like_any(school_expr, schools)
+
+    where_sql = year_filter
+    if school_clause:
+        where_sql = f"({year_filter}) AND {school_clause}"
 
     return f"""
         SELECT DISTINCT *
@@ -336,6 +378,6 @@ def sql_nwea(table_id: str, exclude_cols: Optional[List[str]] = None, year_colum
 
         `{table_id}`
 
-    WHERE {year_filter}
+    WHERE {where_sql}
 
     """

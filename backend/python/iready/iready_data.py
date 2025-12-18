@@ -6,9 +6,8 @@ import json
 import sys
 from pathlib import Path
 import pandas as pd
-# Add parent directory to path to import helper_functions
-sys.path.insert(0, str(Path(__file__).parent.parent))
-import helper_functions as hf
+# Use iReady-specific helper utilities + styling
+from . import helper_functions_iready as hf
 
 
 def load_config_from_args(config_json_str):
@@ -102,25 +101,62 @@ def get_scopes(iready_base, cfg):
     if include_district:
         scopes.append((iready_base.copy(), district_label, "_district"))
     
-    # Only add school scopes if schoolname column exists and has data
-    school_col = "schoolname" if "schoolname" in iready_base.columns else "school"
-    if school_col in iready_base.columns:
+    # Only add school scopes if a school column exists and has data.
+    # iReady datasets vary: prefer schoolname, but fall back to other common columns.
+    school_col = None
+    for col in ["learning_center", "schoolname", "school_name", "school"]:
+        if col in iready_base.columns:
+            school_col = col
+            break
+
+    if school_col:
         available_schools = sorted(iready_base[school_col].dropna().unique())
-        
+
         # Filter schools based on selection if provided
         if selected_schools and len(selected_schools) > 0:
-            # Normalize selected school names for matching
+            print(f"[Scope Filter] Selected schools from config: {selected_schools}")
             selected_schools_normalized = [hf._safe_normalize_school_name(s, cfg) for s in selected_schools]
-            schools_to_process = [
-                school for school in available_schools
-                if hf._safe_normalize_school_name(school, cfg) in selected_schools_normalized
-            ]
+            print(f"[Scope Filter] Normalized selected schools: {selected_schools_normalized}")
+
+            # Build mapping of display name -> raw values (avoids subtle mismatches)
+            display_to_raw = {}
+            for raw in available_schools:
+                disp = hf._safe_normalize_school_name(raw, cfg)
+                display_to_raw.setdefault(disp, []).append(raw)
+
+            # Match by display name OR raw case-insensitive / partial contains.
+            selected_display_set = set(selected_schools_normalized)
+            matched_displays = set()
+            for disp, raws in display_to_raw.items():
+                if disp in selected_display_set:
+                    matched_displays.add(disp)
+                    continue
+                for raw in raws:
+                    if any(
+                        str(raw).lower() == str(sel).lower()
+                        or str(sel).lower() in str(raw).lower()
+                        or str(raw).lower() in str(sel).lower()
+                        for sel in selected_schools
+                    ):
+                        matched_displays.add(disp)
+                        break
+
+            schools_to_process = []
+            for disp in sorted(matched_displays):
+                schools_to_process.extend(display_to_raw.get(disp, []))
+
+            # De-dupe while preserving order
+            seen = set()
+            schools_to_process = [s for s in schools_to_process if not (s in seen or seen.add(s))]
+
+            print(f"[Scope Filter] Matched {len(schools_to_process)} schools: {schools_to_process}")
             if len(schools_to_process) == 0:
-                print(f"[Scope Filter] No matching schools found for selected schools: {selected_schools}")
+                print(f"[Scope Filter] ⚠️  No matching schools found for selected schools: {selected_schools}")
+                print(f"[Scope Filter]   Available schools in '{school_col}': {available_schools[:25]}{'...' if len(available_schools) > 25 else ''}")
         else:
             # If no schools selected, don't generate school-level charts
             schools_to_process = []
-        
+
         for raw_school in schools_to_process:
             scope_df = iready_base[iready_base[school_col] == raw_school].copy()
             if len(scope_df) > 0:  # Only add if there's data

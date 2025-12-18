@@ -17,9 +17,8 @@ from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-# Add parent directory to path to import helper_functions
-sys.path.insert(0, str(Path(__file__).parent.parent))
-import helper_functions as hf
+# Use iReady-specific helper utilities + styling
+from . import helper_functions_iready as hf
 
 # Import utility modules
 from .iready_data import (
@@ -1937,8 +1936,9 @@ def generate_iready_charts(
     
     # Route to Winter module if Winter is selected
     if has_winter:
-        from .iready_winter import generate_iready_winter_charts
-        print("\n[iReady Router] Winter detected - routing to iready_winter.py...")
+        # Legacy MOY script runner (subprocess)
+        from .iready_moy_runner import generate_iready_winter_charts
+        print("\n[iReady Router] Winter detected - routing to iready_moy.py (runner)...")
         try:
             winter_charts = generate_iready_winter_charts(
                 partner_name=partner_name,
@@ -1956,6 +1956,9 @@ def generate_iready_charts(
             if hf.DEV_MODE:
                 import traceback
                 traceback.print_exc()
+            # If ONLY Winter is selected, raise so the task surfaces the real root cause
+            if has_winter and not has_fall and not has_spring:
+                raise
         
         # If ONLY Winter is selected (no Fall, no Spring), return early
         if has_winter and not has_fall and not has_spring:

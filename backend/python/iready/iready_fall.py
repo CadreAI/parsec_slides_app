@@ -17,9 +17,8 @@ from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-# Add parent directory to path to import helper_functions
-sys.path.insert(0, str(Path(__file__).parent.parent))
-import helper_functions as hf
+# Use iReady-specific helper utilities + styling
+from . import helper_functions_iready as hf
 
 # Import utility modules
 from .iready_data import (

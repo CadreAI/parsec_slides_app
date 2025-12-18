@@ -5,7 +5,6 @@ import { MultiSelect } from '@/components/ui/multi-select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { getDistrictOptions, getClusteredSchoolOptions } from '@/utils/formHelpers'
-import { useState, useEffect } from 'react'
 
 interface AssessmentScopeSelectorProps {
     assessmentId: string
@@ -16,15 +15,6 @@ interface AssessmentScopeSelectorProps {
     scope: { districts: string[]; schools: string[]; districtOnly?: boolean }
     onScopeChange: (assessmentId: string, scope: { districts: string[]; schools: string[]; districtOnly?: boolean }) => void
     partnerConfig: Record<string, { districts: string[]; schools: Record<string, string[]> }>
-}
-
-const PARTNER_CONFIG: Record<string, { districts: string[]; schools: Record<string, string[]> }> = {
-    demodashboard: {
-        districts: ['Parsec Academy'],
-        schools: {
-            'Parsec Academy': ['Parsec Academy']
-        }
-    }
 }
 
 export function AssessmentScopeSelector({

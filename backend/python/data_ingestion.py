@@ -151,11 +151,15 @@ def ingest_nwea(
         elif 'academicyear' in [col.lower() for col in table_columns]:
             year_column = 'AcademicYear'
         
-        # Build SQL query with selected years
-        # Pass both years and quarters to SQL builder
-        sql_filters = {'years': years}
+        # Build SQL query with selected years, and push down school filter if selected
+        sql_filters = {
+            'years': years,
+            'available_columns': table_columns,
+        }
         if chart_filters.get('quarters'):
             sql_filters['quarters'] = chart_filters['quarters']
+        if chart_filters.get('schools'):
+            sql_filters['schools'] = chart_filters['schools']
         sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column, filters=sql_filters)
 
         print(f"[Data Ingestion] SQL Query:")
@@ -382,11 +386,19 @@ def ingest_iready(
                 year_column = 'Year'
 
             # Build SQL query for this specific year
-            sql_filters = {'years': [year]}
+            sql_filters = {
+                'years': [year],
+                'available_columns': table_columns,
+            }
+            if chart_filters.get('schools'):
+                sql_filters['schools'] = chart_filters['schools']
             sql = sql_iready(table_id, exclude_cols, filters=sql_filters, year_column=year_column)
 
             print(f"[Data Ingestion] [Year {year}] Executing query...")
             rows = run_query(sql, client, None)
+            if len(rows) == 0 and chart_filters.get("schools"):
+                print(f"[Data Ingestion] [Year {year}] 0 rows returned. SQL was:")
+                print(f"[Data Ingestion] {sql}")
             print(f"[Data Ingestion] [Year {year}] Retrieved {len(rows):,} rows")
             return rows
         except Exception as e:
@@ -473,23 +485,47 @@ def ingest_iready(
     print("[Data Ingestion] Applying filters in Python...")
 
     # School filter
-    # For charter schools, school name may be in learning_center column instead of school column
+    # iReady school strings often differ from UI labels (suffixes, punctuation, abbreviations),
+    # so use fuzzy matching like NWEA instead of exact .isin().
     if chart_filters.get('schools'):
         schools = chart_filters['schools']
         school_col = None
         
-        # Check learning_center first (for charter schools), then school (for regular schools)
-        if 'learning_center' in df.columns:
-            school_col = 'learning_center'
-        elif 'school' in df.columns:
-            school_col = 'school'
+        # Check common iReady school columns (after clean_column_names)
+        for col_name in ['learning_center', 'schoolname', 'school_name', 'school']:
+            if col_name in df.columns:
+                school_col = col_name
+                break
         
         if school_col:
             before_filter = len(df)
-            df = df[df[school_col].isin(schools)]
-            print(f"[Data Ingestion] Applied school filter using column '{school_col}': {before_filter} -> {len(df)} rows")
+            selected_schools_normalized = [hf._safe_normalize_school_name(s, config) for s in schools]
+            available_schools = df[school_col].dropna().unique()
+            matching_schools = []
+            for raw_school in available_schools:
+                normalized_school = hf._safe_normalize_school_name(raw_school, config)
+                # Normalized match
+                if normalized_school in selected_schools_normalized:
+                    matching_schools.append(raw_school)
+                # Case-insensitive / partial contains match
+                elif any(
+                    str(raw_school).lower() == str(sel).lower()
+                    or str(sel).lower() in str(raw_school).lower()
+                    or str(raw_school).lower() in str(sel).lower()
+                    for sel in schools
+                ):
+                    matching_schools.append(raw_school)
+            
+            if matching_schools:
+                df = df[df[school_col].isin(matching_schools)]
+                print(f"[Data Ingestion] Applied school filter using column '{school_col}': {before_filter} -> {len(df)} rows")
+                print(f"[Data Ingestion] Matched schools: {matching_schools}")
+            else:
+                print(f"[Data Ingestion] ⚠️  No matching schools found for: {schools}")
+                print(f"[Data Ingestion] Available schools in '{school_col}': {sorted([str(s) for s in available_schools])[:25]}{'...' if len(available_schools) > 25 else ''}")
+                print(f"[Data Ingestion] Keeping all data - will let get_scopes() handle filtering")
         else:
-            print(f"[Data Ingestion] Warning: School filter specified but no school column found (checked: learning_center, school)")
+            print(f"[Data Ingestion] Warning: School filter specified but no school column found (checked: learning_center, schoolname, school_name, school)")
 
     # Note: Year filtering is done in SQL, not in Python
     # This ensures we only fetch the years we need from BigQuery
@@ -594,7 +630,12 @@ def ingest_star(
                 year_column = 'Year'
             
             # Build SQL query for this specific year
-            sql_filters = {'years': [year]}
+            sql_filters = {
+                'years': [year],
+                'available_columns': table_columns,
+            }
+            if chart_filters.get('schools'):
+                sql_filters['schools'] = chart_filters['schools']
             sql = sql_star(table_id, exclude_cols, filters=sql_filters, year_column=year_column)
 
             print(f"[Data Ingestion] [Year {year}] Executing query...")
@@ -697,8 +738,60 @@ def ingest_star(
 
         if school_col:
             before_filter = len(df)
-            df = df[df[school_col].isin(schools)]
-            print(f"[Data Ingestion] Applied school filter using column '{school_col}': {before_filter} -> {len(df)} rows")
+            available_schools = df[school_col].dropna().unique().tolist()
+
+            def _norm(s: str) -> str:
+                return (
+                    str(s)
+                    .strip()
+                    .lower()
+                    .replace("&", "and")
+                    .replace(".", "")
+                )
+
+            def _acronym(s: str) -> str:
+                import re
+
+                words = re.findall(r"[A-Za-z0-9]+", str(s))
+                return "".join([w[0].upper() for w in words if w]).strip()
+
+            selected_norm = [_norm(hf._safe_normalize_school_name(s, config) or s) for s in schools]
+            selected_acr = {_acronym(s) for s in schools if s is not None and str(s).strip()}
+
+            matching_schools = []
+            for raw in available_schools:
+                raw_norm = _norm(hf._safe_normalize_school_name(raw, config) or raw)
+                raw_acr = _acronym(raw)
+
+                # 1) Normalized exact
+                if raw_norm in selected_norm:
+                    matching_schools.append(raw)
+                    continue
+
+                # 2) Case-insensitive / substring contains either direction
+                if any((sn and (sn in raw_norm or raw_norm in sn)) for sn in selected_norm):
+                    matching_schools.append(raw)
+                    continue
+
+                # 3) Acronym match (helps for CAHS/TCA-style selections)
+                if raw_acr and raw_acr in selected_acr:
+                    matching_schools.append(raw)
+                    continue
+
+            if matching_schools:
+                df = df[df[school_col].isin(matching_schools)]
+                print(
+                    f"[Data Ingestion] Applied school filter using column '{school_col}': "
+                    f"{before_filter} -> {len(df)} rows"
+                )
+                print(f"[Data Ingestion] Matched schools: {sorted(set(map(str, matching_schools)))[:25]}")
+            else:
+                print(f"[Data Ingestion] ⚠️  No matching schools found for selected schools: {schools}")
+                print(
+                    f"[Data Ingestion] Available schools in '{school_col}' (sample): "
+                    f"{sorted(set(map(str, available_schools)))[:25]}"
+                )
+                print("[Data Ingestion] Keeping all rows (no school filter applied) to avoid dropping to 0.")
         else:
             print("[Data Ingestion] Warning: Could not find school column for filtering (checked: learning_center, school_name, schoolname, school)")
 
