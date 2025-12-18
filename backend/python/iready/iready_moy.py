@@ -56,6 +56,7 @@ except Exception:  # pragma: no cover
 import yaml
 import os
 import sys
+import json
 
 # Libraries for modeling
 try:
@@ -171,6 +172,68 @@ district_label = _district_label
 
 # Base charts directory (overrideable by runner)
 CHARTS_DIR = Path(os.getenv("IREADY_MOY_CHARTS_DIR") or "../charts")
+
+
+def _write_chart_data(out_path: Path, chart_data: dict) -> None:
+    """
+    Write sidecar JSON data for chart analysis.
+
+    `chart_analyzer.py` expects a file named `{chart_stem}_data.json` next to the PNG.
+    """
+    # Important: we serialize to a string first so we never leave partially-written JSON
+    # files on disk (partial files cause chart_analyzer.py JSON parse failures).
+    try:
+        p = Path(out_path)
+        data_path = p.parent / f"{p.stem}_data.json"
+        tmp_path = p.parent / f"{p.stem}_data.json.tmp"
+
+        payload = chart_data or {}
+        text = json.dumps(payload, indent=2, default=str)
+
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+
+        # Atomic replace so readers never see partial JSON
+        os.replace(tmp_path, data_path)
+    except Exception:  # pragma: no cover
+        try:
+            if "tmp_path" in locals() and Path(tmp_path).exists():
+                Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+        # Never fail chart creation due to data sidecar issues.
+        return
+
+
+def _jsonable(v):
+    """Convert common pandas/numpy objects into JSON-friendly Python types."""
+    try:
+        import pandas as _pd  # type: ignore
+    except Exception:  # pragma: no cover
+        _pd = None
+    try:
+        import numpy as _np  # type: ignore
+    except Exception:  # pragma: no cover
+        _np = None
+
+    if _pd is not None:
+        if isinstance(v, _pd.DataFrame):
+            return v.to_dict("records")
+        if isinstance(v, _pd.Series):
+            return v.to_dict()
+
+    if _np is not None:
+        if isinstance(v, (_np.integer, _np.floating)):
+            return v.item()
+        if isinstance(v, _np.ndarray):
+            return v.tolist()
+
+    return v
 
 # Inspect categorical columns (quick QC)
 cat_cols = [
@@ -488,6 +551,19 @@ def run_section0_iready(
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / f"{scope_label}_section0_iready_vs_cers_.png"
             hf._save_and_render(fig, out_path)
+            _write_chart_data(
+                out_path,
+                {
+                    "chart_type": "iready_moy_section0_iready_vs_cers",
+                    "section": 0,
+                    "scope": scope_label,
+                    "folder": folder,
+                    "subjects": list(data_dict.keys()),
+                    "window_filter": "Winter",
+                    "metrics": {k: _jsonable(v[1]) for k, v in data_dict.items()},
+                    "cross_data": {k: _jsonable(v[0]) for k, v in data_dict.items()},
+                },
+            )
             print(f"[SAVE] Section 0 → {out_path}")
 
             if preview:
@@ -789,6 +865,26 @@ def run_section0_1_iready_fall_winter(
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{scope_label}_section0_1_fall_to_winter_.png"
         hf._save_and_render(fig, out_path)
+        _write_chart_data(
+            out_path,
+            {
+                "chart_type": "iready_moy_section0_1_fall_winter_snapshot",
+                "section": "0.1",
+                "scope": scope_label,
+                "folder": folder,
+                "subjects": list(data_dict.keys()),
+                "window_filter": "Fall/Winter",
+                "pct_data": [
+                    {"subject": subj, "data": _jsonable(data_dict[subj][0])}
+                    for subj in data_dict.keys()
+                ],
+                "score_data": [
+                    {"subject": subj, "data": _jsonable(data_dict[subj][1])}
+                    for subj in data_dict.keys()
+                ],
+                "metrics": [_jsonable(data_dict[subj][2]) for subj in data_dict.keys()],
+            },
+        )
         print(f"[SAVE] Section 0.1 → {out_path}")
 
         if preview:
@@ -1109,6 +1205,11 @@ def plot_iready_dual_subject_dashboard(
     subjects = ["ELA", "Math"]
     titles = ["ELA", "Math"]
 
+    # Build sidecar chart data payload as we go
+    _pct_payload = []
+    _score_payload = []
+    _metrics_payload = []
+
     def draw_stacked_bar(ax, pct_df):
         stack_df = (
             pct_df.pivot(index="time_label", columns="relative_placement", values="pct")
@@ -1245,6 +1346,14 @@ def plot_iready_dual_subject_dashboard(
         metrics = dict(metrics)
         metrics["pct_df"] = pct_df
 
+        # Collect analyzer-friendly data (avoid truthiness checks on Series/DataFrames)
+        try:
+            _pct_payload.append({"subject": title, "data": _jsonable(pct_df)})
+            _score_payload.append({"subject": title, "data": _jsonable(score_df)})
+            _metrics_payload.append(_jsonable(metrics))
+        except Exception:
+            pass
+
         ax1 = fig.add_subplot(gs[0, i])
         draw_stacked_bar(ax1, pct_df)
         ax1.set_title(title, fontsize=14, fontweight="bold", pad=30)
@@ -1289,6 +1398,19 @@ def plot_iready_dual_subject_dashboard(
     out_path = out_dir / out_name
 
     hf._save_and_render(fig, out_path)
+    _write_chart_data(
+        out_path,
+        {
+            "chart_type": "iready_moy_section1_dual_subject_dashboard",
+            "section": 1,
+            "scope": scope_label,
+            "window_filter": window_filter,
+            "subjects": titles,
+            "pct_data": _pct_payload,
+            "score_data": _score_payload,
+            "metrics": _metrics_payload,
+        },
+    )
     print(f"Saved: {out_path}")
 
     if preview:
@@ -1682,6 +1804,28 @@ def plot_iready_subject_dashboard_by_group(
     out_path = out_dir / out_name
 
     hf._save_and_render(fig, out_path)
+    _write_chart_data(
+        out_path,
+        {
+            "chart_type": "iready_moy_section2_student_group_dashboard",
+            "section": 2,
+            "scope": title_label,
+            "scope_label": scope_label,
+            "group_name": group_name,
+            "window_filter": window_filter,
+            "subjects": subjects,
+            "pct_data": [
+                {"subject": subjects[i], "data": _jsonable(pct_dfs[i])}
+                for i in range(len(subjects))
+            ],
+            "score_data": [
+                {"subject": subjects[i], "data": _jsonable(score_dfs[i])}
+                for i in range(len(subjects))
+            ],
+            "metrics": [_jsonable(m) for m in metrics_list],
+            "time_orders": [_jsonable(t) for t in time_orders],
+        },
+    )
     print(f"Saved: {out_path}")
 
     if preview:
@@ -2192,6 +2336,26 @@ def plot_iready_blended_dashboard(
         / f"{scope_label.replace(' ','_')}_section3_iready_grade{int(current_grade)}_{subject_str}_{window_filter.lower()}_trends.png"
     )
     hf._save_and_render(fig, out_path)
+    _write_chart_data(
+        out_path,
+        {
+            "chart_type": "iready_moy_section3_blended_dashboard",
+            "section": 3,
+            "scope": scope_label,
+            "window_filter": window_filter,
+            "grade": int(current_grade),
+            "subject": subject_str,
+            "pct_data": [
+                {"subject": "overall", "data": _jsonable(pct_df_left)},
+                {"subject": "cohort", "data": _jsonable(pct_df_right)},
+            ],
+            "score_data": [
+                {"subject": "overall", "data": _jsonable(score_df_left)},
+                {"subject": "cohort", "data": _jsonable(score_df_right)},
+            ],
+            "metrics": {"overall": _jsonable(metrics_left), "cohort": _jsonable(metrics_right)},
+        },
+    )
     if preview:
         plt.show()
     plt.close(fig)
@@ -2393,6 +2557,31 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
     out_path = out_dir / f"{safe_scope}_section4_mid_plus_to_3plus.png"
 
     hf._save_and_render(fig, out_path)
+    _write_chart_data(
+        out_path,
+        {
+            "chart_type": "iready_moy_section4_mid_plus_to_3plus",
+            "section": 4,
+            "scope": scope_label,
+            "subjects": subjects,
+            # Provide the underlying trend tables per subject so the analyzer can summarize.
+            # (Each record has academicyear, n, me, pct_me)
+            "pct_data": [
+                {"subject": subj, "data": _jsonable(trends.get(subj))}
+                for subj in subjects
+            ],
+            "metrics": {
+                subj: {
+                    "overall_pct_me": float(
+                        (100 * trends[subj]["me"].sum() / trends[subj]["n"].sum())
+                    )
+                    if (subj in trends and not trends[subj].empty)
+                    else None
+                }
+                for subj in subjects
+            },
+        },
+    )
     print(f"[Section 4] Saved: {out_path}")
 
     if preview:
@@ -2856,6 +3045,19 @@ def run_section5_growth_progress_moy(
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{scope_label}_section5_growth_progress_moy_.png"
         hf._save_and_render(fig, out_path)
+        _write_chart_data(
+            out_path,
+            {
+                "chart_type": "iready_moy_section5_growth_progress",
+                "section": 5,
+                "scope": scope_label,
+                "folder": folder,
+                "subjects": list(metrics_by_subject.keys()),
+                "window_filter": "Winter",
+                # Section 5 is mostly metric-driven; pass the full per-subject metrics dict.
+                "metrics": _jsonable(metrics_by_subject),
+            },
+        )
         print(f"[SAVE] Section 5 → {out_path}")
 
         if preview:

@@ -9,24 +9,24 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 
-def generate_iready_winter_charts(
+def generate_nwea_winter_charts(
     partner_name: str,
     output_dir: str,
     config: dict = None,
     chart_filters: dict = None,
     data_dir: str = "./data",
-    iready_data: Optional[List[Dict[str, Any]]] = None,
+    nwea_data: Optional[List[Dict[str, Any]]] = None,
 ) -> list:
     """
-    Runs legacy script-style `iready_moy.py` as a subprocess, using temp files for config + data.
+    Runs legacy script-style `nwea_moy.py` as a subprocess, using temp files for config + data.
 
-    Why: `iready_moy.py` executes code at import-time and expects on-disk `settings.yaml`,
-    `config_files/{partner}.yaml`, and `../data/iready_data.csv`.
+    Why: `nwea_moy.py` executes code at import-time and expects on-disk `settings.yaml`,
+    `config_files/{partner}.yaml`, and `../data/nwea_data.csv`.
     """
-    if not iready_data:
+    if not nwea_data:
         return []
 
-    run_root = Path(tempfile.mkdtemp(prefix="parsec_iready_moy_"))
+    run_root = Path(tempfile.mkdtemp(prefix="parsec_nwea_moy_"))
     run_data_dir = run_root / "data"
     run_charts_dir = run_root / "charts"
     run_logs_dir = run_root / "logs"
@@ -41,14 +41,12 @@ def generate_iready_winter_charts(
 
     settings_path = run_root / "settings.yaml"
     config_path = run_cfg_dir / f"{partner_name}.yaml"
-    csv_path = run_data_dir / "iready_data.csv"
+    csv_path = run_data_dir / "nwea_data.csv"
 
-    # Write settings.yaml
     # Write settings.yaml (avoid importing PyYAML at module import time)
     with open(settings_path, "w") as f:
         f.write(f"partner_name: {partner_name}\n")
 
-    # Write partner config YAML (iReady script expects YAML)
     # Write partner config YAML (prefer PyYAML if installed; otherwise write JSON which YAML can parse)
     try:
         import yaml  # type: ignore
@@ -61,40 +59,44 @@ def generate_iready_winter_charts(
         with open(config_path, "w") as f:
             json.dump(config or {}, f, indent=2, default=str)
 
-    # Write iReady CSV
-    pd.DataFrame(iready_data).to_csv(csv_path, index=False)
+    # Write NWEA CSV
+    pd.DataFrame(nwea_data).to_csv(csv_path, index=False)
 
-    script_path = Path(__file__).resolve().parent / "iready_moy.py"
+    script_path = Path(__file__).resolve().parent / "nwea_moy.py"
     run_cwd = str(Path(__file__).resolve().parent)
 
     env = os.environ.copy()
     env.update(
         {
-            "IREADY_MOY_SETTINGS_PATH": str(settings_path),
-            "IREADY_MOY_CONFIG_PATH": str(config_path),
-            "IREADY_MOY_DATA_DIR": str(run_data_dir),
-            "IREADY_MOY_CHARTS_DIR": str(run_charts_dir),
-            "IREADY_MOY_LOG_DIR": str(run_logs_dir),
+            "NWEA_MOY_SETTINGS_PATH": str(settings_path),
+            "NWEA_MOY_CONFIG_PATH": str(config_path),
+            "NWEA_MOY_DATA_DIR": str(run_data_dir),
+            "NWEA_MOY_CHARTS_DIR": str(run_charts_dir),
+            "NWEA_MOY_LOG_DIR": str(run_logs_dir),
             "MPLCONFIGDIR": str(run_mpl_dir),
             "PREVIEW": "false",
         }
     )
-    # Pass selected grades from frontend into the legacy script (used for grade-level batches)
-    try:
-        grades = (chart_filters or {}).get("grades") or []
-        if isinstance(grades, list) and grades:
-            env["IREADY_MOY_GRADES"] = ",".join(str(g) for g in grades)
-    except Exception:
-        pass
 
     # Pass selected student groups from frontend into the legacy script
     # Frontend uses chart_filters["student_groups"] (snake_case)
     try:
         groups = (chart_filters or {}).get("student_groups") or []
         if isinstance(groups, list) and groups:
-            env["IREADY_MOY_STUDENT_GROUPS"] = ",".join(str(g) for g in groups)
+            env["NWEA_MOY_STUDENT_GROUPS"] = ",".join(str(g) for g in groups)
     except Exception:
         pass
+
+    # Pass selected grades from frontend into the legacy script (used for grade-level batches)
+    try:
+        grades = (chart_filters or {}).get("grades") or []
+        if isinstance(grades, list) and grades:
+            env["NWEA_MOY_GRADES"] = ",".join(str(g) for g in grades)
+    except Exception:
+        pass
+
+    # NOTE: `chart_filters` is otherwise unused by `nwea_moy.py` (legacy script).
+    _ = data_dir
 
     proc = subprocess.run(
         [sys.executable, str(script_path), "--full"],
@@ -107,8 +109,12 @@ def generate_iready_winter_charts(
 
     # Persist stdout/stderr for debugging
     try:
-        (run_logs_dir / "iready_moy_stdout.txt").write_text(proc.stdout or "", encoding="utf-8")
-        (run_logs_dir / "iready_moy_stderr.txt").write_text(proc.stderr or "", encoding="utf-8")
+        (run_logs_dir / "nwea_moy_stdout.txt").write_text(
+            proc.stdout or "", encoding="utf-8"
+        )
+        (run_logs_dir / "nwea_moy_stderr.txt").write_text(
+            proc.stderr or "", encoding="utf-8"
+        )
     except Exception:
         pass
 
@@ -116,7 +122,7 @@ def generate_iready_winter_charts(
         stderr_tail = (proc.stderr or "")[-4000:]
         stdout_tail = (proc.stdout or "")[-4000:]
         raise RuntimeError(
-            "iready_moy.py failed.\n"
+            "nwea_moy.py failed.\n"
             f"returncode={proc.returncode}\n"
             f"stdout_tail:\n{stdout_tail}\n"
             f"stderr_tail:\n{stderr_tail}\n"
@@ -147,5 +153,3 @@ def generate_iready_winter_charts(
     shutil.rmtree(run_root, ignore_errors=True)
 
     return copied
-
-
