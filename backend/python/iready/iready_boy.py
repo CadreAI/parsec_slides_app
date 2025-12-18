@@ -1,7 +1,7 @@
 # %% Imports and config
 # iready.py — charts and analytics
 #
-# NOTE: This is a legacy script. It is executed via `iready_moy_runner.py` in the app.
+# NOTE: This is a legacy script. It is executed via `iready_boy_runner.py` in the app.
 # The runner provides temp settings/config/data locations via env vars so this file can run
 # without writing into the repo.
 #
@@ -20,13 +20,7 @@ from matplotlib import transforms as mtransforms
 from matplotlib import lines as mlines
 import helper_functions_iready as hf
 
-# ---------------------------------------------------------------------
-# Hardcoded, Slides-friendly style for this legacy script
-# ---------------------------------------------------------------------
-# We set a guaranteed-available font + high-contrast colors + larger default sizes.
-# NOTE: explicit `fontsize=` calls in the code still override defaults; we bump the worst
-# offenders below as well.
-_IREADY_MOY_HARD_RC = {
+_NWEA_BOY_HARD_RC = {
     "font.family": "DejaVu Sans",
     "text.color": "#111111",
     "axes.labelcolor": "#111111",
@@ -41,7 +35,8 @@ _IREADY_MOY_HARD_RC = {
     "legend.fontsize": 14,
     "legend.title_fontsize": 14,
 }
-mpl.rcParams.update(_IREADY_MOY_HARD_RC)
+mpl.rcParams.update(_NWEA_BOY_HARD_RC)
+
 try:
     import skimpy  # type: ignore
     from skimpy import skim  # type: ignore
@@ -88,7 +83,7 @@ COHORT_DEBUG = True
 # Load partner-specific config using settings.yaml pointer
 # ---------------------------------------------------------------------
 SETTINGS_PATH = Path(
-    os.getenv("IREADY_MOY_SETTINGS_PATH")
+    os.getenv("IREADY_BOY_SETTINGS_PATH")
     or (Path(__file__).resolve().parent / "settings.yaml")
 )
 
@@ -102,7 +97,7 @@ if not partner_name:
 
 # Step 2: load the partner config file from /config_files/{partner_name}.yaml
 CONFIG_PATH = Path(
-    os.getenv("IREADY_MOY_CONFIG_PATH")
+    os.getenv("IREADY_BOY_CONFIG_PATH")
     or (Path(__file__).resolve().parent / "config_files" / f"{partner_name}.yaml")
 )
 if not CONFIG_PATH.exists():
@@ -144,7 +139,7 @@ print(f"[INFO] Preview mode: {DEV_MODE}")
 # ---------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------
-DATA_DIR = Path(os.getenv("IREADY_MOY_DATA_DIR") or "../data")
+DATA_DIR = Path(os.getenv("IREADY_BOY_DATA_DIR") or "../data")
 csv_path = DATA_DIR / "iready_data.csv"
 LABEL_MIN_PCT = 5.0
 
@@ -162,16 +157,35 @@ print(iready_base["year"].value_counts().sort_index())
 print(iready_base.columns.tolist())
 
 # Normalize district name for fallback in the title
-# Some partners omit district_name or provide an empty list; treat that as Districtwide.
-_district_name_cfg = cfg.get("district_name")
-if isinstance(_district_name_cfg, list) and len(_district_name_cfg) > 0 and _district_name_cfg[0]:
-    _district_label = str(_district_name_cfg[0])
-else:
-    _district_label = "Districtwide"
-district_label = _district_label
+def _cfg_first(cfg_obj: dict, key: str, default: str) -> str:
+    """
+    Return a stable display string from config.
+
+    Handles cases like:
+    - key missing
+    - key present but [] (empty list)  ← this was causing IndexError
+    - key present as a single string
+    """
+    try:
+        v = (cfg_obj or {}).get(key, None)
+    except Exception:
+        v = None
+
+    if isinstance(v, list):
+        if v and str(v[0]).strip():
+            return str(v[0]).strip()
+        return default
+    if isinstance(v, str):
+        return v.strip() or default
+    if v is None:
+        return default
+    return str(v)
+
+
+district_label = _cfg_first(cfg, "district_name", "Districtwide")
 
 # Base charts directory (overrideable by runner)
-CHARTS_DIR = Path(os.getenv("IREADY_MOY_CHARTS_DIR") or "../charts")
+CHARTS_DIR = Path(os.getenv("IREADY_BOY_CHARTS_DIR") or "../charts")
 
 
 def _write_chart_data(out_path: Path, chart_data: dict) -> None:
@@ -179,9 +193,8 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
     Write sidecar JSON data for chart analysis.
 
     `chart_analyzer.py` expects a file named `{chart_stem}_data.json` next to the PNG.
+    Uses atomic replace to avoid leaving partial JSON on disk.
     """
-    # Important: we serialize to a string first so we never leave partially-written JSON
-    # files on disk (partial files cause chart_analyzer.py JSON parse failures).
     try:
         p = Path(out_path)
         data_path = p.parent / f"{p.stem}_data.json"
@@ -198,7 +211,6 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
             except Exception:
                 pass
 
-        # Atomic replace so readers never see partial JSON
         os.replace(tmp_path, data_path)
     except Exception:  # pragma: no cover
         try:
@@ -206,7 +218,6 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
                 Path(tmp_path).unlink(missing_ok=True)
         except Exception:
             pass
-        # Never fail chart creation due to data sidecar issues.
         return
 
 
@@ -295,20 +306,20 @@ def run_section0_iready(
         # --- Filter for most recent academic year with Spring + CERS data ---
         valid_years = (
             d.loc[
-                (d["testwindow"].str.upper() == "WINTER")
+                (d["testwindow"].str.upper() == "SPRING")
                 & (d["cers_overall_performanceband"].notna())
             ]["academicyear"]
             .dropna()
             .unique()
         )
         if len(valid_years) == 0:
-            print(f"[WARN] No Winter rows with valid CERS data for {subj}")
+            print(f"[WARN] No Spring rows with valid CERS data for {subj}")
             return None, None, None
 
         last_year = max(valid_years)
         d = d[
             (d["academicyear"] == last_year)
-            & (d["testwindow"].str.upper() == "WINTER")
+            & (d["testwindow"].str.upper() == "SPRING")
             & (d["subject"].str.upper() == subj)
             & (d["cers_overall_performanceband"].notna())
             & (d["domain"] == "Overall")
@@ -317,7 +328,7 @@ def run_section0_iready(
         ].copy()
 
         if d.empty:
-            print(f"[WARN] No Winter {last_year} data for {subj}")
+            print(f"[WARN] No Spring {last_year} data for {subj}")
             return None, None, None
 
         placement_col = "relative_placement"
@@ -383,192 +394,146 @@ def run_section0_iready(
             hf.IREADY_LABEL_MAP.get("Mid or Above Grade Level", "Mid/Above"),
         ]
 
-        # Hardcode font for this section (rcParams elsewhere in this script can be overridden).
-        # DejaVu Sans is bundled with matplotlib and is reliably available on servers.
-        section0_font = "DejaVu Sans"
-        with mpl.rc_context(
-            {
-                "font.family": section0_font,
-                "text.color": "#111111",
-                "axes.labelcolor": "#111111",
-                "axes.titlecolor": "#111111",
-                "xtick.color": "#111111",
-                "ytick.color": "#111111",
-                "font.size": 20,
-                "axes.titlesize": 20,
-                "axes.labelsize": 16,
-                "xtick.labelsize": 14,
-                "ytick.labelsize": 14,
-                "legend.fontsize": 14,
-                "savefig.dpi": 300,
-            }
-        ):
-            # Chart layout: 3 rows x 2 columns (ELA left, Math right)
-            fig = plt.figure(figsize=(16, 9), dpi=300)
-            gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.8, 0.65, 0.55])
-            fig.subplots_adjust(hspace=0.40, wspace=0.25, top=0.86, bottom=0.08)
+        # Chart layout: 3 rows x 2 columns (ELA left, Math right)
+        fig = plt.figure(figsize=(16, 9), dpi=300)
+        gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.8, 0.65, 0.5])
+        fig.subplots_adjust(hspace=0.35, wspace=0.25)
 
-            # Legend for CERS bands (top center)
-            handles = [
-                Patch(facecolor=hf.CERS_LEVEL_COLORS.get(l, "#ccc"), label=l)
-                for l in cers_levels
-            ]
-            leg = fig.legend(
-                handles=handles,
-                loc="upper center",
-                bbox_to_anchor=(0.5, 0.965),
-                ncol=4,
-                frameon=False,
-                fontsize=14,
+        # Legend for CERS bands (top center)
+        handles = [
+            Patch(facecolor=hf.CERS_LEVEL_COLORS.get(l, "#ccc"), label=l)
+            for l in cers_levels
+        ]
+        fig.legend(
+            handles=handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.94),
+            ncol=4,
+            frameon=False,
+            fontsize=9,
+        )
+
+        for i, (subj, (cross_pct, metrics)) in enumerate(data_dict.items()):
+            print(
+                f"[Plot] Subject: {subj} — {len(cross_pct)} cells  Metrics: {metrics}"
             )
-            for t in leg.get_texts():
-                t.set_color("#111111")
 
-            for i, (subj, (cross_pct, metrics)) in enumerate(data_dict.items()):
-                print(
-                    f"[Plot] Subject: {subj} — {len(cross_pct)} cells  Metrics: {metrics}"
-                )
-
-                # --- Stacked bar: % of students in each CERS band by i-Ready placement ---
-                ax_top = fig.add_subplot(gs[0, i])
-                bottom = np.zeros(len(placements))
-                for lvl in cers_levels:
-                    vals = [cross_pct.get((p, lvl), 0) for p in placements]
-                    color = hf.CERS_LEVEL_COLORS.get(lvl, "#ccc")
-                    ax_top.bar(
-                        placements,
-                        vals,
-                        bottom=bottom,
-                        color=color,
-                        edgecolor="white",
-                        linewidth=1,
-                    )
-                    for j, v in enumerate(vals):
-                        if v >= 5:
-                            ax_top.text(
-                                j,
-                                bottom[j] + v / 2,
-                                f"{v:.1f}%",
-                                ha="center",
-                                va="center",
-                                fontsize=15,
-                                fontweight="bold",
-                                color="#111111",
-                            )
-                    bottom += np.array(vals)
-
-                ax_top.set_ylim(0, 100)
-                ax_top.set_ylabel("% of Students", color="#111111")
-                ax_top.tick_params(axis="x", colors="#111111")
-                ax_top.tick_params(axis="y", colors="#111111")
-                ax_top.set_title(subj, fontsize=20, fontweight="bold", color="#111111")
-                ax_top.grid(axis="y", alpha=0.2)
-                ax_top.spines["top"].set_visible(False)
-                ax_top.spines["right"].set_visible(False)
-
-                # --- Bar panel: i-Ready Mid/Above vs CERS Met/Exceed ---
-                ax_mid = fig.add_subplot(gs[1, i])
-                bars = ax_mid.bar(
-                    ["i-Ready Mid/Above", "CERS Met/Exceed"],
-                    [metrics["iready_mid_above"], metrics["cers_met_exceed"]],
-                    color=["#00baeb", "#0381a2"],
+            # --- Stacked bar: % of students in each CERS band by i-Ready placement ---
+            ax_top = fig.add_subplot(gs[0, i])
+            bottom = np.zeros(len(placements))
+            for lvl in cers_levels:
+                # Get % for each placement x CERS band
+                vals = [cross_pct.get((p, lvl), 0) for p in placements]
+                color = hf.CERS_LEVEL_COLORS.get(lvl, "#ccc")
+                ax_top.bar(
+                    placements,
+                    vals,
+                    bottom=bottom,
+                    color=color,
                     edgecolor="white",
-                    width=0.6,
+                    linewidth=1,
                 )
-                for rect, val in zip(
-                    bars, [metrics["iready_mid_above"], metrics["cers_met_exceed"]]
-                ):
-                    ax_mid.text(
-                        rect.get_x() + rect.get_width() / 2,
-                        val + 1,
-                        f"{val:.1f}%",
-                        ha="center",
-                        va="bottom",
-                        fontsize=18,
-                        fontweight="bold",
-                        color="#111111",
-                    )
-                ax_mid.set_ylim(0, 100)
-                ax_mid.set_ylabel("% of Students", color="#111111")
-                ax_mid.tick_params(axis="x", colors="#111111")
-                ax_mid.tick_params(axis="y", colors="#111111")
-                ax_mid.grid(axis="y", alpha=0.2)
-                ax_mid.spines["top"].set_visible(False)
-                ax_mid.spines["right"].set_visible(False)
+                # Inline % labels for bars above threshold
+                for j, v in enumerate(vals):
+                    if v >= 5:
+                        ax_top.text(
+                            j,
+                            bottom[j] + v / 2,
+                            f"{v:.1f}%",
+                            ha="center",
+                            va="center",
+                            fontsize=8,
+                            fontweight="bold",
+                        )
+                bottom += np.array(vals)
+            ax_top.set_ylim(0, 100)
+            ax_top.set_ylabel("% of Students")
+            ax_top.set_title(subj, fontsize=14, fontweight="bold")
+            ax_top.grid(axis="y", alpha=0.2)
+            ax_top.spines["top"].set_visible(False)
+            ax_top.spines["right"].set_visible(False)
 
-                # --- Insight panel: difference between i-Ready and CERS rates ---
-                ax_bot = fig.add_subplot(gs[2, i])
-                ax_bot.axis("off")
-                insight_text = (
-                    f"Winter i-Ready Mid/Above vs CERS Met/Exceed:\n"
-                    rf"${metrics['iready_mid_above']:.1f}\% - {metrics['cers_met_exceed']:.1f}\% = "
-                    rf"\mathbf{{{metrics['delta']:+.1f}}}$ pts"
-                )
-                ax_bot.text(
-                    0.5,
-                    0.5,
-                    insight_text,
+            # --- Bar panel: i-Ready Mid/Above vs CERS Met/Exceed ---
+            ax_mid = fig.add_subplot(gs[1, i])
+            bars = ax_mid.bar(
+                ["i-Ready Mid/Above", "CERS Met/Exceed"],
+                [metrics["iready_mid_above"], metrics["cers_met_exceed"]],
+                color=["#00baeb", "#0381a2"],
+                edgecolor="white",
+                width=0.6,
+            )
+            for rect, val in zip(
+                bars, [metrics["iready_mid_above"], metrics["cers_met_exceed"]]
+            ):
+                ax_mid.text(
+                    rect.get_x() + rect.get_width() / 2,
+                    val + 1,
+                    f"{val:.1f}%",
                     ha="center",
-                    va="center",
-                    fontsize=16,
-                    color="#111111",
-                    bbox=dict(
-                        boxstyle="round,pad=0.6",
-                        facecolor="#eeeeee",
-                        edgecolor="#666666",
-                        linewidth=1.2,
-                    ),
+                    va="bottom",
+                    fontsize=10,
+                    fontweight="bold",
+                    color="#434343",
                 )
+            ax_mid.set_ylim(0, 100)
+            ax_mid.set_ylabel("% of Students")
+            ax_mid.grid(axis="y", alpha=0.2)
+            ax_mid.spines["top"].set_visible(False)
+            ax_mid.spines["right"].set_visible(False)
 
-            # --- Chart title and save ---
-            year = next(iter(data_dict.values()))[1].get("year", "")
-            fig.suptitle(
-                f"{scope_label} • Winter {year} • i-Ready Placement vs CERS Performance",
-                fontsize=26,
-                fontweight="bold",
-                y=0.99,
-                color="#111111",
+            # --- Insight panel: difference between i-Ready and CERS rates ---
+            ax_bot = fig.add_subplot(gs[2, i])
+            ax_bot.axis("off")
+            insight_text = (
+                f"i-Ready Mid/Above vs CERS Met/Exceed:\n"
+                rf"${metrics['iready_mid_above']:.1f}\% - {metrics['cers_met_exceed']:.1f}\% = "
+                rf"\mathbf{{{metrics['delta']:+.1f}}}$ pts"
+            )
+            ax_bot.text(
+                0.5,
+                0.5,
+                insight_text,
+                ha="center",
+                va="center",
+                fontsize=12,
+                color="#333",
+                bbox=dict(
+                    boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#bbb"
+                ),
             )
 
-            # Optional disclaimer/footer (can be blank/omitted)
-            disclaimer = (
-                (cfg or {}).get("iready_section0_disclaimer")
-                or (cfg or {}).get("section0_disclaimer")
-                or ""
-            )
-            if isinstance(disclaimer, str) and disclaimer.strip():
-                fig.text(
-                    0.5,
-                    0.965,
-                    disclaimer.strip(),
-                    ha="center",
-                    fontsize=12,
-                    style="italic",
-                    color="#111111",
-                )
+        # --- Chart title and save ---
+        year = next(iter(data_dict.values()))[1].get("year", "")
+        fig.suptitle(
+            f"{scope_label} • Spring {year} • i-Ready Placement vs CERS Performance",
+            fontsize=20,
+            fontweight="bold",
+            y=1.02,
+        )
 
-            out_dir = CHARTS_DIR / folder
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_path = out_dir / f"{scope_label}_section0_iready_vs_cers_.png"
-            hf._save_and_render(fig, out_path)
-            _write_chart_data(
-                out_path,
-                {
-                    "chart_type": "iready_moy_section0_iready_vs_cers",
-                    "section": 0,
-                    "scope": scope_label,
-                    "folder": folder,
-                    "subjects": list(data_dict.keys()),
-                    "window_filter": "Winter",
-                    "metrics": {k: _jsonable(v[1]) for k, v in data_dict.items()},
-                    "cross_data": {k: _jsonable(v[0]) for k, v in data_dict.items()},
-                },
-            )
-            print(f"[SAVE] Section 0 → {out_path}")
+        out_dir = CHARTS_DIR / folder
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{scope_label}_section0_iready_vs_cers_.png"
+        hf._save_and_render(fig, out_path)
+        _write_chart_data(
+            out_path,
+            {
+                "chart_type": "iready_boy_section0_iready_vs_cers",
+                "section": 0,
+                "scope": scope_label,
+                "folder": folder,
+                "subjects": list(data_dict.keys()),
+                # Section 0 uses Spring CERS compare in this legacy script.
+                "window_filter": "Spring",
+                "metrics": {k: _jsonable(v[1]) for k, v in data_dict.items()},
+                "cross_data": {k: _jsonable(v[0]) for k, v in data_dict.items()},
+            },
+        )
+        print(f"[SAVE] Section 0 → {out_path}")
 
-            if preview:
-                plt.show()
-            plt.close()
+        if preview:
+            plt.show()
+        plt.close()
 
     # =========================================================
     # DRIVER LOGIC
@@ -605,399 +570,13 @@ for raw_school in sorted(iready_base["school"].dropna().unique()):
     folder = scope_label.replace(" ", "_")
     run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
 
-
 print("Section 0 batch complete.")
 
-
-# %% SECTION 0.1 — i-Ready Fall → Winter (Placement + Scale Score)
-# =========================================================
-# MUCH more basic than Section 0.
-# Faceted ELA + Math dashboard (3 rows x 2 cols):
-#   Row 1: 100% stacked bar of relative_placement for Fall vs Winter
-#   Row 2: Avg scale score for Fall vs Winter
-#   Row 3: Insight box showing change in avg scale score (Fall → Winter)
-# =========================================================
-
-
-def run_section0_1_iready_fall_winter(
-    df_scope, scope_label="Districtwide", folder="_district", preview=False
-):
-    print("\n>>> STARTING SECTION 0.1 <<<")
-
-    def _prep_section0_1(df, subject):
-        d = df.copy()
-
-        # Normalize i-Ready placement labels for consistency
-        if hasattr(hf, "IREADY_LABEL_MAP"):
-            d["relative_placement"] = d["relative_placement"].replace(
-                hf.IREADY_LABEL_MAP
-            )
-
-        subj = str(subject).upper()
-
-        # --- Restrict to current (max) academic year only ---
-        d["academicyear"] = pd.to_numeric(d.get("academicyear"), errors="coerce")
-        year = int(d["academicyear"].max())
-
-        d = d[
-            (d["academicyear"] == year)
-            & (d["testwindow"].astype(str).str.upper().isin(["FALL", "WINTER"]))
-            & (d["subject"].astype(str).str.upper() == subj)
-            & (d["domain"].astype(str) == "Overall")
-            & (d["enrolled"].astype(str) == "Enrolled")
-            & (d["relative_placement"].notna())
-        ].copy()
-
-        if d.empty:
-            print(f"[WARN] No qualifying rows for Section 0.1 ({subj}, {year})")
-            return None, None
-
-        # Ensure scale_score numeric
-        d["scale_score"] = pd.to_numeric(d.get("scale_score"), errors="coerce")
-
-        # --- Placement % by window ---
-        win_order = ["Fall", "Winter"]
-        counts = (
-            d.groupby(["testwindow", "relative_placement"])
-            .size()
-            .rename("n")
-            .reset_index()
-        )
-        totals = d.groupby("testwindow").size().rename("N_total").reset_index()
-        pct_df = counts.merge(totals, on="testwindow", how="left")
-        pct_df["pct"] = 100 * pct_df["n"] / pct_df["N_total"]
-
-        pct_df["testwindow"] = pct_df["testwindow"].astype(str).str.title()
-        pct_df = pct_df[pct_df["testwindow"].isin(win_order)].copy()
-
-        # Ensure all placements exist for stacking
-        all_idx = pd.MultiIndex.from_product(
-            [win_order, hf.IREADY_ORDER], names=["testwindow", "relative_placement"]
-        )
-        pct_df = (
-            pct_df.set_index(["testwindow", "relative_placement"])
-            .reindex(all_idx)
-            .reset_index()
-        )
-        pct_df["pct"] = pct_df["pct"].fillna(0)
-        pct_df["n"] = pct_df["n"].fillna(0)
-        pct_df["N_total"] = pct_df.groupby("testwindow")["N_total"].transform(
-            lambda s: s.ffill().bfill()
-        )
-
-        # --- Avg scale score by window ---
-        score_df = (
-            d.dropna(subset=["scale_score"])
-            .groupby(d["testwindow"].astype(str).str.title())["scale_score"]
-            .mean()
-            .reindex(win_order)
-            .rename("avg_score")
-            .reset_index()
-            .rename(columns={"testwindow": "window"})
-        )
-
-        # Compute diff (Winter - Fall)
-        fall_val = score_df.loc[score_df["window"] == "Fall", "avg_score"]
-        winter_val = score_df.loc[score_df["window"] == "Winter", "avg_score"]
-        if len(fall_val) == 0 or len(winter_val) == 0:
-            diff = np.nan
-        else:
-            diff = float(winter_val.iloc[0]) - float(fall_val.iloc[0])
-
-        metrics = {"year": year, "diff": diff}
-        return pct_df, score_df, metrics
-
-    def _plot_section0_1(scope_label, folder, data_dict, preview=False):
-        # Layout: 3 rows x 2 columns (ELA left, Math right)
-        fig = plt.figure(figsize=(16, 9), dpi=300)
-        gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.70, 0.65])
-        # More top/bottom room so title + legend + insight text are readable in Slides
-        fig.subplots_adjust(hspace=0.40, wspace=0.25, top=0.86, bottom=0.08)
-
-        # Legend once (top center)
-        legend_handles = [
-            Patch(facecolor=hf.IREADY_COLORS[q], edgecolor="none", label=q)
-            for q in hf.IREADY_ORDER
-        ]
-        leg = fig.legend(
-            handles=legend_handles,
-            labels=hf.IREADY_ORDER,
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.965),
-            ncol=len(hf.IREADY_ORDER),
-            frameon=False,
-            fontsize=11,
-        )
-        # Force darker legend text (some environments render defaults too light)
-        for t in leg.get_texts():
-            t.set_color("#111111")
-
-        win_order = ["Fall", "Winter"]
-
-        for i, (subj, (pct_df, score_df, metrics)) in enumerate(data_dict.items()):
-            # --- Row 1: 100% stacked bar (relative_placement) for Fall vs Winter ---
-            ax_top = fig.add_subplot(gs[0, i])
-            pivot = (
-                pct_df.pivot(
-                    index="testwindow", columns="relative_placement", values="pct"
-                )
-                .reindex(index=win_order)
-                .reindex(columns=hf.IREADY_ORDER)
-                .fillna(0)
-            )
-            x = np.arange(len(win_order))
-            bottom = np.zeros(len(win_order))
-            for cat in hf.IREADY_ORDER:
-                vals = pivot[cat].to_numpy()
-                bars = ax_top.bar(
-                    x,
-                    vals,
-                    bottom=bottom,
-                    color=hf.IREADY_COLORS[cat],
-                    edgecolor="white",
-                    linewidth=1.2,
-                    width=0.7,
-                )
-                for j, v in enumerate(vals):
-                    if v >= LABEL_MIN_PCT:
-                        ax_top.text(
-                            x[j],
-                            bottom[j] + v / 2,
-                            f"{v:.1f}%",
-                            ha="center",
-                            va="center",
-                            fontsize=10,
-                            fontweight="bold",
-                            color=(
-                                "white"
-                                if cat in ["3+ Below", "Mid/Above", "Early On"]
-                                else "#333"
-                            ),
-                        )
-                bottom += vals
-
-            ax_top.set_ylim(0, 100)
-            ax_top.set_ylabel("% of Students", color="#111111")
-            ax_top.set_xticks(x)
-            ax_top.set_xticklabels(win_order, color="#111111")
-            ax_top.tick_params(axis="y", colors="#111111")
-            ax_top.set_title(subj, fontsize=16, fontweight="bold", color="#111111")
-            ax_top.grid(axis="y", alpha=0.2)
-            ax_top.spines["top"].set_visible(False)
-            ax_top.spines["right"].set_visible(False)
-
-            # --- Row 2: Avg Scale Score (Fall vs Winter) ---
-            ax_mid = fig.add_subplot(gs[1, i])
-            xx = np.arange(len(win_order))
-            yvals = score_df["avg_score"].to_numpy()
-            bars = ax_mid.bar(
-                xx,
-                yvals,
-                color=hf.default_quintile_colors[4],
-                edgecolor="white",
-                linewidth=1.2,
-                width=0.7,
-            )
-            for rect, val in zip(bars, yvals):
-                if pd.notna(val):
-                    ax_mid.text(
-                        rect.get_x() + rect.get_width() / 2,
-                        rect.get_height(),
-                        f"{val:.1f}",
-                        ha="center",
-                        va="bottom",
-                        fontsize=16,
-                        fontweight="bold",
-                        color="#111111",
-                    )
-            # --- add n-counts under window labels ---
-            n_map = (
-                pct_df.groupby("testwindow")["N_total"]
-                .max()
-                .reindex(win_order)
-                .to_dict()
-            )
-            labels_with_n = [
-                f"{w}\n(n = {0 if pd.isna(n_map.get(w, np.nan)) else int(n_map.get(w))})"
-                for w in win_order
-            ]
-            ax_mid.set_ylabel("Avg Scale Score", color="#111111")
-            ax_mid.set_xticks(xx)
-            ax_mid.set_xticklabels(labels_with_n, color="#111111")
-            ax_mid.tick_params(axis="y", colors="#111111")
-            ax_mid.grid(axis="y", alpha=0.2)
-            ax_mid.spines["top"].set_visible(False)
-            ax_mid.spines["right"].set_visible(False)
-
-            # --- Row 3: Insight box (diff Winter - Fall) ---
-            ax_bot = fig.add_subplot(gs[2, i])
-            ax_bot.axis("off")
-            diff = metrics.get("diff", np.nan)
-            diff_str = "NA" if pd.isna(diff) else f"{diff:+.1f}"
-            insight_text = "Change in Avg Scale Score Fall to Winter:\n" f"{diff_str}"
-            ax_bot.text(
-                0.5,
-                0.5,
-                insight_text,
-                ha="center",
-                va="center",
-                fontsize=14,
-                color="#111111",
-                bbox=dict(
-                    boxstyle="round,pad=0.6",
-                    facecolor="#eeeeee",
-                    edgecolor="#666666",
-                    linewidth=1.2,
-                ),
-            )
-
-        # Title + save
-        year = next(iter(data_dict.values()))[2].get("year", "")
-        fig.suptitle(
-            f"{scope_label} • {year} • i-Ready Fall vs Winter Trends",
-            fontsize=22,
-            fontweight="bold",
-            y=0.99,
-            color="#111111",
-        )
-
-        out_dir = CHARTS_DIR / folder
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{scope_label}_section0_1_fall_to_winter_.png"
-        hf._save_and_render(fig, out_path)
-        _write_chart_data(
-            out_path,
-            {
-                "chart_type": "iready_moy_section0_1_fall_winter_snapshot",
-                "section": "0.1",
-                "scope": scope_label,
-                "folder": folder,
-                "subjects": list(data_dict.keys()),
-                "window_filter": "Fall/Winter",
-                "pct_data": [
-                    {"subject": subj, "data": _jsonable(data_dict[subj][0])}
-                    for subj in data_dict.keys()
-                ],
-                "score_data": [
-                    {"subject": subj, "data": _jsonable(data_dict[subj][1])}
-                    for subj in data_dict.keys()
-                ],
-                "metrics": [_jsonable(data_dict[subj][2]) for subj in data_dict.keys()],
-            },
-        )
-        print(f"[SAVE] Section 0.1 → {out_path}")
-
-        if preview:
-            plt.show()
-        plt.close(fig)
-
-    # --- Build and plot ---
-    data_dict = {}
-    for subj in ["ELA", "Math"]:
-        prep = _prep_section0_1(df_scope, subj)
-        if prep and prep[0] is not None:
-            pct_df, score_df, metrics = prep
-            data_dict[subj] = (pct_df, score_df, metrics)
-
-    if not data_dict:
-        print(f"[WARN] No valid Section 0.1 data for {scope_label}")
-        return
-
-    _plot_section0_1(scope_label, folder, data_dict, preview=preview)
-
-
-# ---------------------------------------------------------------------
-# DRIVER — RUN SECTION 0.1 (District + Sites)
-# ---------------------------------------------------------------------
-print("Running Section 0.1 batch...")
-
-# District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section0_1_iready_fall_winter(
-    scope_df, scope_label=scope_label, folder=folder, preview=False
-)
-
-# Site-level
-for raw_school in sorted(iready_base["school"].dropna().unique()):
-    scope_df = iready_base[iready_base["school"] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-    folder = scope_label.replace(" ", "_")
-    run_section0_1_iready_fall_winter(
-        scope_df, scope_label=scope_label, folder=folder, preview=False
-    )
-
-
-print("Section 0.1 batch complete.")
-
-# ---------------------------------------------------------------------
-# DRIVER — RUN SECTION 0.1 BY GRADE (District + Sites)
-# ---------------------------------------------------------------------
-print("Running Section 0.1 grade-level batch...")
-
-# Use current year only (matches Section 0.1 logic)
-_base0_1 = iready_base.copy()
-_base0_1["academicyear"] = pd.to_numeric(_base0_1.get("academicyear"), errors="coerce")
-_curr_year0_1 = int(_base0_1["academicyear"].max())
-_base0_1 = _base0_1[_base0_1["academicyear"] == _curr_year0_1].copy()
-
-# Normalize grade to numeric for looping
-_base0_1["student_grade"] = pd.to_numeric(
-    _base0_1.get("student_grade"), errors="coerce"
-)
-
-# Limit to grades used in reporting (Gr 3-8 and 11)
-_grade_whitelist0_1 = {8, 11}
-# If grades were selected in the frontend, the runner passes them via env var.
-# Example: IREADY_MOY_GRADES="3,4,5"
-_env_grades = os.getenv("IREADY_MOY_GRADES")
-if _env_grades:
-    try:
-        _parsed = {int(x.strip()) for x in str(_env_grades).split(",") if x.strip()}
-        if _parsed:
-            _grade_whitelist0_1 = _parsed
-    except Exception:
-        pass
-
-# ---- District-level (by grade) ----
-scope_label_district = district_label
-for g in sorted(_base0_1["student_grade"].dropna().unique()):
-    if int(g) not in _grade_whitelist0_1:
-        continue
-    df_g = _base0_1[_base0_1["student_grade"] == g].copy()
-    run_section0_1_iready_fall_winter(
-        df_g,
-        scope_label=f"{scope_label_district} • Grade {int(g)}",
-        folder="_district",
-        preview=False,
-    )
-
-# ---- Site-level (by grade) ----
-for raw_school in sorted(_base0_1["school"].dropna().unique()):
-    school_df = _base0_1[_base0_1["school"] == raw_school].copy()
-    scope_label_school = hf._safe_normalize_school_name(raw_school, cfg)
-    folder_school = scope_label_school.replace(" ", "_")
-
-    for g in sorted(school_df["student_grade"].dropna().unique()):
-        if int(g) not in _grade_whitelist0_1:
-            continue
-        df_g = school_df[school_df["student_grade"] == g].copy()
-        run_section0_1_iready_fall_winter(
-            df_g,
-            scope_label=f"{scope_label_school} • Grade {int(g)}",
-            folder=folder_school,
-            preview=False,
-        )
-
-print("Section 0.1 grade-level batch complete.")
-
-
-# %% SECTION 1 - Winter Performance Trends
+# %% SECTION 1 - Fall Performance Trends
 # Subject Dashboards by Year/Window
-# Example labels: "Winter 22-23", "Winter 23-24", "Winter 24-25", "Winter 25-26"
+# Example labels: "Fall 22-23", "Fall 23-24", "Fall 24-25", "Fall 25-26"
 # Rules:
-#   - Window: Winter only (default, configurable)
+#   - Window: Fall only (default, configurable)
 #   - Subject filtering:
 #       - ELA: subject contains "ELA" (case-insensitive)
 #       - Math: subject contains "Math"
@@ -1013,7 +592,7 @@ print("Section 0.1 grade-level batch complete.")
 def _prep_iready_for_charts(
     df: pd.DataFrame,
     subject_str: str,
-    window_filter: str = "Winter",
+    window_filter: str = "Fall",
 ):
     """Prepare i-Ready data for dashboard plotting."""
     d = df.copy()
@@ -1191,7 +770,7 @@ def _prep_iready_for_charts(
 # ---------------------------------------------------------------------
 def plot_iready_dual_subject_dashboard(
     df,
-    window_filter="Winter",
+    window_filter="Fall",
     figsize=(16, 9),
     school_raw=None,
     scope_label=None,
@@ -1238,7 +817,7 @@ def plot_iready_dual_subject_dashboard(
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=12,
+                        fontsize=8,
                         fontweight="bold",
                         color="#333",
                     )
@@ -1269,7 +848,7 @@ def plot_iready_dual_subject_dashboard(
                 f"{v:.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=14,
+                fontsize=9,
                 fontweight="bold",
                 color="#333",
             )
@@ -1346,7 +925,7 @@ def plot_iready_dual_subject_dashboard(
         metrics = dict(metrics)
         metrics["pct_df"] = pct_df
 
-        # Collect analyzer-friendly data (avoid truthiness checks on Series/DataFrames)
+        # Collect analyzer-friendly payload
         try:
             _pct_payload.append({"subject": title, "data": _jsonable(pct_df)})
             _score_payload.append({"subject": title, "data": _jsonable(score_df)})
@@ -1360,7 +939,7 @@ def plot_iready_dual_subject_dashboard(
 
         ax2 = fig.add_subplot(gs[1, i])
         draw_score_bar(ax2, score_df, n_map)
-        ax2.set_title("Avg Scale Score", fontsize=14, fontweight="bold", pad=10)
+        ax2.set_title("Avg Scale Score", fontsize=8, fontweight="bold", pad=10)
 
         ax3 = fig.add_subplot(gs[2, i])
         draw_insight_card(ax3, metrics)
@@ -1377,7 +956,7 @@ def plot_iready_dual_subject_dashboard(
         bbox_to_anchor=(0.5, 0.925),
         ncol=len(hf.IREADY_ORDER),
         frameon=False,
-        fontsize=13,
+        fontsize=9,
     )
 
     # --- Title and save ---
@@ -1401,7 +980,7 @@ def plot_iready_dual_subject_dashboard(
     _write_chart_data(
         out_path,
         {
-            "chart_type": "iready_moy_section1_dual_subject_dashboard",
+            "chart_type": "iready_boy_section1_dual_subject_dashboard",
             "section": 1,
             "scope": scope_label,
             "window_filter": window_filter,
@@ -1428,7 +1007,7 @@ scope_label = district_label
 
 plot_iready_dual_subject_dashboard(
     scope_df,
-    window_filter="Winter",
+    window_filter="Fall",
     figsize=(16, 9),
     school_raw=None,
     scope_label=scope_label,
@@ -1442,7 +1021,7 @@ for raw_school in sorted(iready_base["school"].dropna().unique()):
 
     plot_iready_dual_subject_dashboard(
         scope_df,
-        window_filter="Winter",
+        window_filter="Fall",
         figsize=(16, 9),
         school_raw=raw_school,  # keep raw for internal filters
         scope_label=scope_label,  # standardized label for chart titles + filenames
@@ -1483,7 +1062,7 @@ def _apply_student_group_mask(
 def plot_iready_subject_dashboard_by_group(
     df,
     subject_str=None,
-    window_filter="Winter",
+    window_filter="Fall",
     group_name=None,
     group_def=None,
     figsize=(16, 9),
@@ -1506,7 +1085,7 @@ def plot_iready_subject_dashboard_by_group(
         hf._safe_normalize_school_name(school_raw, cfg) if school_raw else None
     )
     title_label = (
-        (district_label or "District (All Students)")
+        _cfg_first(cfg, "district_name", "District (All Students)")
         if not school_display
         else school_display
     )
@@ -1599,8 +1178,7 @@ def plot_iready_subject_dashboard_by_group(
     # Use a gridspec layout for more flexible spacing
     fig = plt.figure(figsize=figsize, dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
-    # Give title/legend and insight boxes more room (Slides-friendly)
-    fig.subplots_adjust(hspace=0.38, wspace=0.25, top=0.86, bottom=0.08)
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     axes = [
         [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
         [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])],
@@ -1653,42 +1231,33 @@ def plot_iready_subject_dashboard_by_group(
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=12,
+                        fontsize=8,
                         fontweight="bold",
                         color=label_color,
                     )
             cumulative += band_vals
         ax1.set_ylim(0, 100)
-        ax1.set_ylabel("% of Students", color="#111111")
+        ax1.set_ylabel("% of Students")
         ax1.set_xticks(x)
-        ax1.set_xticklabels(x_labels, color="#111111")
-        ax1.tick_params(axis="y", colors="#111111")
+        ax1.set_xticklabels(x_labels)
         ax1.grid(axis="y", alpha=0.2)
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
         # Title
-        ax1.set_title(
-            f"{subject_titles[i]}",
-            fontsize=18,
-            fontweight="bold",
-            y=1.08,
-            color="#111111",
-        )
+        ax1.set_title(f"{subject_titles[i]}", fontsize=14, fontweight="bold", y=1.1)
     # Place legend once, centered above both facets
-    leg = fig.legend(
+    fig.legend(
         handles=legend_handles,
         labels=hf.IREADY_ORDER,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.965),
+        bbox_to_anchor=(0.5, 0.92),
         ncol=len(hf.IREADY_ORDER),
         frameon=False,
-        fontsize=14,
+        fontsize=10,
         handlelength=1.8,
         handletextpad=0.5,
         columnspacing=1.1,
     )
-    for t in leg.get_texts():
-        t.set_color("#111111")
     # Panel 2: Avg score by subject
     for i, subj in enumerate(subjects):
         score_df = score_dfs[i]
@@ -1709,9 +1278,9 @@ def plot_iready_subject_dashboard_by_group(
                 f"{v:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=18,
+                fontsize=10,
                 fontweight="bold",
-                color="#111111",
+                color="#434343",
             )
         # --- Add n-counts under xticklabels ---
         n_map = n_maps[i] if i < len(n_maps) else {}
@@ -1719,13 +1288,10 @@ def plot_iready_subject_dashboard_by_group(
         labels_with_n = [
             f"{lbl}\n(n = {int(n_map.get(lbl, 0))})" for lbl in base_labels
         ]
-        ax2.set_ylabel("Avg Scale Score", color="#111111")
+        ax2.set_ylabel("Avg Scale Score")
         ax2.set_xticks(rit_x)
-        ax2.set_xticklabels(labels_with_n, color="#111111")
-        ax2.tick_params(axis="y", colors="#111111")
-        ax2.set_title(
-            "Average Scale Score", fontsize=14, fontweight="bold", pad=10, color="#111111"
-        )
+        ax2.set_xticklabels(labels_with_n)
+        ax2.set_title("Average Scale Score", fontsize=8, fontweight="bold", pad=10)
         ax2.grid(axis="y", alpha=0.2)
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
@@ -1763,27 +1329,26 @@ def plot_iready_subject_dashboard_by_group(
             0.5,
             0.5,
             "\n".join(insight_lines),
-            fontsize=16,
+            fontsize=13,
             fontweight="medium",
-            color="#111111",
+            color="#333333",
             ha="center",
             va="center",
             wrap=True,
             usetex=False,
             bbox=dict(
-                boxstyle="round,pad=0.6",
-                facecolor="#eeeeee",
-                edgecolor="#666666",
-                linewidth=1.2,
+                boxstyle="round,pad=0.5",
+                facecolor="#f5f5f5",
+                edgecolor="#ccc",
+                linewidth=0.8,
             ),
         )
     # Main title for the whole figure
     fig.suptitle(
-        f"{title_label} • {group_name} • Winter Year-to-Year Trends",
-        fontsize=26,
+        f"{title_label} • {group_name} • Fall Year-to-Year Trends",
+        fontsize=20,
         fontweight="bold",
-        y=0.99,
-        color="#111111",
+        y=1,
     )
     # --- Save ---
     charts_dir = CHARTS_DIR
@@ -1800,27 +1365,27 @@ def plot_iready_subject_dashboard_by_group(
     order_map = cfg.get("student_group_order", {})
     group_order_val = order_map.get(group_name, 99)
 
-    out_name = f"{safe_scope}_section2_{group_order_val:02d}_{safe_group}_Winter_i-Ready_trends.png"
+    out_name = f"{safe_scope}_section2_{group_order_val:02d}_{safe_group}_fall_i-Ready_trends.png"
     out_path = out_dir / out_name
 
     hf._save_and_render(fig, out_path)
     _write_chart_data(
         out_path,
         {
-            "chart_type": "iready_moy_section2_student_group_dashboard",
+            "chart_type": "iready_boy_section2_student_group_dashboard",
             "section": 2,
             "scope": title_label,
             "scope_label": scope_label,
-            "group_name": group_name,
             "window_filter": window_filter,
-            "subjects": subjects,
+            "group_name": group_name,
+            "subjects": subject_titles,
             "pct_data": [
-                {"subject": subjects[i], "data": _jsonable(pct_dfs[i])}
-                for i in range(len(subjects))
+                {"subject": subject_titles[i], "data": _jsonable(pct_dfs[i])}
+                for i in range(len(subject_titles))
             ],
             "score_data": [
-                {"subject": subjects[i], "data": _jsonable(score_dfs[i])}
-                for i in range(len(subjects))
+                {"subject": subject_titles[i], "data": _jsonable(score_dfs[i])}
+                for i in range(len(subject_titles))
             ],
             "metrics": [_jsonable(m) for m in metrics_list],
             "time_orders": [_jsonable(t) for t in time_orders],
@@ -1840,8 +1405,8 @@ student_groups_cfg = cfg.get("student_groups", {})
 group_order = cfg.get("student_group_order", {})
 
 # Optional: restrict student-group dashboards based on frontend selection.
-# The runner passes selected groups as: IREADY_MOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
-_env_groups = os.getenv("IREADY_MOY_STUDENT_GROUPS")
+# The runner passes selected groups as: IREADY_BOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
+_env_groups = os.getenv("IREADY_BOY_STUDENT_GROUPS")
 _selected_groups = []
 if _env_groups:
     _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
@@ -1861,7 +1426,7 @@ for group_name, group_def in sorted(
     plot_iready_subject_dashboard_by_group(
         scope_df.copy(),
         subject_str=None,
-        window_filter="Winter",
+        window_filter="Fall",
         group_name=group_name,
         group_def=group_def,
         figsize=(16, 9),
@@ -1884,7 +1449,7 @@ for raw_school in sorted(iready_base["schoolname"].dropna().unique()):
         plot_iready_subject_dashboard_by_group(
             scope_df.copy(),
             subject_str=None,
-            window_filter="Winter",
+            window_filter="Fall",
             group_name=group_name,
             group_def=group_def,
             figsize=(16, 9),
@@ -1943,7 +1508,7 @@ def _prep_iready_matched_cohort_by_grade(
         tmp = tmp.groupby("uniqueidentifier", as_index=False).tail(1)
 
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • Winter {y_prev}-{y_curr}"
+        label = f"Gr {int(gr)} • Fall {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)
@@ -2063,7 +1628,7 @@ def plot_iready_blended_dashboard(
     df,
     subject_str,
     current_grade,
-    window_filter="Winter",
+    window_filter="Fall",
     cohort_year=None,
     figsize=(16, 9),
     scope_label=None,
@@ -2165,7 +1730,7 @@ def plot_iready_blended_dashboard(
                         f"{v:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=12,
+                        fontsize=8,
                         fontweight="bold",
                         color=(
                             "white"
@@ -2177,7 +1742,7 @@ def plot_iready_blended_dashboard(
         ax.set_ylim(0, 100)
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
-        ax.set_xticklabels(pivot.index.tolist(), fontsize=12)
+        ax.set_xticklabels(pivot.index.tolist())
         ax.grid(axis="y", alpha=0.3)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -2195,7 +1760,7 @@ def plot_iready_blended_dashboard(
                 f"{v:.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=14,
+                fontsize=9,
                 fontweight="bold",
                 color="#333",
             )
@@ -2206,7 +1771,7 @@ def plot_iready_blended_dashboard(
             labels = base_labels
         ax.set_ylabel("Avg Scale Score")
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, fontsize=12)
+        ax.set_xticklabels(labels)
         ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -2339,7 +1904,7 @@ def plot_iready_blended_dashboard(
     _write_chart_data(
         out_path,
         {
-            "chart_type": "iready_moy_section3_blended_dashboard",
+            "chart_type": "iready_boy_section3_blended_dashboard",
             "section": 3,
             "scope": scope_label,
             "window_filter": window_filter,
@@ -2371,29 +1936,27 @@ _base["student_grade"] = pd.to_numeric(_base["student_grade"], errors="coerce")
 _anchor_year = int(_base["academicyear"].max())
 
 # Optional: restrict grade-level dashboards based on frontend selection.
-# The runner passes selected grades as: IREADY_MOY_GRADES="3,4,5"
-_env_grades2 = os.getenv("IREADY_MOY_GRADES")
-_selected_grades2 = None
-if _env_grades2:
+# The runner passes selected grades as: IREADY_BOY_GRADES="3,4,5"
+_env_grades = os.getenv("IREADY_BOY_GRADES")
+_selected_grades = None
+if _env_grades:
     try:
-        _selected_grades2 = {
-            int(x.strip()) for x in str(_env_grades2).split(",") if x.strip()
-        }
-        if _selected_grades2:
-            print(f"[FILTER] Grade selection from frontend: {sorted(_selected_grades2)}")
+        _selected_grades = {int(x.strip()) for x in str(_env_grades).split(",") if x.strip()}
+        if _selected_grades:
+            print(f"[FILTER] Grade selection from frontend: {sorted(_selected_grades)}")
     except Exception:
-        _selected_grades2 = None
+        _selected_grades = None
 
 scope_label = district_label
 for g in sorted(_base["student_grade"].dropna().unique()):
-    if _selected_grades2 and int(g) not in _selected_grades2:
+    if _selected_grades and int(g) not in _selected_grades:
         continue
     for subj in ["ELA", "Math"]:
         plot_iready_blended_dashboard(
             _base.copy(),
             subj,
             int(g),
-            "Winter",
+            "Fall",
             _anchor_year,
             scope_label=scope_label,
             preview=False,
@@ -2406,19 +1969,18 @@ for raw_school in sorted(_base["school"].dropna().unique()):
     anchor = int(site_df["academicyear"].max())
     scope_label = hf._safe_normalize_school_name(raw_school, cfg)
     for g in sorted(site_df["student_grade"].dropna().unique()):
-        if _selected_grades2 and int(g) not in _selected_grades2:
+        if _selected_grades and int(g) not in _selected_grades:
             continue
         for subj in ["ELA", "Math"]:
             plot_iready_blended_dashboard(
                 site_df.copy(),
                 subj,
                 int(g),
-                "Winter",
+                "Fall",
                 anchor,
                 scope_label=scope_label,
                 preview=False,
             )
-
 # %% SECTION 4 — Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)
 # ---------------------------------------------------------------------
 # Matches Section 2 exactly in layout and mathtext behavior
@@ -2436,7 +1998,7 @@ def _prep_mid_above_to_cers(df_in: pd.DataFrame, subject: str) -> pd.DataFrame:
 
     d = d[
         (d["domain"].astype(str).str.lower() == "overall")
-        & (d["testwindow"].astype(str).str.lower() == "winter")
+        & (d["testwindow"].astype(str).str.lower() == "spring")
         & (d["cers_overall_performanceband"].notna())
         & (d[placement_col].notna())
     ].copy()
@@ -2496,7 +2058,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
                 f"{yv:.0f}%\n(n={int(n)})",
                 ha="center",
                 va="center",
-                fontsize=14,
+                fontsize=10,
                 fontweight="bold",
                 color="white",
             )
@@ -2521,7 +2083,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
 
         lines = [
             rf"Historically, $\mathbf{{{overall_pct:.1f}\%}}$ of students that meet ",
-            r"$\mathbf{Mid\ or\ Above}$ Grade Level in Winter i-Ready tend to ",
+            r"$\mathbf{Mid\ or\ Above}$ Grade Level in Spring i-Ready tend to ",
             r"$\mathbf{Meet\ or\ Exceed\ Standard}$ on CAASPP for " + subj + ".",
         ]
 
@@ -2544,7 +2106,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
         )
 
     fig.suptitle(
-        f"{scope_label} \n Winter i-Ready Mid/Above → % CERS Met/Exceeded",
+        f"{scope_label} \n Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)",
         fontsize=20,
         fontweight="bold",
         y=1.02,
@@ -2560,12 +2122,10 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
     _write_chart_data(
         out_path,
         {
-            "chart_type": "iready_moy_section4_mid_plus_to_3plus",
+            "chart_type": "iready_boy_section4_mid_plus_to_3plus",
             "section": 4,
             "scope": scope_label,
             "subjects": subjects,
-            # Provide the underlying trend tables per subject so the analyzer can summarize.
-            # (Each record has academicyear, n, me, pct_me)
             "pct_data": [
                 {"subject": subj, "data": _jsonable(trends.get(subj))}
                 for subj in subjects
@@ -2592,10 +2152,10 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
 # ---------------------------------------------------------------------
 # DRIVER — Section 4 (District + Sites)
 # ---------------------------------------------------------------------
-print("Running Section 4 — Winter Mid/Above → CERS Met/Exceeded")
+print("Running Section 4 — Spring Mid/Above → CERS Met/Exceeded")
 
 scope_df = iready_base.copy()
-district_label = district_label
+district_label = _cfg_first(cfg, "district_name", "Districtwide")
 _plot_mid_above_to_cers_faceted(scope_df, district_label, folder_name="_district")
 
 school_col = "school" if "school" in iready_base.columns else "schoolname"
@@ -2604,505 +2164,259 @@ for raw_school in sorted(iready_base[school_col].dropna().unique()):
     scope_label = hf._safe_normalize_school_name(raw_school, cfg)
     folder = scope_label.replace(" ", "_")
     _plot_mid_above_to_cers_faceted(site_df, scope_label, folder_name=folder)
+# %%
 
 
-# %% SECTION 5 — MOY Growth Progress (Median % Progress + On-Track + BOY-Anchored Insights)
-# ---------------------------------------------------------------------
-# Purpose:
-#   - Winter-only snapshot of growth progress toward annual goals.
-#   - Top panel: Median % progress to Typical vs Stretch with 50% reference line.
-#   - Middle panel: % of students at/above 50% progress to Typical vs Stretch.
-#   - Bottom panel: BOY-anchored pathway update:
-#       * Fall baseline cohort defines Mid+ pathway buckets (Already Mid+, Mid with Typical, Mid with Stretch, Beyond Stretch)
-#       * Winter shows progress within those fixed Fall-defined cohorts.
-# Notes:
-#   - Uses current (max) academicyear.
-#   - Anchors cohorts in Fall baseline_diagnostic == "Yes" (and Overall domain, Enrolled).
-#   - Measures Winter progress using annual_typical_growth_percent / annual_stretch_growth_percent (0–100 integers).
-# ---------------------------------------------------------------------
+# %% SECTION 5 - Growth Path Counts and charts
 
+df = iready_base.copy()
+df = df[
+    (df["academicyear"] == 2026)
+    & (df["enrolled"] == "Enrolled")
+    & (df["testwindow"].astype(str).str.lower() == "fall")
+    & (df["domain"].astype(str).str.lower() == "overall")
+    & (df["most_recent_diagnostic"] == "Yes")
+].copy()
 
-def run_section5_growth_progress_moy(
-    df_scope, scope_label="Districtwide", folder="_district", preview=False
-):
-    print("\n>>> STARTING SECTION 5 <<<")
+# keep only grades < 9
+df["student_grade"] = pd.to_numeric(df["student_grade"], errors="coerce")
+df = df[df["student_grade"] < 9].copy()
 
-    # ----------------------------
-    # Helpers
-    # ----------------------------
-    def _safe_id_col(df):
-        # Prefer student_id for cross-window matching (uniqueidentifier can be unstable/missing across windows)
-        return "student_id" if "student_id" in df.columns else "uniqueidentifier"
+# numeric coercion
+ss = pd.to_numeric(df["scale_score"], errors="coerce")
+typ = pd.to_numeric(df["annual_typical_growth_measure"], errors="coerce")
+strg = pd.to_numeric(df["annual_stretch_growth_measure"], errors="coerce")
+mid = pd.to_numeric(df["mid_on_grade_level_scale_score"], errors="coerce")
 
-    def _dedupe_latest(df, id_col, sort_col_candidates):
-        d = df.copy()
-        sort_col = None
-        for c in sort_col_candidates:
-            if c in d.columns:
-                sort_col = c
-                break
-        if sort_col is None:
-            # fallback: stable order
-            d = d.sort_values([id_col])
-            return d.groupby([id_col], as_index=False).tail(1)
+# masks
+already_mid = df["relative_placement"].eq("Mid or Above Grade Level")
+typ_reach = (ss + typ) >= mid
+str_reach = (ss + strg) >= mid
 
-        d[sort_col] = pd.to_datetime(d[sort_col], errors="coerce")
-        d = d.sort_values([id_col, sort_col])
-        return d.groupby([id_col], as_index=False).tail(1)
+# precedence fill
+out = np.full(len(df), np.nan, dtype=object)
+out[already_mid.to_numpy()] = "Already Mid+"
+m2 = (~already_mid) & typ_reach
+out[m2.to_numpy()] = "Mid with Typical"
+m3 = (~already_mid) & (~typ_reach) & str_reach
+out[m3.to_numpy()] = "Mid with Stretch"
 
-    def _normalize_placement(d):
-        if hasattr(hf, "IREADY_LABEL_MAP") and "relative_placement" in d.columns:
-            d["relative_placement"] = d["relative_placement"].replace(
-                hf.IREADY_LABEL_MAP
-            )
-        return d
+df["mid_flag"] = out
 
-    def _prep_section5_subject(df, subject):
-        d0 = df.copy()
+# fill remaining cases
+df["mid_flag"] = df["mid_flag"].fillna("Mid Beyond Stretch")
 
-        # Current year only
-        d0["academicyear"] = pd.to_numeric(d0.get("academicyear"), errors="coerce")
-        year = int(d0["academicyear"].max())
-        d0 = d0[d0["academicyear"] == year].copy()
-
-        # Grade filter: default K–8 only (9–12 typically do not have growth targets)
-        if "student_grade" in d0.columns:
-            d0["student_grade"] = pd.to_numeric(
-                d0.get("student_grade"), errors="coerce"
-            )
-            d0 = d0[d0["student_grade"] <= 8].copy()
-
-        # Common filters
-        subj = str(subject).strip().upper()
-
-        base_mask = (d0["enrolled"].astype(str) == "Enrolled") & (
-            d0["domain"].astype(str).str.lower() == "overall"
-        )
-
-        # i-Ready subjects are often labeled "Reading" and "Math"
-        if subj == "ELA":
-            subj_mask = (
-                d0["subject"]
-                .astype(str)
-                .str.contains("ela|reading", case=False, na=False)
-            )
-        elif subj == "MATH":
-            subj_mask = (
-                d0["subject"].astype(str).str.contains("math", case=False, na=False)
-            )
-        else:
-            subj_mask = (
-                d0["subject"].astype(str).str.contains(subj, case=False, na=False)
-            )
-
-        d0 = d0[base_mask & subj_mask].copy()
-
-        if d0.empty:
-            return None
-
-        id_col = _safe_id_col(d0)
-        # Ensure ID types match across Fall/Winter (avoid int/float/object mismatches)
-        d0[id_col] = d0[id_col].astype(str).str.strip()
-        d0.loc[d0[id_col].isin(["nan", "None", "<NA>"]), id_col] = np.nan
-
-        # ----------------------------
-        # Fall baseline cohort (BOY-anchored)
-        # ----------------------------
-        fall = d0[
-            (d0["testwindow"].astype(str).str.lower() == "fall")
-            & (d0.get("baseline_diagnostic", "").astype(str).str.lower() == "yes")
-        ].copy()
-
-        if fall.empty:
-            print(f"[WARN] Section 5: No Fall baseline rows for {subj} ({year})")
-            return None
-
-        fall = _normalize_placement(fall)
-        fall = _dedupe_latest(fall, id_col, ["completion_date", "teststartdate"])
-
-        # numeric coercion for pathway math
-        ss = pd.to_numeric(fall.get("scale_score"), errors="coerce")
-        typ = pd.to_numeric(fall.get("annual_typical_growth_measure"), errors="coerce")
-        strg = pd.to_numeric(fall.get("annual_stretch_growth_measure"), errors="coerce")
-        mid = pd.to_numeric(fall.get("mid_on_grade_level_scale_score"), errors="coerce")
-
-        # After label normalization, Mid/Above is typically "Mid/Above"
-        already_mid = (
-            fall["relative_placement"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .isin(
-                [
-                    "mid/above",
-                    "mid or above grade level",
-                    "mid or above",
-                    "mid or above grade level",
-                    "mid/above grade level",
-                ]
-            )
-        )
-        typ_reach = (ss + typ) >= mid
-        str_reach = (ss + strg) >= mid
-
-        out = np.full(len(fall), np.nan, dtype=object)
-        out[already_mid.to_numpy()] = "Already Mid+"
-        m2 = (~already_mid) & typ_reach
-        out[m2.to_numpy()] = "Mid with Typical"
-        m3 = (~already_mid) & (~typ_reach) & str_reach
-        out[m3.to_numpy()] = "Mid with Stretch"
-        fall["mid_flag"] = pd.Series(out, index=fall.index).fillna("Mid Beyond Stretch")
-
-        # Base counts (Fall)
-        fall_counts = (
-            fall["mid_flag"]
-            .value_counts(dropna=False)
-            .reindex(
-                [
-                    "Already Mid+",
-                    "Mid with Typical",
-                    "Mid with Stretch",
-                    "Mid Beyond Stretch",
-                ]
-            )
-            .fillna(0)
-            .astype(int)
-            .to_dict()
-        )
-
-        # ----------------------------
-        # Winter rows for same Fall cohort
-        # ----------------------------
-        winter = d0[(d0["testwindow"].astype(str).str.lower() == "winter")].copy()
-        winter = _normalize_placement(winter)
-        winter = _dedupe_latest(winter, id_col, ["completion_date", "teststartdate"])
-
-        # restrict to Fall cohort ids
-        cohort_ids = set(fall[id_col].dropna().unique().tolist())
-
-        # DQC: confirm IDs intersect across windows before filtering
-        winter_ids = set(winter[id_col].dropna().unique().tolist())
-        inter = cohort_ids.intersection(winter_ids)
-        print(
-            f"[DQC][S5] {subj} {year} id_col={id_col} | "
-            f"fall_ids={len(cohort_ids):,} winter_ids={len(winter_ids):,} intersect={len(inter):,}"
-        )
-        if len(inter) == 0:
-            print(f"[DQC][S5] fall id sample: {list(cohort_ids)[:5]}")
-            print(f"[DQC][S5] winter id sample: {list(winter_ids)[:5]}")
-
-        # apply filter
-        winter = winter[winter[id_col].isin(cohort_ids)].copy()
-
-        if winter.empty:
-            print(f"[WARN] Section 5: No Winter rows for Fall cohort ({subj}, {year})")
-            return None
-
-        # attach fall mid_flag to winter for cohort-wise tracking
-        winter = winter.merge(
-            fall[[id_col, "mid_flag"]].drop_duplicates(subset=[id_col]),
-            on=id_col,
-            how="left",
-        )
-
-        # progress percents (0–100 ints) — use actual i-Ready columns
-        winter["pct_typ"] = pd.to_numeric(
-            winter.get("percent_progress_to_annual_typical_growth_"), errors="coerce"
-        )
-        winter["pct_str"] = pd.to_numeric(
-            winter.get("percent_progress_to_annual_stretch_growth_"), errors="coerce"
-        )
-
-        # ----------------------------
-        # Metrics for chart panels
-        # ----------------------------
-        med_typ = float(np.nanmedian(winter["pct_typ"].to_numpy()))
-        med_str = float(np.nanmedian(winter["pct_str"].to_numpy()))
-        pct50_typ = float((winter["pct_typ"] >= 50).mean() * 100)
-        pct50_str = float((winter["pct_str"] >= 50).mean() * 100)
-
-        # Mid/Above in Winter (for progress update)
-        winter_mid = (
-            winter["relative_placement"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .isin(
-                [
-                    "mid/above",
-                    "mid or above grade level",
-                    "mid or above",
-                    "mid or above grade level",
-                    "mid/above grade level",
-                ]
-            )
-        )
-        winter_mid_count = int(winter_mid.sum())
-        winter_already_mid_count = winter_mid_count
-
-        # Newly Mid+ by Winter (not Already Mid+ in Fall)
-        fall_mid_ids = set(
-            fall.loc[fall["mid_flag"] == "Already Mid+", id_col].tolist()
-        )
-        newly_mid = int(
-            winter.loc[~winter[id_col].isin(fall_mid_ids), :][
-                winter_mid.loc[~winter[id_col].isin(fall_mid_ids)].values
-            ].shape[0]
-        )
-
-        # Cohort-wise on-track within Fall-defined groups
-        def _on_track(group_name, col):
-            base_ids = set(
-                fall.loc[fall["mid_flag"] == group_name, id_col].dropna().tolist()
-            )
-            denom = len(base_ids)
-            if denom == 0:
-                return {"denom": 0, "num": 0, "pct": np.nan}
-            w = winter[winter[id_col].isin(base_ids)].copy()
-            num = int((w[col] >= 50).sum())
-            pct = 100 * num / denom
-            return {"denom": denom, "num": num, "pct": pct}
-
-        on_typ = _on_track("Mid with Typical", "pct_typ")
-        on_str = _on_track("Mid with Stretch", "pct_str")
-        on_beyond = _on_track("Mid Beyond Stretch", "pct_str")
-
-        metrics = dict(
-            year=year,
-            med_typ=med_typ,
-            med_str=med_str,
-            pct50_typ=pct50_typ,
-            pct50_str=pct50_str,
-            fall_counts=fall_counts,
-            winter_mid_count=winter_mid_count,
-            winter_already_mid_count=winter_already_mid_count,
-            newly_mid=newly_mid,
-            on_typ=on_typ,
-            on_str=on_str,
-            on_beyond=on_beyond,
-            n_winter=int(winter[id_col].nunique()),
-        )
-
-        return metrics
-
-    def _plot_section5(scope_label, folder, metrics_by_subject, preview=False):
-        fig = plt.figure(figsize=(16, 9), dpi=300)
-        gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.6])
-        fig.subplots_adjust(hspace=0.35, wspace=0.25)
-
-        # Colors (match existing i-Ready blues)
-        c_typ = hf.IREADY_COLORS.get("Mid/Above", "#0381a2")  # darker
-        c_str = hf.IREADY_COLORS.get("Early On", "#00baeb")  # lighter
-
-        for i, subj in enumerate(["ELA", "Math"]):
-            m = metrics_by_subject.get(subj)
-            if not m:
-                ax0 = fig.add_subplot(gs[0, i])
-                ax0.axis("off")
-                ax1 = fig.add_subplot(gs[1, i])
-                ax1.axis("off")
-                ax2 = fig.add_subplot(gs[2, i])
-                ax2.axis("off")
-                continue
-
-            # ----------------------------
-            # Top: Median % progress (Typical vs Stretch) with 50% line
-            # ----------------------------
-            ax_top = fig.add_subplot(gs[0, i])
-            x = np.arange(2)
-            vals = [m["med_typ"], m["med_str"]]
-            bars = ax_top.bar(
-                x,
-                vals,
-                color=[c_typ, c_str],
-                edgecolor="white",
-                linewidth=1.2,
-                width=0.6,
-            )
-            for rect, v in zip(bars, vals):
-                if pd.notna(v):
-                    ax_top.text(
-                        rect.get_x() + rect.get_width() / 2,
-                        rect.get_height() + 1,
-                        f"{v:.0f}%",
-                        ha="center",
-                        va="bottom",
-                        fontsize=14,
-                        fontweight="bold",
-                        color="#333",
-                    )
-            # Add 50% reference line (lighter)
-            ax_top.axhline(50, linestyle="--", linewidth=1.0, color="#999", alpha=0.6)
-            ax_top.set_ylim(0, 100)
-            ax_top.set_yticks(range(0, 101, 20))
-            ax_top.set_yticklabels([f"{t}%" for t in range(0, 101, 20)])
-            ax_top.set_xticks(x)
-            ax_top.set_xticklabels(["Median % Typical", "Median % Stretch"])
-            ax_top.set_ylabel("% Progress")
-            ax_top.set_title(subj, fontsize=14, fontweight="bold")
-            ax_top.grid(axis="y", alpha=0.2)
-            ax_top.spines["top"].set_visible(False)
-            ax_top.spines["right"].set_visible(False)
-
-            # ----------------------------
-            # Middle: % of students >= 50% progress (Typical vs Stretch)
-            # ----------------------------
-            ax_mid = fig.add_subplot(gs[1, i])
-            x2 = np.arange(2)
-            vals2 = [m["pct50_typ"], m["pct50_str"]]
-            bars2 = ax_mid.bar(
-                x2,
-                vals2,
-                color=[c_typ, c_str],
-                edgecolor="white",
-                linewidth=1.2,
-                width=0.6,
-            )
-            for rect, v in zip(bars2, vals2):
-                if pd.notna(v):
-                    ax_mid.text(
-                        rect.get_x() + rect.get_width() / 2,
-                        rect.get_height() + 1,
-                        f"{v:.0f}%",
-                        ha="center",
-                        va="bottom",
-                        fontsize=14,
-                        fontweight="bold",
-                        color="#333",
-                    )
-            ax_mid.axhline(50, linestyle="--", linewidth=1.0, color="#666", alpha=0.8)
-            ax_mid.set_ylim(0, 100)
-            ax_mid.set_yticks(range(0, 101, 20))
-            ax_mid.set_yticklabels([f"{t}%" for t in range(0, 101, 20)])
-            ax_mid.set_xticks(x2)
-            ax_mid.set_xticklabels([">=50% Typical", ">=50% Stretch"])
-            ax_mid.set_ylabel("% of Students")
-            ax_mid.grid(axis="y", alpha=0.2)
-            ax_mid.spines["top"].set_visible(False)
-            ax_mid.spines["right"].set_visible(False)
-
-            # ----------------------------
-            # Bottom: BOY-anchored insight summary
-            # ----------------------------
-            ax_bot = fig.add_subplot(gs[2, i])
-            ax_bot.axis("off")
-
-            fc = m["fall_counts"]
-            on_typ = m["on_typ"]
-            on_str = m["on_str"]
-            # on_beyond is still computed, but not displayed
-            # Percent strings (NOT bolded)
-            typ_pct_str = (
-                "NA"
-                if (on_typ["denom"] == 0 or pd.isna(on_typ["pct"]))
-                else f"{on_typ['pct']:.0f}%"
-            )
-            str_pct_str = (
-                "NA"
-                if (on_str["denom"] == 0 or pd.isna(on_str["pct"]))
-                else f"{on_str['pct']:.0f}%"
-            )
-
-            fall_mid_ct = fc.get("Already Mid+", 0)
-            winter_mid_ct = int(
-                m.get("winter_already_mid_count", m.get("winter_mid_count", 0))
-            )
-
-            lines = [
-                rf"Fall Already Mid+ = $\mathbf{{{fall_mid_ct:,}}}$",
-                rf"Winter Already Mid+ = $\mathbf{{{winter_mid_ct:,}}}$",
-                "",
-                "Fall to Winter Mid On Level Update:",
-                rf"Mid With Typical: $\mathbf{{{on_typ['num']:,}}}$ out of $\mathbf{{{on_typ['denom']:,}}}$ "
-                rf"({typ_pct_str}) are at least 50% to typical growth",
-                rf"Mid With Stretch: $\mathbf{{{on_str['num']:,}}}$ out of $\mathbf{{{on_str['denom']:,}}}$ "
-                rf"({str_pct_str}) are at least 50% to stretch growth",
-            ]
-
-            ax_bot.text(
-                0.5,
-                0.5,
-                "\n".join(lines),
-                ha="center",
-                va="center",
-                fontsize=11,
-                color="#333",
-                bbox=dict(
-                    boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#bbb"
-                ),
-            )
-
-        # Title + save
-        year = next(iter(metrics_by_subject.values())).get("year", "")
-        fig.suptitle(
-            f"{scope_label} • Winter {year} • Growth Progress Toward Annual Goals",
-            fontsize=20,
-            fontweight="bold",
-            y=1.02,
-        )
-
-        out_dir = CHARTS_DIR / folder
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{scope_label}_section5_growth_progress_moy_.png"
-        hf._save_and_render(fig, out_path)
-        _write_chart_data(
-            out_path,
-            {
-                "chart_type": "iready_moy_section5_growth_progress",
-                "section": 5,
-                "scope": scope_label,
-                "folder": folder,
-                "subjects": list(metrics_by_subject.keys()),
-                "window_filter": "Winter",
-                # Section 5 is mostly metric-driven; pass the full per-subject metrics dict.
-                "metrics": _jsonable(metrics_by_subject),
-            },
-        )
-        print(f"[SAVE] Section 5 → {out_path}")
-
-        if preview:
-            plt.show()
-        plt.close(fig)
-
-    # ----------------------------
-    # Build + plot
-    # ----------------------------
-    metrics_by_subject = {}
-    for subj in ["ELA", "Math"]:
-        m = _prep_section5_subject(df_scope, subj)
-        if m is not None:
-            metrics_by_subject[subj] = m
-
-    if not metrics_by_subject:
-        print(f"[WARN] No valid Section 5 data for {scope_label}")
-        return
-
-    _plot_section5(scope_label, folder, metrics_by_subject, preview=preview)
-
-
-# ---------------------------------------------------------------------
-# DRIVER — RUN SECTION 5 (District + Sites)
-# ---------------------------------------------------------------------
-print("Running Section 5 batch...")
-
-# District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section5_growth_progress_moy(
-    scope_df, scope_label=scope_label, folder=folder, preview=False
+# DQC
+print(
+    df.groupby("subject")["mid_flag"]
+    .value_counts(dropna=False)
+    .unstack(fill_value=0)
+    .astype(int)
 )
 
-# Site-level
-for raw_school in sorted(iready_base["school"].dropna().unique()):
-    scope_df = iready_base[iready_base["school"] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-    folder = scope_label.replace(" ", "_")
-    run_section5_growth_progress_moy(
-        scope_df, scope_label=scope_label, folder=folder, preview=False
+# %% SECTION 5a— Fall 2026 Mid+ Progression Flags (District + Sites)
+# ---------------------------------------------------------------------
+# Calculates progression categories toward Mid/Above Grade Level
+# using i-Ready Fall 2026 diagnostics.
+# ---------------------------------------------------------------------
+
+df = iready_base.copy()
+df = df[
+    (df["academicyear"] == 2026)
+    & (df["testwindow"].astype(str).str.lower() == "fall")
+    & (df["domain"].astype(str).str.lower() == "overall")
+].copy()
+
+# grades under 9 (K–8)
+df["student_grade"] = pd.to_numeric(df["student_grade"], errors="coerce")
+df = df[df["student_grade"] < 9].copy()
+
+# numeric coercion
+ss = pd.to_numeric(df["scale_score"], errors="coerce")
+typ = pd.to_numeric(df["annual_typical_growth_measure"], errors="coerce")
+strg = pd.to_numeric(df["annual_stretch_growth_measure"], errors="coerce")
+mid = pd.to_numeric(df["mid_on_grade_level_scale_score"], errors="coerce")
+
+# CASE logic
+df["growth_path"] = np.select(
+    [
+        ss >= mid,
+        (ss + typ) >= mid,
+        ((ss + typ) < mid) & ((ss + strg) >= mid),
+    ],
+    ["Already Mid+", "Mid with Typical", "Mid with Stretch"],
+    default="Mid Beyond Stretch",
+)
+
+flag_order = [
+    "Already Mid+",
+    "Mid with Typical",
+    "Mid with Stretch",
+    "Mid Beyond Stretch",
+]
+flag_colors = {
+    "Already Mid+": hf.default_quartile_colors[3],
+    "Mid with Typical": hf.default_quartile_colors[2],
+    "Mid with Stretch": hf.default_quartile_colors[1],
+    "Mid Beyond Stretch": hf.default_quartile_colors[0],
+}
+
+
+def _grade_labels(grades):
+    return ["K" if int(g) == 0 else str(int(g)) for g in grades]
+
+
+def _plot_mid_flag_stacked(
+    data, subject, scope_label, folder_name, school_raw=None, preview=False
+):
+    """Render stacked bar chart showing growth paths by grade for a subject."""
+    tbl = (
+        data.groupby(["student_grade", "growth_path"])["student_id"]
+        .nunique()
+        .unstack("growth_path")
+        .reindex(columns=flag_order, fill_value=0)
+        .sort_index()
+    )
+    denom = tbl.sum(axis=1).replace(0, np.nan)
+    pct = (tbl.div(denom, axis=0) * 100).fillna(0)
+
+    n_students = (
+        data.groupby("student_grade")["student_id"]
+        .nunique()
+        .reindex(pct.index)
+        .fillna(0)
+        .astype(int)
     )
 
-print("Section 5 batch complete.")
+    fig, ax = plt.subplots(figsize=(16, 9))
+    bottom = np.zeros(len(pct))
+
+    # Plot bars in reversed(flag_order) so "Already Mid+" ends up on top of the stack, while legend uses flag_order
+    for f in reversed(flag_order):
+        vals = pct[f].values
+        bars = ax.bar(
+            pct.index, vals, bottom=bottom, color=flag_colors[f], label=f, width=0.7
+        )
+        for i, v in enumerate(vals):
+            if v >= 3:
+                # Set color based on f
+                if f in ["Mid Beyond Stretch", "Already Mid+", "Mid with Typical"]:
+                    label_color = "white"
+                else:
+                    label_color = "#434343"
+                ax.text(
+                    pct.index[i],
+                    bottom[i] + v / 2,
+                    f"{v:.0f}%",
+                    ha="center",
+                    va="center",
+                    fontsize=11,
+                    fontweight="bold",
+                    color=label_color,
+                )
+        bottom += vals
+
+    for i, g in enumerate(pct.index):
+        ax.text(
+            g,
+            104,
+            f"n={int(n_students.iloc[i])}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            color="#434343",
+            fontweight="bold",
+        )
+
+    ax.set_ylim(0, 110)
+    ax.set_yticks(range(0, 101, 20))
+    ax.set_yticklabels([f"{v}%" for v in range(0, 101, 20)])
+    ax.set_xlabel("Grade")
+    ax.set_ylabel("% of Students")
+    ax.set_xticks(pct.index)
+    ax.set_xticklabels(_grade_labels(pct.index))
+    ax.set_title(
+        f"{scope_label} {subject} \n Growth Path by Grade (Fall 2026)",
+        fontweight="bold",
+        fontsize=20,
+        pad=20,
+    )
+    # Build legend handles in flag_order; display in the same order as flag_order (Already Mid+ appears at the top)
+    legend_handles = [Patch(facecolor=flag_colors[f], label=f) for f in flag_order]
+    legend_labels = flag_order.copy()
+    ax.legend(
+        handles=legend_handles,
+        labels=legend_labels,
+        frameon=True,
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+    )
+    ax.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
+    fig.tight_layout()
+
+    charts_dir = CHARTS_DIR
+    out_dir = charts_dir / folder_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = scope_label.replace(" ", "_")
+    out_path = (
+        out_dir / f"{safe_scope}_section5_fall2026_{subject.lower()}_growthpath.png"
+    )
+
+    hf._save_and_render(fig, out_path)
+    _write_chart_data(
+        out_path,
+        {
+            "chart_type": "iready_boy_section5a_growth_path_by_grade",
+            "section": "5a",
+            "scope": scope_label,
+            "folder": folder_name,
+            "subject": subject,
+            "window_filter": "Fall",
+            "academicyear": 2026,
+            # Per-grade distribution across growth paths (counts + %)
+            "grade_pct": _jsonable(pct.reset_index()),
+            "grade_counts": _jsonable(tbl.reset_index()),
+            "grade_n": _jsonable(n_students.reset_index().rename(columns={"student_id": "n"})),
+        },
+    )
+    print(f"[Fall 2026 Mid+] Saved: {out_path}")
+
+    if preview:
+        plt.show()
+    plt.close(fig)
 
 
+# ---------------------------------------------------------------------
+# DRIVER — District and Site
+# ---------------------------------------------------------------------
+print("Running Fall 2026 Mid+ Progression Flags Section")
+
+district_label = _cfg_first(cfg, "district_name", "Districtwide")
+for subj in ["ELA", "Math"]:
+    dsub = df[df["subject"].astype(str).str.lower() == subj.lower()].copy()
+    if not dsub.empty:
+        _plot_mid_flag_stacked(
+            dsub,
+            subj,
+            scope_label=district_label,
+            folder_name="_district",
+        )
+
+school_col = "school" if "school" in iready_base.columns else "schoolname"
+for raw_school in sorted(df[school_col].dropna().unique()):
+    site_df = df[df[school_col] == raw_school].copy()
+    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+    folder = scope_label.replace(" ", "_")
+    for subj in ["ELA", "Math"]:
+        dsub = site_df[
+            site_df["subject"].astype(str).str.lower() == subj.lower()
+        ].copy()
+        if not dsub.empty:
+            _plot_mid_flag_stacked(
+                dsub,
+                subj,
+                scope_label=scope_label,
+                folder_name=folder,
+                school_raw=raw_school,
+            )
 # %%

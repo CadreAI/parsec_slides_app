@@ -2948,8 +2948,8 @@ def generate_nwea_charts(
     
     # Route to Winter module if Winter is selected
     if has_winter:
-        from .nwea_winter import generate_nwea_winter_charts
-        print("\n[NWEA Router] Winter detected - routing to nwea_winter.py...")
+        from .nwea_moy_runner import generate_nwea_winter_charts
+        print("\n[NWEA Router] Winter detected - routing to nwea_moy.py (runner)...")
         try:
             winter_charts = generate_nwea_winter_charts(
                 partner_name=partner_name,
@@ -2967,6 +2967,8 @@ def generate_nwea_charts(
             if hf.DEV_MODE:
                 import traceback
                 traceback.print_exc()
+            if has_winter and not has_fall and not has_spring:
+                raise
         
         # If ONLY Winter is selected (no Fall, no Spring), return early
         if has_winter and not has_fall and not has_spring:
