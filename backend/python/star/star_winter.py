@@ -1661,7 +1661,7 @@ def _prep_star_sgp_data_winter(df, subject_str, current_grade, window_filter):
     # Average SGP per time window
     sgp_df = (
         d.groupby("time_label")[sgp_col]
-        .mean()
+        .median()
         .rename("avg_sgp")
         .reset_index()
     )
