@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import yaml
 
 
 def generate_iready_winter_charts(
@@ -45,12 +44,22 @@ def generate_iready_winter_charts(
     csv_path = run_data_dir / "iready_data.csv"
 
     # Write settings.yaml
+    # Write settings.yaml (avoid importing PyYAML at module import time)
     with open(settings_path, "w") as f:
-        yaml.safe_dump({"partner_name": partner_name}, f, sort_keys=False)
+        f.write(f"partner_name: {partner_name}\n")
 
     # Write partner config YAML (iReady script expects YAML)
-    with open(config_path, "w") as f:
-        yaml.safe_dump(config or {}, f, sort_keys=False)
+    # Write partner config YAML (prefer PyYAML if installed; otherwise write JSON which YAML can parse)
+    try:
+        import yaml  # type: ignore
+
+        with open(config_path, "w") as f:
+            yaml.safe_dump(config or {}, f, sort_keys=False)
+    except Exception:
+        import json
+
+        with open(config_path, "w") as f:
+            json.dump(config or {}, f, indent=2, default=str)
 
     # Write iReady CSV
     pd.DataFrame(iready_data).to_csv(csv_path, index=False)
