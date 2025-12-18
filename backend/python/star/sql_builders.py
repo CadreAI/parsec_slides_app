@@ -1,7 +1,11 @@
 """
 SQL query builders for BigQuery - STAR
+
+Policy:
+- Always filter by years in SQL.
+- If schools are selected, also filter by schools in SQL to reduce result size.
 """
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 
 # Default exclude columns for STAR
@@ -23,7 +27,7 @@ DEFAULT_STAR_EXCLUDES = [
 def sql_star(
     table_id: str,
     exclude_cols: Optional[List[str]] = None,
-    filters: Optional[Dict] = None,
+    filters: Optional[Dict[str, Any]] = None,
     year_column: Optional[str] = None
 ) -> str:
     """
@@ -38,6 +42,23 @@ def sql_star(
         SQL query string
     """
     filters = filters or {}
+
+    def _sql_escape(s: str) -> str:
+        return str(s).replace("'", "\\'")
+
+    def _sql_like_any(lower_expr: str, needles: list[str]) -> Optional[str]:
+        pats = [n.strip().lower() for n in needles if n is not None and str(n).strip()]
+        if not pats:
+            return None
+        ors = [f"{lower_expr} LIKE '%{_sql_escape(p)}%'" for p in pats]
+        return "(" + " OR ".join(ors) + ")"
+
+    available_cols = [str(c).lower() for c in (filters.get("available_columns") or [])]
+    def _pick_col(candidates: list[str]) -> Optional[str]:
+        for c in candidates:
+            if c.lower() in available_cols:
+                return c
+        return None
     
     # Base excludes
     base_excludes = DEFAULT_STAR_EXCLUDES.copy()
@@ -73,6 +94,18 @@ def sql_star(
                 ELSE EXTRACT(YEAR FROM CURRENT_DATE())
             END
         ) - 3""")
+
+    # Optional school filter pushdown
+    schools = filters.get("schools") or []
+    if not isinstance(schools, list):
+        schools = []
+    if schools:
+        school_col = _pick_col(["School_Name", "SchoolName", "School", "learning_center", "Learning_Center"])
+        if school_col:
+            school_expr = f"LOWER(CAST({school_col} AS STRING))"
+            like_clause = _sql_like_any(school_expr, schools)
+            if like_clause:
+                where_conditions.append(like_clause)
     
     where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
     

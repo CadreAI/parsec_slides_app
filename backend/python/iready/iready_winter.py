@@ -450,6 +450,8 @@ def main(iready_data=None):
                         )
                         if chart_path:
                             chart_paths.append(chart_path)
+                        else:
+                            print(f"  [Section 3] SKIPPED (no output) for {scope_label} - Grade {g} - {subject_str} - Winter (likely no data after window/subject filters or below min-N).")
                     except Exception as e:
                         print(f"  [Section 3] Error generating chart for {scope_label} - Grade {g} - {subject_str} (Winter): {e}")
                         if hf.DEV_MODE:
@@ -998,7 +1000,14 @@ def main(iready_data=None):
             unique_grades = [g for g in unique_grades if g in chart_filters["grades"]]
         
         # District-level (by grade)
-        scope_label_district = cfg.get("district_name", ["Districtwide"])[0]
+        # Be defensive: some configs provide district_name=[] which would raise IndexError.
+        _dn = cfg.get("district_name", ["Districtwide"])
+        if isinstance(_dn, list) and len(_dn) > 0:
+            scope_label_district = _dn[0]
+        elif isinstance(_dn, str) and _dn.strip():
+            scope_label_district = _dn
+        else:
+            scope_label_district = "Districtwide"
         for g in unique_grades:
             df_g = _base0_1[_base0_1["student_grade"] == g].copy()
             if df_g.empty:
