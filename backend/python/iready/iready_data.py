@@ -6,9 +6,8 @@ import json
 import sys
 from pathlib import Path
 import pandas as pd
-# Add parent directory to path to import helper_functions
-sys.path.insert(0, str(Path(__file__).parent.parent))
-import helper_functions as hf
+# Use iReady-specific helper utilities + styling
+from . import helper_functions_iready as hf
 
 
 def load_config_from_args(config_json_str):
