@@ -420,18 +420,20 @@ print(nwea_base.columns.tolist())
 # Normalize district name for fallback in the title
 district_label = cfg.get("district_name", ["Districtwide"])[0]
 
-# Inspect categorical columns (quick QC)
-cat_cols = [
-    c
-    for c in nwea_base.columns
-    if nwea_base[c].dtype == "object" or nwea_base[c].dtype.name == "category"
-]
-print("\n--- Unique values per categorical column ---")
-for c in cat_cols:
-    uniq = nwea_base[c].dropna().unique()
-    n = len(uniq)
-    sample = uniq[:10]
-    print(f"\n{c} ({n} unique): {sample}")
+# Inspect categorical columns (quick QC) — expensive on large datasets.
+# Only run when preview/dev mode is enabled.
+if bool(getattr(hf, "DEV_MODE", False)) is True:
+    cat_cols = [
+        c
+        for c in nwea_base.columns
+        if nwea_base[c].dtype == "object" or nwea_base[c].dtype.name == "category"
+    ]
+    print("\n--- Unique values per categorical column ---")
+    for c in cat_cols:
+        uniq = nwea_base[c].dropna().unique()
+        n = len(uniq)
+        sample = uniq[:10]
+        print(f"\n{c} ({n} unique): {sample}")
 
 
 # %% SECTION 0 — Predicted vs Actual CAASPP (Spring)
@@ -762,7 +764,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
 _section0_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
 for raw in [None] + _section0_schools:
     if raw is None:
-        scope_df = nwea_base.copy()
+        scope_df = nwea_base
         scope_label = cfg.get("district_name", ["Districtwide"])[0]
         folder = "_district"
     else:
@@ -1369,7 +1371,7 @@ scope_label = cfg.get("district_name", ["Districtwide"])[0]
 folder = "_district"
 
 plot_nwea_dual_subject_dashboard(
-    nwea_base.copy(),
+    nwea_base,
     window_filter="Fall",
     figsize=(16, 9),
     school_raw=None,
@@ -1812,7 +1814,7 @@ if _env_groups:
     print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
 
 # ---- District-level
-scope_df = nwea_base.copy()
+scope_df = nwea_base
 scope_label = cfg.get("district_name", ["Districtwide"])[0]
 
 for group_name, group_def in sorted(
@@ -2553,7 +2555,7 @@ def plot_nwea_blended_dashboard(
 
 
 # ---- Combined DRIVER for Section 3 ----
-_base = nwea_base.copy()
+_base = nwea_base
 _base["year"] = pd.to_numeric(_base["year"], errors="coerce")
 _base["grade"] = pd.to_numeric(_base["grade"], errors="coerce")
 
@@ -2978,7 +2980,7 @@ def _run_cgp_dual_trend(scope_df, scope_label):
 # ---------------------------------------------------------------------
 
 district_label = cfg.get("district_name", ["Districtwide"])[0]
-_run_cgp_dual_trend(nwea_base.copy(), district_label)
+_run_cgp_dual_trend(nwea_base, district_label)
 
 if _include_school_charts():
     for raw_school in _iter_schools(nwea_base):
@@ -2998,7 +3000,7 @@ if _include_school_charts():
 # Replicates verified Sect‑2 cohort logic (no student matching)
 # ---------------------------------------------------------------------
 def _prep_cgp_by_grade(df, subject, grade):
-    d = nwea_base.copy()
+    d = df
     d = d[d["testwindow"].str.upper() == "FALL"]
     d["grade"] = pd.to_numeric(d["grade"], errors="coerce")
     d = d[d["grade"] == grade]
