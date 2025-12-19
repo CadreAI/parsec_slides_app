@@ -4,19 +4,25 @@ Ports the slide creation logic from TypeScript to Python
 """
 import re
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
+
+from ..google.google_drive_upload import (
+    create_drive_folder,
+    extract_folder_id_from_url,
+    move_file_to_folder,
+    upload_images_to_drive_batch,
+)
 from ..google.google_slides_client import get_slides_client
-from ..google.google_drive_upload import upload_images_to_drive_batch, extract_folder_id_from_url, create_drive_folder, move_file_to_folder
 from ..llm.chart_analyzer import analyze_charts_batch_paths
-from ..llm.decision_llm import should_use_ai_insights, parse_chart_instructions
-from .slide_constants import SLIDE_WIDTH_EMU, SLIDE_HEIGHT_EMU
-from .cover_slide import create_cover_slide_requests
-from .chart_split import create_section_divider_slide_requests
+from ..llm.decision_llm import parse_chart_instructions, should_use_ai_insights
 from .chart_slides import (
     create_chart_slide_request,
+    create_dual_chart_slide_requests,
     create_single_chart_slide_requests,
-    create_dual_chart_slide_requests
 )
+from .chart_split import create_section_divider_slide_requests
+from .cover_slide import create_cover_slide_requests
+from .slide_constants import SLIDE_HEIGHT_EMU, SLIDE_WIDTH_EMU
 
 
 def is_subject_graph_pair(chart_paths: List[str]) -> bool:
@@ -598,9 +604,10 @@ def create_slides_presentation(
     parent_folder_id = extract_folder_id_from_url(drive_folder_url) if drive_folder_url else None
     
     # Import default Shared Drive folder ID
-    from ..google.google_slides_client import DEFAULT_SLIDES_FOLDER_ID, get_drive_client
     from googleapiclient.errors import HttpError
-    
+
+    from ..google.google_slides_client import DEFAULT_SLIDES_FOLDER_ID, get_drive_client
+
     # Verify parent folder is in a Shared Drive (if provided)
     if parent_folder_id:
         try:
@@ -804,99 +811,112 @@ def create_slides_presentation(
                 i += 1
                 continue
             
+            # =======================================================================
+            # DUAL CHART SLIDES DISABLED - Always create single chart slides
+            # To re-enable dual slides, uncomment the block below and comment out the simplified logic
+            # =======================================================================
+            
             is_subject_pair = False
             pair_index = None
             
-            # No triple chart slides - only single or dual (math+reading pairs)
-            current_chart_name = Path(normalized_charts[i]).stem.lower()
-            is_math = 'math' in current_chart_name
-            is_reading = 'reading' in current_chart_name or 'read' in current_chart_name
-            is_ela = 'ela' in current_chart_name and not is_reading  # ELA for iReady
+            # Simplified logic: Always process as single chart slide
+            current_charts = [normalized_charts[i]]
+            current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
+            processed_indices.add(i)
             
-            # Try to find a math+reading/ela pair starting from current index
-            # Only look for pairs if current chart is math, reading, or ela
-            if is_math or is_reading or is_ela:
-                print(f"[Pairing] Looking for pair for chart at index {i}: {Path(normalized_charts[i]).name}")
-                current_subj = 'math' if is_math else ('reading' if is_reading else 'ela')
-                looking_for = 'reading/ela' if is_math else 'math'
-                print(f"[Pairing] Current chart is {current_subj}, looking for {looking_for}")
-                pair_index = find_math_reading_pair(normalized_charts, i, processed_indices)
-                if pair_index is not None:
-                    print(f"[Pairing] ✓ Found pair at index {pair_index}: {Path(normalized_charts[pair_index]).name}")
-                else:
-                    print(f"[Pairing] ✗ No pair found for chart at index {i}")
-            
-            if pair_index is not None and pair_index not in processed_indices:
-                # Found a math+reading/ela pair - use those two charts
-                current_charts = [normalized_charts[i], normalized_charts[pair_index]]
-                current_urls = [chart_urls[i], chart_urls[pair_index]]
-                if current_urls[0] is None or current_urls[1] is None:
-                    # Skip if URLs are None
-                    i += 1
-                    continue
-                is_subject_pair = True
-                processed_indices.add(i)
-                processed_indices.add(pair_index)
-            else:
-                # No pair found - process as single chart slide
-                # Only pair sequentially if the next chart is already a valid math+reading/ela pair
-                if i + 1 < len(normalized_charts) and (i + 1) not in processed_indices:
-                    next_chart_name = Path(normalized_charts[i + 1]).stem.lower()
-                    next_is_math = 'math' in next_chart_name
-                    next_is_reading = 'reading' in next_chart_name or 'read' in next_chart_name
-                    next_is_ela = 'ela' in next_chart_name and not next_is_reading
-                    # Only pair if current and next form a valid math+reading/ela pair
-                    # Support both NWEA (math/reading) and iReady (math/ela)
-                    if ((is_math and (next_is_reading or next_is_ela)) or 
-                        ((is_reading or is_ela) and next_is_math)):
-                        # Check if they're the same grade, scope, and test type
-                        current_grade_match = re.search(r'grade(\d+)', current_chart_name)
-                        next_grade_match = re.search(r'grade(\d+)', next_chart_name)
-                        current_is_district = current_chart_name.startswith('district_')
-                        next_is_district = next_chart_name.startswith('district_')
-                        
-                        # Extract test types
-                        current_test_type_match = re.search(r'_(star|iready|nwea)_', current_chart_name, re.IGNORECASE)
-                        next_test_type_match = re.search(r'_(star|iready|nwea)_', next_chart_name, re.IGNORECASE)
-                        current_test_type = current_test_type_match.group(1).upper() if current_test_type_match else None
-                        next_test_type = next_test_type_match.group(1).upper() if next_test_type_match else None
-                        
-                        if (current_grade_match and next_grade_match and 
-                            current_grade_match.group(1) == next_grade_match.group(1) and
-                            current_is_district == next_is_district and
-                            current_test_type and next_test_type and
-                            current_test_type == next_test_type):
-                            # Valid sequential pair
-                            current_charts = normalized_charts[i:i+2]
-                            current_urls = [url for url in chart_urls[i:i+2] if url is not None]
-                            is_subject_pair = len(current_urls) == 2
-                            processed_indices.add(i)
-                            processed_indices.add(i + 1)
-                        else:
-                            # Not a valid pair - process as single chart
-                            current_charts = [normalized_charts[i]]
-                            current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
-                            is_subject_pair = False
-                            processed_indices.add(i)
-                    else:
-                        # Not a math+reading pair - process as single chart
-                        current_charts = [normalized_charts[i]]
-                        current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
-                        is_subject_pair = False
-                        processed_indices.add(i)
-                else:
-                    # No next chart or next chart already processed - process as single chart
-                    current_charts = [normalized_charts[i]]
-                    current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
-                    is_subject_pair = False
-                    processed_indices.add(i)
+            # # COMMENTED OUT: Dual chart pairing logic
+            # # No triple chart slides - only single or dual (math+reading pairs)
+            # current_chart_name = Path(normalized_charts[i]).stem.lower()
+            # is_math = 'math' in current_chart_name
+            # is_reading = 'reading' in current_chart_name or 'read' in current_chart_name
+            # is_ela = 'ela' in current_chart_name and not is_reading  # ELA for iReady
+            # 
+            # # Try to find a math+reading/ela pair starting from current index
+            # # Only look for pairs if current chart is math, reading, or ela
+            # if is_math or is_reading or is_ela:
+            #     print(f"[Pairing] Looking for pair for chart at index {i}: {Path(normalized_charts[i]).name}")
+            #     current_subj = 'math' if is_math else ('reading' if is_reading else 'ela')
+            #     looking_for = 'reading/ela' if is_math else 'math'
+            #     print(f"[Pairing] Current chart is {current_subj}, looking for {looking_for}")
+            #     pair_index = find_math_reading_pair(normalized_charts, i, processed_indices)
+            #     if pair_index is not None:
+            #         print(f"[Pairing] ✓ Found pair at index {pair_index}: {Path(normalized_charts[pair_index]).name}")
+            #     else:
+            #         print(f"[Pairing] ✗ No pair found for chart at index {i}")
+            # 
+            # if pair_index is not None and pair_index not in processed_indices:
+            #     # Found a math+reading/ela pair - use those two charts
+            #     current_charts = [normalized_charts[i], normalized_charts[pair_index]]
+            #     current_urls = [chart_urls[i], chart_urls[pair_index]]
+            #     if current_urls[0] is None or current_urls[1] is None:
+            #         # Skip if URLs are None
+            #         i += 1
+            #         continue
+            #     is_subject_pair = True
+            #     processed_indices.add(i)
+            #     processed_indices.add(pair_index)
+            # else:
+            #     # No pair found - process as single chart slide
+            #     # Only pair sequentially if the next chart is already a valid math+reading/ela pair
+            #     if i + 1 < len(normalized_charts) and (i + 1) not in processed_indices:
+            #         next_chart_name = Path(normalized_charts[i + 1]).stem.lower()
+            #         next_is_math = 'math' in next_chart_name
+            #         next_is_reading = 'reading' in next_chart_name or 'read' in next_chart_name
+            #         next_is_ela = 'ela' in next_chart_name and not next_is_reading
+            #         # Only pair if current and next form a valid math+reading/ela pair
+            #         # Support both NWEA (math/reading) and iReady (math/ela)
+            #         if ((is_math and (next_is_reading or next_is_ela)) or 
+            #             ((is_reading or is_ela) and next_is_math)):
+            #             # Check if they're the same grade, scope, and test type
+            #             current_grade_match = re.search(r'grade(\d+)', current_chart_name)
+            #             next_grade_match = re.search(r'grade(\d+)', next_chart_name)
+            #             current_is_district = current_chart_name.startswith('district_')
+            #             next_is_district = next_chart_name.startswith('district_')
+            #             
+            #             # Extract test types
+            #             current_test_type_match = re.search(r'_(star|iready|nwea)_', current_chart_name, re.IGNORECASE)
+            #             next_test_type_match = re.search(r'_(star|iready|nwea)_', next_chart_name, re.IGNORECASE)
+            #             current_test_type = current_test_type_match.group(1).upper() if current_test_type_match else None
+            #             next_test_type = next_test_type_match.group(1).upper() if next_test_type_match else None
+            #             
+            #             if (current_grade_match and next_grade_match and 
+            #                 current_grade_match.group(1) == next_grade_match.group(1) and
+            #                 current_is_district == next_is_district and
+            #                 current_test_type and next_test_type and
+            #                 current_test_type == next_test_type):
+            #                 # Valid sequential pair
+            #                 current_charts = normalized_charts[i:i+2]
+            #                 current_urls = [url for url in chart_urls[i:i+2] if url is not None]
+            #                 is_subject_pair = len(current_urls) == 2
+            #                 processed_indices.add(i)
+            #                 processed_indices.add(i + 1)
+            #             else:
+            #                 # Not a valid pair - process as single chart
+            #                 current_charts = [normalized_charts[i]]
+            #                 current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
+            #                 is_subject_pair = False
+            #                 processed_indices.add(i)
+            #         else:
+            #             # Not a math+reading pair - process as single chart
+            #             current_charts = [normalized_charts[i]]
+            #             current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
+            #             is_subject_pair = False
+            #             processed_indices.add(i)
+            #     else:
+            #         # No next chart or next chart already processed - process as single chart
+            #         current_charts = [normalized_charts[i]]
+            #         current_urls = [chart_urls[i]] if chart_urls[i] is not None else []
+            #         is_subject_pair = False
+            #         processed_indices.add(i)
             
             # Log which charts we're processing
             chart_names = [Path(p).name for p in current_charts]
-            if pair_index is not None:
-                print(f"[Slides] Processing charts at index {i} (paired with {pair_index}): {chart_names}")
-            else:
-                print(f"[Slides] Processing charts at index {i}: {chart_names}")
+            print(f"[Slides] Processing chart at index {i}: {chart_names}")
+            # # COMMENTED OUT: Pairing log
+            # if pair_index is not None:
+            #     print(f"[Slides] Processing charts at index {i} (paired with {pair_index}): {chart_names}")
+            # else:
+            #     print(f"[Slides] Processing charts at index {i}: {chart_names}")
             
             # Check if we need to insert a divider slide (test type or section change)
             current_test_type = extract_test_type(current_charts[0])
@@ -1240,6 +1260,7 @@ def create_slides_presentation(
                                     if (insight_item.strip().startswith("{'") or insight_item.strip().startswith('{"')) and ('finding' in insight_item or 'implication' in insight_item):
                                         try:
                                             import ast
+
                                             # Try to parse as Python dict literal
                                             parsed = ast.literal_eval(insight_item)
                                             if isinstance(parsed, dict):
@@ -1521,6 +1542,14 @@ def create_slides_presentation(
         except Exception as e:
             print(f"[Slides] Warning: Could not move presentation to folder: {e}")
     
+    return {
+        'success': True,
+        'presentationId': presentation_id,
+        'presentationUrl': presentation_url,
+        'title': title,
+        'slideCount': slide_count
+    }
+
     return {
         'success': True,
         'presentationId': presentation_id,
