@@ -1587,7 +1587,15 @@ def plot_star_growth_by_site_spring(
         "scope": scope_label,
         "window_filter": window_filter,
         "subject": subject_str,
-        "schools": list(school_data.keys())
+        "school_data": {
+            school: {
+                "pct_data": data["pct_df"].to_dict('records') if not data["pct_df"].empty else [],
+                "score_data": data["score_df"].to_dict('records') if not data["score_df"].empty else [],
+                "metrics": data["metrics"],
+                "time_order": data["time_order"]
+            }
+            for school, data in school_data.items()
+        }
     }
     track_chart(f"Section 4: {subject_str} Growth by Site", out_path, scope=scope_label, section=4, chart_data=chart_data)
     
@@ -1912,6 +1920,11 @@ def plot_star_sgp_growth_spring(
         "grade": current_grade,
         "subject": subject_str,
         "metrics": metrics_grade,
+        "sgp_data": {
+            "grade_trend": sgp_df_grade.to_dict('records') if not sgp_df_grade.empty else [],
+            "cohort_trend": cohort_df.to_dict('records') if not cohort_df.empty else []
+        },
+        "time_order": time_order
     }
     track_chart(f"Section 5: Grade {current_grade} {subject_str} SGP", out_path, scope=scope_label, section=5, chart_data=chart_data)
     
