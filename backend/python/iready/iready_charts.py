@@ -255,7 +255,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
         ax_top.set_ylim(0, 100)
         ax_top.set_ylabel("% of Students")
         ax_top.set_title(subj, fontsize=14, fontweight="bold")
-        ax_top.grid(axis="y", alpha=0.2)
+        # ax_top.grid(False)  # Gridlines disabled globally
         ax_top.spines["top"].set_visible(False)
         ax_top.spines["right"].set_visible(False)
         
@@ -283,7 +283,7 @@ def _plot_section0_iready(scope_label, folder, output_dir, data_dict, preview=Fa
             )
         ax_mid.set_ylim(0, 100)
         ax_mid.set_ylabel("% of Students")
-        ax_mid.grid(axis="y", alpha=0.2)
+        # ax_mid.grid(False)  # Gridlines disabled globally
         ax_mid.spines["top"].set_visible(False)
         ax_mid.spines["right"].set_visible(False)
         
@@ -1107,7 +1107,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder, output_dir, c
         ax_bar.set_xticklabels(tr["academicyear"].astype(int))
         ax_bar.set_yticks(range(0, 101, 20))
         ax_bar.set_yticklabels([f"{v}%" for v in range(0, 101, 20)])
-        ax_bar.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
+        # ax_bar.grid(False)  # Gridlines disabled globally
         ax_bar.spines["top"].set_visible(False)
         ax_bar.spines["right"].set_visible(False)
         ax_bar.set_ylabel("% Met or Exceeded")
@@ -1459,7 +1459,7 @@ def _plot_mid_flag_stacked(data, subject, scope_label, folder, output_dir, cfg, 
         loc="upper left",
         bbox_to_anchor=(1.02, 1.0),
     )
-    ax.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
+    # ax.grid(False)  # Gridlines disabled globally
     fig.tight_layout()
     
     out_dir = Path(output_dir) / folder

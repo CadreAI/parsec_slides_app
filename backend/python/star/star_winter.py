@@ -306,7 +306,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
         bar_ax.set_ylabel("% of Students")
         bar_ax.set_title(titles[subject], fontsize=14, fontweight="bold", pad=30)
         bar_ax.set_axisbelow(True)
-        bar_ax.grid(True, axis="y", linestyle="--", linewidth=0.6, alpha=0.6)
+        # bar_ax.grid(False)  # Gridlines disabled globally
         bar_ax.spines["top"].set_visible(False)
         bar_ax.spines["right"].set_visible(False)
         
@@ -342,7 +342,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
         pct_ax.set_axisbelow(True)
-        pct_ax.grid(True, axis="y", linestyle="--", linewidth=0.6, alpha=0.6)
+        # pct_ax.grid(False)  # Gridlines disabled globally
         pct_ax.spines["top"].set_visible(False)
         pct_ax.spines["right"].set_visible(False)
         
@@ -675,7 +675,7 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
         ax.set_ylabel("% of Students")
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -694,7 +694,7 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
         ax2.set_xticks(x2)
         ax2.set_xticklabels(labels)
         ax2.set_ylabel("Avg Unified Scale Score")
-        ax2.grid(axis="y", alpha=0.2)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
         
@@ -833,7 +833,7 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
         ax.set_ylabel("% of Students")
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -851,7 +851,7 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
         ax2.set_xticks(x2)
         ax2.set_xticklabels(labels)
         ax2.set_ylabel("Avg Unified Scale Score")
-        ax2.grid(axis="y", alpha=0.2)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
         
@@ -1025,7 +1025,7 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
         ax.set_ylabel("% of Students")
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -1053,7 +1053,7 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
         ax2.set_xticks(x2)
         ax2.set_xticklabels(labels)
         ax2.set_ylabel("Avg Unified Scale Score")
-        ax2.grid(axis="y", alpha=0.2)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
     
@@ -1273,7 +1273,7 @@ def plot_star_subject_dashboard_by_group_winter(
             axes[0][i].set_ylabel("% of Students")
             axes[0][i].set_xticks(x)
             axes[0][i].set_xticklabels(x_labels)
-            axes[0][i].grid(axis="y", alpha=0.2)
+            # axes[0][i].grid(False)  # Gridlines disabled globally
             axes[0][i].spines["top"].set_visible(False)
             axes[0][i].spines["right"].set_visible(False)
         else:
@@ -1926,7 +1926,7 @@ def plot_district_sgp_overview_winter(
         ax.set_title(title, fontweight="bold", fontsize=14, pad=10)
         ax.set_ylim(0, 100)
         ax.set_ylabel(f"Median {sgp_vector_label}" if idx == 0 else "")
-        ax.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     
@@ -2209,7 +2209,7 @@ def plot_star_sgp_growth_winter(
         ax1.set_ylabel("Median Fall→Winter SGP", fontsize=11, fontweight="bold")
         ax1.set_title("Overall Growth Trends", fontsize=14, fontweight="bold")
         ax1.set_ylim(0, 100)
-        ax1.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+        # ax1.grid(False)  # Gridlines disabled globally
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
     else:
@@ -2248,7 +2248,7 @@ def plot_star_sgp_growth_winter(
         ax2.set_ylabel("Median Fall→Winter SGP", fontsize=11, fontweight="bold")
         ax2.set_title("Cohort Growth Trends", fontsize=14, fontweight="bold")
         ax2.set_ylim(0, 100)
-        ax2.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
     else:

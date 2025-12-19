@@ -5,42 +5,45 @@ Based on star_winter.py structure but specifically for Spring filtering
 
 # Set matplotlib backend to non-interactive before any imports
 import matplotlib
+
 matplotlib.use('Agg')
 
 import argparse
-import sys
 import json
+import sys
 from pathlib import Path
-import pandas as pd
-import numpy as np
-from matplotlib.patches import Patch
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Patch
 
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
+from .star_chart_utils import (
+    LABEL_MIN_PCT,
+    draw_insight_card,
+    draw_score_bar,
+    draw_stacked_bar,
+)
+
 # Import utility modules
 from .star_data import (
+    _short_year,
+    filter_star_subject_rows,
+    get_scopes,
     load_config_from_args,
     load_star_data,
-    get_scopes,
     prep_star_for_charts,
-    filter_star_subject_rows,
-    _short_year
 )
 from .star_filters import (
     apply_chart_filters,
-    should_generate_subject,
+    should_generate_grade,
     should_generate_student_group,
-    should_generate_grade
-)
-from .star_chart_utils import (
-    draw_stacked_bar,
-    draw_score_bar,
-    draw_insight_card,
-    LABEL_MIN_PCT
+    should_generate_subject,
 )
 
 # Chart tracking for CSV generation
@@ -303,7 +306,7 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
         bar_ax.set_ylabel("% of Students")
         bar_ax.set_title(titles[subject], fontsize=14, fontweight="bold", pad=30)
         bar_ax.set_axisbelow(True)
-        bar_ax.grid(True, axis="y", linestyle="--", linewidth=0.6, alpha=0.6)
+        # bar_ax.grid(False)  # Gridlines disabled globally
         bar_ax.spines["top"].set_visible(False)
         bar_ax.spines["right"].set_visible(False)
         
@@ -339,7 +342,7 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
         pct_ax.set_axisbelow(True)
-        pct_ax.grid(True, axis="y", linestyle="--", linewidth=0.6, alpha=0.6)
+        # pct_ax.grid(False)  # Gridlines disabled globally
         pct_ax.spines["top"].set_visible(False)
         pct_ax.spines["right"].set_visible(False)
         
@@ -646,7 +649,7 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
         ax.set_ylabel("% of Students")
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -665,7 +668,7 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
         ax2.set_xticks(x2)
         ax2.set_xticklabels(labels)
         ax2.set_ylabel("Avg Unified Scale Score")
-        ax2.grid(axis="y", alpha=0.2)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
         
@@ -775,7 +778,7 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
         ax.set_ylabel("% of Students")
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -793,7 +796,7 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
         ax2.set_xticks(x2)
         ax2.set_xticklabels(labels)
         ax2.set_ylabel("Avg Unified Scale Score")
-        ax2.grid(axis="y", alpha=0.2)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
         
@@ -955,7 +958,7 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
         ax.set_ylabel("% of Students")
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -983,7 +986,7 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
         ax2.set_xticks(x2)
         ax2.set_xticklabels(labels)
         ax2.set_ylabel("Avg Unified Scale Score")
-        ax2.grid(axis="y", alpha=0.2)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
     
@@ -1168,7 +1171,7 @@ def plot_star_subject_dashboard_by_group_spring(
             axes[0][i].set_ylabel("% of Students")
             axes[0][i].set_xticks(x)
             axes[0][i].set_xticklabels(x_labels)
-            axes[0][i].grid(axis="y", alpha=0.2)
+            # axes[0][i].grid(False)  # Gridlines disabled globally
             axes[0][i].spines["top"].set_visible(False)
             axes[0][i].spines["right"].set_visible(False)
         else:
@@ -1839,7 +1842,7 @@ def plot_star_sgp_growth_spring(
         ax1.set_ylabel("Median Winter→Spring SGP", fontsize=11, fontweight="bold")
         ax1.set_title("Overall Growth Trends", fontsize=14, fontweight="bold")
         ax1.set_ylim(0, 100)
-        ax1.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+        # ax1.grid(False)  # Gridlines disabled globally
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
     else:
@@ -1878,7 +1881,7 @@ def plot_star_sgp_growth_spring(
         ax2.set_ylabel("Median Winter→Spring SGP", fontsize=11, fontweight="bold")
         ax2.set_title("Cohort Growth Trends", fontsize=14, fontweight="bold")
         ax2.set_ylim(0, 100)
-        ax2.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
     else:

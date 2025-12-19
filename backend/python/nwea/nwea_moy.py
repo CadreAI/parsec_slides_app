@@ -702,7 +702,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
         bar_ax.set_ylim(0, 100)
         bar_ax.set_ylabel("% of Students")
         bar_ax.set_title(titles[subject], fontsize=14, fontweight="bold", pad=30)
-        bar_ax.grid(axis="y", alpha=0.5)
+        # bar_ax.grid(False)  # Gridlines disabled globally
         bar_ax.spines["top"].set_visible(False)
         bar_ax.spines["right"].set_visible(False)
 
@@ -738,7 +738,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
             )
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
-        pct_ax.grid(axis="y", alpha=0.2)
+        # pct_ax.grid(False)  # Gridlines disabled globally
         pct_ax.spines["top"].set_visible(False)
         pct_ax.spines["right"].set_visible(False)
 
@@ -1165,7 +1165,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1215,7 +1215,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         ax.set_ylabel("Avg RIT")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1748,7 +1748,7 @@ def plot_nwea_dual_subject_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         # legend_handles = [
@@ -1812,7 +1812,7 @@ def plot_nwea_dual_subject_dashboard(
         ax.set_ylabel("Avg RIT")
         ax.set_xticks(rit_x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -2228,7 +2228,7 @@ def plot_nwea_subject_dashboard_by_group(
         ax1.set_ylabel("% of Students")
         ax1.set_xticks(x)
         ax1.set_xticklabels(x_labels)
-        ax1.grid(axis="y", alpha=0.2)
+        # ax1.grid(False)  # Gridlines disabled globally
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
         # Title
@@ -2302,7 +2302,7 @@ def plot_nwea_subject_dashboard_by_group(
         ax2.set_xticks(rit_x)
         ax2.set_xticklabels(x_labels)
         ax2.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
-        ax2.grid(axis="y", alpha=0.2)
+        # ax2.grid(False)  # Gridlines disabled globally
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
     # Panel 3: Insights by subject
@@ -2937,7 +2937,7 @@ def plot_nwea_blended_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist(), fontsize=8)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -3038,7 +3038,7 @@ def plot_nwea_blended_dashboard(
     for label in ax3.get_xticklabels():
         label.set_y(-0.09)
     ax3.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
-    ax3.grid(axis="y", alpha=0.2)
+    # ax3.grid(False)  # Gridlines disabled globally
     ax3.spines["top"].set_visible(False)
     ax3.spines["right"].set_visible(False)
 
@@ -3092,7 +3092,7 @@ def plot_nwea_blended_dashboard(
     for label in ax4.get_xticklabels():
         label.set_y(-0.09)
     ax4.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
-    ax4.grid(axis="y", alpha=0.2)
+    # ax4.grid(False)  # Gridlines disabled globally
     ax4.spines["top"].set_visible(False)
     ax4.spines["right"].set_visible(False)
 
@@ -3424,7 +3424,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist())
     ax.set_ylim(0, 100)
-    ax.grid(axis="y", linestyle=":", alpha=0.6)
+    # ax.grid(False)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -3963,7 +3963,7 @@ def _plot_cgp_dual_facet(
             )
 
         ax.set_title(title, fontsize=14, fontweight="bold")
-        ax.grid(axis="y", linestyle=":", alpha=0.6)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax2.spines["top"].set_visible(False)

@@ -1,12 +1,13 @@
 # %% helper_functions.py — shared visualization utilities
-import numpy as np
-import pandas as pd
+import logging
+import warnings
+from pathlib import Path
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from matplotlib.patches import Patch, PathPatch
-from pathlib import Path
-import warnings
-import logging
 
 # Default to non-interactive (batch) unless a caller flips it.
 DEV_MODE = False
@@ -61,7 +62,7 @@ plt.rcParams.update(
         "savefig.bbox": "tight",
         "savefig.pad_inches": 0.15,
         # Cleaner look by default
-        "axes.grid": True,
+        "axes.grid": False,  # Disable gridlines globally
         "grid.alpha": 0.2,
         "axes.spines.top": False,
         "axes.spines.right": False,
@@ -865,9 +866,9 @@ def save_chart(
     dpi: int = 200,
     fmt: tuple[str, ...] = ("png",),
 ):
-    from pathlib import Path
     import os
     import tempfile
+    from pathlib import Path
 
     # Default to runner-provided temp charts dir when available; otherwise fall back to
     # a per-run system temp directory to avoid writing into the repo (../charts).
@@ -1086,7 +1087,7 @@ def plot_matched_cohort_100(
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v*100)}%"))
         ax.set_xlabel("Spring 2025 Placement")
         ax.set_title(title, fontweight="bold", pad=8)
-        ax.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.legend(
             handles=_legend_for_levels(y_order, color_map),
             title="Fall 2026 Placement",
@@ -1245,7 +1246,7 @@ def plot_cohort_prev_next_100(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontweight="bold", pad=10)
-    ax.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
+    # ax.grid(False)  # Gridlines disabled globally
 
     ax.legend(
         handles=_legend_for_levels(levels_order, color_map),
@@ -1665,4 +1666,5 @@ def prepare_star_agg(df: pd.DataFrame, subject_str: str, window_filter: str = "F
     )
 
 
+# %%
 # %%

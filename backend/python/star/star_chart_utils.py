@@ -2,11 +2,13 @@
 Common chart drawing utilities for STAR charts
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
 import sys
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
@@ -95,7 +97,7 @@ def draw_stacked_bar(ax, pct_df, score_df, labels):
     ax.set_ylabel("% of Students")
     ax.set_xticks(x)
     ax.set_xticklabels(x_labels)
-    ax.grid(axis="y", alpha=0.2)
+    # ax.grid(False)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -157,7 +159,7 @@ def draw_score_bar(ax, score_df, labels, n_map=None):
         ax.set_xticks(rit_x)
         ax.set_xticklabels(labels_with_n)
         ax.tick_params(pad=10)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(False)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     except Exception as e:
