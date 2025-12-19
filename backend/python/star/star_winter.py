@@ -5,42 +5,45 @@ Based on star_moy.py structure but specifically for Winter filtering
 
 # Set matplotlib backend to non-interactive before any imports
 import matplotlib
+
 matplotlib.use('Agg')
 
 import argparse
-import sys
 import json
+import sys
 from pathlib import Path
-import pandas as pd
-import numpy as np
-from matplotlib.patches import Patch
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Patch
 
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
+from .star_chart_utils import (
+    LABEL_MIN_PCT,
+    draw_insight_card,
+    draw_score_bar,
+    draw_stacked_bar,
+)
+
 # Import utility modules
 from .star_data import (
+    _short_year,
+    filter_star_subject_rows,
+    get_scopes,
     load_config_from_args,
     load_star_data,
-    get_scopes,
     prep_star_for_charts,
-    filter_star_subject_rows,
-    _short_year
 )
 from .star_filters import (
     apply_chart_filters,
-    should_generate_subject,
+    should_generate_grade,
     should_generate_student_group,
-    should_generate_grade
-)
-from .star_chart_utils import (
-    draw_stacked_bar,
-    draw_score_bar,
-    draw_insight_card,
-    LABEL_MIN_PCT
+    should_generate_subject,
 )
 
 # Chart tracking for CSV generation
@@ -1689,8 +1692,8 @@ def plot_star_growth_by_site_winter(
             school_data[school] = {
                 "metrics": m,
                 "time_order": [str(t) for t in (time_order or [])],
-                "pct_data": pct_df.to_dict("records"),
-                "score_data": score_df.to_dict("records"),
+                "pct_data": pct_df,
+                "score_data": score_df,
             }
     
     if not school_data:
@@ -1706,8 +1709,8 @@ def plot_star_growth_by_site_winter(
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
     for idx, (school, data) in enumerate(sorted(school_data.items())):
-        pct_df = data["pct_df"]
-        score_df = data["score_df"]
+        pct_df = data["pct_data"]
+        score_df = data["score_data"]
         
         # Stacked bar chart
         ax1 = fig.add_subplot(gs[idx, 0])
@@ -1749,8 +1752,8 @@ def plot_star_growth_by_site_winter(
         "subjects": [subject_str],
         "school_data": {
             school: {
-                "pct_data": data["pct_df"].to_dict("records") if not data["pct_df"].empty else [],
-                "score_data": data["score_df"].to_dict("records") if not data["score_df"].empty else [],
+                "pct_data": data["pct_df"].to_dict("records") if not data["pct_data"].empty else [],
+                "score_data": data["score_df"].to_dict("records") if not data["score_data"].empty else [],
                 "metrics": data["metrics"],
                 "time_order": data["time_order"]
             }
@@ -1758,6 +1761,227 @@ def plot_star_growth_by_site_winter(
         },
     }
     track_chart(f"Section 4: {subject_str} Growth by Site", out_path, scope=scope_label, section=4, chart_data=chart_data)
+    
+    return str(out_path)
+
+# ---------------------------------------------------------------------
+# SECTION 4.1 — District-Level SGP Overview Helper Functions
+# ---------------------------------------------------------------------
+
+def _prep_star_sgp_trend_district_overview(df, subject_str):
+    """
+    Prepare Winter SGP trend data aggregated across all grades for district overview.
+    Returns DataFrame with columns: time_label, median_sgp, n, subject
+    Limited to the most recent 4 time_labels.
+    Uses any available SGP data (prioritizes FALL_WINTER if available).
+    """
+    d = df.copy()
+    
+    # Check for SGP columns
+    if "current_sgp_vector" not in d.columns:
+        print(f"[Section 4 Overview] No current_sgp_vector column found for {subject_str}")
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+    
+    if "current_sgp" not in d.columns:
+        print(f"[Section 4 Overview] No current_sgp column found for {subject_str}")
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+    
+    # Winter term only
+    d = d[d["testwindow"].astype(str).str.upper() == "WINTER"].copy()
+    
+    # Subject filtering using existing filter_star_subject_rows
+    d = filter_star_subject_rows(d, subject_str)
+    
+    # Check for rows with any SGP data
+    d_with_sgp = d[d["current_sgp_vector"].notna() & d["current_sgp"].notna()].copy()
+    
+    if d_with_sgp.empty:
+        print(f"[Section 4 Overview] No SGP data found for {subject_str}")
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+    
+    # === DEBUGGING: Analyze SGP vectors in the data ===
+    # Write debug info to a log file
+    debug_log_path = "star_sgp_debug.log"
+    with open(debug_log_path, "a") as f:
+        f.write(f"\n=== DEBUG: {subject_str} SGP Analysis ===\n")
+        vector_counts = d_with_sgp["current_sgp_vector"].value_counts()
+        f.write(f"SGP vectors present in WINTER tests:\n{vector_counts}\n")
+        
+        # Show median SGP for each vector
+        for vector in vector_counts.index:
+            subset = d_with_sgp[d_with_sgp["current_sgp_vector"] == vector]
+            median_val = subset["current_sgp"].median()
+            f.write(f"  {vector}: n={len(subset)}, median={median_val:.1f}\n")
+        f.write("=" * 50 + "\n")
+    
+    # Check what SGP vectors are available
+    available_vectors = d_with_sgp["current_sgp_vector"].unique()
+    
+    # Prefer FALL_WINTER, but use any available SGP data
+    if "FALL_WINTER" in available_vectors:
+        d = d_with_sgp[d_with_sgp["current_sgp_vector"] == "FALL_WINTER"].copy()
+        print(f"[Section 4 Overview] Using FALL_WINTER SGP data for {subject_str}")
+    else:
+        most_common_vector = d_with_sgp["current_sgp_vector"].mode().iloc[0] if not d_with_sgp["current_sgp_vector"].mode().empty else available_vectors[0]
+        d = d_with_sgp[d_with_sgp["current_sgp_vector"] == most_common_vector].copy()
+        print(f"[Section 4 Overview] No FALL_WINTER data, using {most_common_vector} SGP data for {subject_str}")
+    
+    if d.empty:
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+    
+    # Build time labels using existing _short_year function
+    d["academicyear_short"] = d["academicyear"].apply(_short_year)
+    d["time_label"] = "Winter " + d["academicyear_short"]
+    
+    # Deduplicate to latest test per student per time_label
+    if "activity_completed_date" in d.columns:
+        d["activity_completed_date"] = pd.to_datetime(d["activity_completed_date"], errors="coerce")
+        d.sort_values(["student_state_id", "time_label", "activity_completed_date"], inplace=True)
+        d = d.groupby(["student_state_id", "time_label"], as_index=False).tail(1)
+    
+    # Aggregate median SGP across ALL grades
+    out = (
+        d.groupby("time_label", dropna=False)
+        .agg(
+            median_sgp=("current_sgp", "median"),
+            n=("current_sgp", "size"),
+        )
+        .reset_index()
+    )
+    
+    if out.empty:
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+    
+    # Keep last 4 Winter windows
+    order = sorted(out["time_label"].astype(str).unique())
+    out["time_label"] = pd.Categorical(out["time_label"], order, ordered=True)
+    out = out.sort_values("time_label").tail(4).reset_index(drop=True)
+    out["subject"] = subject_str
+    
+    return out
+
+
+def plot_district_sgp_overview_winter(
+    df, scope_label, folder, output_dir, window_filter="Winter", preview=False
+):
+    """
+    District-level SGP overview: Reading and Math side-by-side.
+    Aggregates across all grades to show overall district growth.
+    """
+    subjects = ["Reading", "Mathematics"]
+    subject_titles = ["Reading", "Math"]
+    sgp_color = "#0381a2"
+    band_color = "#eab308"
+    band_line_color = "#ffa800"
+    
+    # Prepare SGP data for both subjects
+    trend_dfs = []
+    for subj in subjects:
+        tdf = _prep_star_sgp_trend_district_overview(df, subject_str=subj)
+        trend_dfs.append(tdf)
+    
+    # Check if we have any data
+    if all(tdf.empty for tdf in trend_dfs):
+        print(f"[Section 4 Overview] No SGP data for {scope_label}")
+        return None
+    
+    # Detect SGP vector being used from the WINTER data specifically
+    sgp_vector_label = "SGP"  # Default
+    d_sample = df.copy()
+    # Filter to WINTER window to match the actual data being plotted
+    d_sample = d_sample[d_sample["testwindow"].astype(str).str.upper() == "WINTER"]
+    if "current_sgp_vector" in d_sample.columns:
+        d_sample = d_sample[d_sample["current_sgp_vector"].notna()]
+        if not d_sample.empty:
+            vector = d_sample["current_sgp_vector"].mode().iloc[0] if not d_sample["current_sgp_vector"].mode().empty else ""
+            # Format vector for display (e.g., "FALL_WINTER" -> "Fall→Winter")
+            if vector == "FALL_WINTER":
+                sgp_vector_label = "Fall→Winter SGP"
+            elif vector == "SPRING_FALL":
+                sgp_vector_label = "Spring→Fall SGP"
+            else:
+                sgp_vector_label = f"{vector} SGP"
+    
+    # Create faceted plot
+    fig, axes = plt.subplots(1, 2, figsize=(16, 9), dpi=300, sharey=True)
+    
+    for idx, (ax, subj, title, trend_df) in enumerate(
+        zip(axes, subjects, subject_titles, trend_dfs)
+    ):
+        if trend_df.empty or not {"time_label", "median_sgp", "n"}.issubset(trend_df.columns):
+            ax.axis("off")
+            ax.text(0.5, 0.5, f"No {title} data", ha="center", va="center",
+                   fontsize=16, fontweight="bold", color="#434343")
+            continue
+        
+        sub = trend_df.copy()
+        x = np.arange(len(sub))
+        y = sub["median_sgp"].to_numpy(float)
+        
+        # Growth band (35-65 typical growth range)
+        ax.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
+        for yref in [35, 50, 65]:
+            ax.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
+        
+        # Bars
+        bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+        for rect, val in zip(bars, y):
+            ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
+                   f"{val:.1f}", ha="center", va="center", fontsize=9,
+                   fontweight="bold", color="white")
+        
+        # Add n-counts under x-axis
+        n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
+        formatted_labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" 
+                           for tl in sub["time_label"].astype(str).tolist()]
+        
+        ax.set_xticks(x)
+        ax.set_xticklabels(formatted_labels)
+        ax.set_title(title, fontweight="bold", fontsize=14, pad=10)
+        ax.set_ylim(0, 100)
+        ax.set_ylabel(f"Median {sgp_vector_label}" if idx == 0 else "")
+        ax.grid(axis="y", linestyle=":", alpha=0.6, zorder=0)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+    
+    # Legend
+    fig.legend(
+        handles=[Patch(facecolor=sgp_color, label="Median SGP")],
+        loc="upper center", bbox_to_anchor=(0.5, 0.95),
+        frameon=False, fontsize=10
+    )
+    
+    # Title
+    fig.suptitle(
+        f"{scope_label} • {sgp_vector_label} Trends (All Grades)",
+        fontsize=20, fontweight="bold", y=1.02
+    )
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    
+    # Save
+    out_dir = Path(output_dir) / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = scope_label.replace(" ", "_")
+    out_name = f"DISTRICT_{safe_scope}_STAR_section4_sgp_overview_{window_filter.lower()}.png"
+    out_path = out_dir / out_name
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    print(f"Saved Section 4 SGP Overview: {out_path}")
+    
+    # Track chart with data
+    chart_data = {
+        "chart_type": "star_winter_section4_sgp_overview",
+        "section": 4,
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "subjects": subjects,
+        "sgp_data": {
+            subj: tdf.to_dict("records") if not tdf.empty else []
+            for subj, tdf in zip(subjects, trend_dfs)
+        }
+    }
+    track_chart(f"Section 4: District SGP Overview", out_path, scope=scope_label, section=4, chart_data=chart_data)
+    plt.close(fig)
     
     return str(out_path)
 
@@ -2349,6 +2573,25 @@ def main(star_data=None):
     for scope_df, scope_label, folder in scopes:
         # Only generate for district scope (shows all schools)
         if folder == "_district":
+            # NEW: Add district-level SGP overview (Reading + Math side-by-side)
+            try:
+                chart_path = plot_district_sgp_overview_winter(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    window_filter="Winter",
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error generating Section 4 SGP Overview for {scope_label}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+            
+            # Existing: Growth by Site charts (separate for Reading and Math)
             for subj in subjects_to_plot:
                 if not should_generate_subject(subj, chart_filters):
                     continue

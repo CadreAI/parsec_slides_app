@@ -77,3 +77,6 @@ settings.yaml
 *.jpg
 *.jpeg
 *.pdf
+
+
+*.rdb
