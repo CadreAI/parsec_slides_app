@@ -1771,7 +1771,9 @@ def plot_star_growth_by_site_winter(
 def _prep_star_sgp_trend_district_overview(df, subject_str):
     """
     Prepare Winter SGP trend data aggregated across all grades for district overview.
-    Returns DataFrame with columns: time_label, median_sgp, n, subject
+    Returns: (DataFrame, vector_used: str)
+    - DataFrame has columns: time_label, median_sgp, n, subject
+    - vector_used is the SGP vector string (e.g., "FALL_WINTER") or None if no data
     Limited to the most recent 4 time_labels.
     Uses any available SGP data (prioritizes FALL_WINTER if available).
     """
@@ -1780,11 +1782,11 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
     # Check for SGP columns
     if "current_sgp_vector" not in d.columns:
         print(f"[Section 4 Overview] No current_sgp_vector column found for {subject_str}")
-        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
     
     if "current_sgp" not in d.columns:
         print(f"[Section 4 Overview] No current_sgp column found for {subject_str}")
-        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
     
     # Winter term only
     d = d[d["testwindow"].astype(str).str.upper() == "WINTER"].copy()
@@ -1797,7 +1799,7 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
     
     if d_with_sgp.empty:
         print(f"[Section 4 Overview] No SGP data found for {subject_str}")
-        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
     
     # === DEBUGGING: Analyze SGP vectors in the data ===
     # Write debug info to a log file
@@ -1816,18 +1818,21 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
     
     # Check what SGP vectors are available
     available_vectors = d_with_sgp["current_sgp_vector"].unique()
+    vector_used = None  # Track which vector we use
     
     # Prefer FALL_WINTER, but use any available SGP data
     if "FALL_WINTER" in available_vectors:
         d = d_with_sgp[d_with_sgp["current_sgp_vector"] == "FALL_WINTER"].copy()
+        vector_used = "FALL_WINTER"
         print(f"[Section 4 Overview] Using FALL_WINTER SGP data for {subject_str}")
     else:
         most_common_vector = d_with_sgp["current_sgp_vector"].mode().iloc[0] if not d_with_sgp["current_sgp_vector"].mode().empty else available_vectors[0]
         d = d_with_sgp[d_with_sgp["current_sgp_vector"] == most_common_vector].copy()
+        vector_used = most_common_vector
         print(f"[Section 4 Overview] No FALL_WINTER data, using {most_common_vector} SGP data for {subject_str}")
     
     if d.empty:
-        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
     
     # Build time labels using existing _short_year function
     d["academicyear_short"] = d["academicyear"].apply(_short_year)
@@ -1850,7 +1855,7 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
     )
     
     if out.empty:
-        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"])
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
     
     # Keep last 4 Winter windows
     order = sorted(out["time_label"].astype(str).unique())
@@ -1858,7 +1863,7 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
     out = out.sort_values("time_label").tail(4).reset_index(drop=True)
     out["subject"] = subject_str
     
-    return out
+    return out, vector_used
 
 
 def plot_district_sgp_overview_winter(
@@ -1875,32 +1880,28 @@ def plot_district_sgp_overview_winter(
     band_line_color = "#ffa800"
     
     # Prepare SGP data for both subjects
-    trend_dfs = []
+    trend_data = []  # Store (dataframe, vector) tuples
     for subj in subjects:
-        tdf = _prep_star_sgp_trend_district_overview(df, subject_str=subj)
-        trend_dfs.append(tdf)
+        tdf, vector_used = _prep_star_sgp_trend_district_overview(df, subject_str=subj)
+        trend_data.append((tdf, vector_used))
+    
+    trend_dfs = [td[0] for td in trend_data]  # Extract just dataframes
     
     # Check if we have any data
     if all(tdf.empty for tdf in trend_dfs):
         print(f"[Section 4 Overview] No SGP data for {scope_label}")
         return None
     
-    # Detect SGP vector being used from the WINTER data specifically
+    # Get the SGP vector label from the actual data used (not by re-detecting)
     sgp_vector_label = "SGP"  # Default
-    d_sample = df.copy()
-    # Filter to WINTER window to match the actual data being plotted
-    d_sample = d_sample[d_sample["testwindow"].astype(str).str.upper() == "WINTER"]
-    if "current_sgp_vector" in d_sample.columns:
-        d_sample = d_sample[d_sample["current_sgp_vector"].notna()]
-        if not d_sample.empty:
-            vector = d_sample["current_sgp_vector"].mode().iloc[0] if not d_sample["current_sgp_vector"].mode().empty else ""
-            # Format vector for display (e.g., "FALL_WINTER" -> "Fall→Winter")
-            if vector == "FALL_WINTER":
-                sgp_vector_label = "Fall→Winter SGP"
-            elif vector == "SPRING_FALL":
-                sgp_vector_label = "Spring→Fall SGP"
-            else:
-                sgp_vector_label = f"{vector} SGP"
+    vector_used = next((v for _, v in trend_data if v is not None), None)
+    if vector_used:
+        if vector_used == "FALL_WINTER":
+            sgp_vector_label = "Fall→Winter SGP"
+        elif vector_used == "SPRING_FALL":
+            sgp_vector_label = "Spring→Fall SGP"
+        else:
+            sgp_vector_label = f"{vector_used} SGP"
     
     # Create faceted plot
     fig, axes = plt.subplots(1, 2, figsize=(16, 9), dpi=300, sharey=True)
