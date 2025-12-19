@@ -13,6 +13,7 @@ interface MultiSelectProps {
     className?: string
     disabled?: boolean
     getDisplayLabel?: (option: string) => string
+    getOptionSubLabel?: (option: string) => string | undefined
 }
 
 export function MultiSelect({
@@ -22,7 +23,8 @@ export function MultiSelect({
     placeholder = 'Select options...',
     className,
     disabled = false,
-    getDisplayLabel
+    getDisplayLabel,
+    getOptionSubLabel
 }: MultiSelectProps) {
     const displayLabel = getDisplayLabel || ((option: string) => option)
     const [isOpen, setIsOpen] = React.useState(false)
@@ -99,7 +101,12 @@ export function MultiSelect({
                             <div key={option} className="hover:bg-accent flex items-center space-x-2 rounded-sm px-2 py-1.5">
                                 <Checkbox id={`multi-select-${option}`} checked={selected.includes(option)} onChange={() => handleToggle(option)} />
                                 <Label htmlFor={`multi-select-${option}`} className="flex-1 cursor-pointer font-normal">
-                                    {displayLabel(option)}
+                                    <span className="flex flex-col">
+                                        <span>{displayLabel(option)}</span>
+                                        {getOptionSubLabel?.(option) ? (
+                                            <span className="text-muted-foreground text-xs">{getOptionSubLabel(option)}</span>
+                                        ) : null}
+                                    </span>
                                 </Label>
                             </div>
                         ))}

@@ -55,6 +55,11 @@ def sql_nwea(
     extra_excludes = EXCLUDE_COLS.get("nwea", [])
     if exclude_cols:
         extra_excludes = extra_excludes + exclude_cols
+
+    # Some partners use non-standard production tables that include a large `email` column.
+    # Exclude it ONLY when it exists, otherwise BigQuery will error on SELECT * EXCEPT(email).
+    if "email" in available_cols and "email" not in [str(c).lower() for c in extra_excludes]:
+        extra_excludes = extra_excludes + ["email"]
     
     # Determine which Growth columns to include based on selected quarters
     quarters = filters.get('quarters', [])

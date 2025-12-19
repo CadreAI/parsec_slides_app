@@ -20,7 +20,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ taskId: st
         let token: string | null = null
         try {
             token = await getToken({ template: 'backend' })
-        } catch (error) {
+        } catch (_error) {
             // Template doesn't exist, fallback to default token
             console.log('[API Route /tasks/status] Backend template not found, using default token')
         }

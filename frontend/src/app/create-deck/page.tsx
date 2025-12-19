@@ -20,7 +20,7 @@ import { useStudentGroups } from '@/hooks/useStudentGroups'
 import { getQuarterBackendValue } from '@/utils/quarterLabels'
 import { ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 // Helper function to format grade display labels
@@ -44,6 +44,10 @@ export default function CreateSlide() {
     const router = useRouter()
     const [isIngesting, setIsIngesting] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
+    const [yearTotalsByYear, setYearTotalsByYear] = useState<Record<string, number>>({})
+    const [isLoadingYearTotals, setIsLoadingYearTotals] = useState(false)
+    const [overLimitYears, setOverLimitYears] = useState<string[]>([])
+    const warnedOverLimitYearsRef = useRef<Set<string>>(new Set())
     const [formData, setFormData] = useState({
         // Partner & Data Configuration
         partnerName: '',
@@ -83,7 +87,7 @@ export default function CreateSlide() {
         years: YEARS,
         isLoading: isLoadingFormOptions
     } = useFormOptions(formData.projectId, formData.partnerName, formData.location, formData.assessments, formData.customDataSources)
-    const { studentGroupOptions, raceOptions, studentGroupMappings, studentGroupOrder } = useStudentGroups()
+    const { studentGroupMappings, studentGroupOrder } = useStudentGroups()
     const { partnerOptions, isLoadingDatasets } = useDatasets(formData.projectId, formData.location)
     // Note: District/school fetching is now done per-assessment (see AssessmentScopeSelector component below)
     const { availableAssessments, assessmentTables, variants, isLoadingAssessmentTables } = useAssessmentTables(
@@ -115,6 +119,153 @@ export default function CreateSlide() {
         formData.assessments,
         formData.customDataSources
     )
+
+    // When a user selects assessment(s), compute row counts by year so we can warn/block
+    // if a selected year would produce an unworkable deck.
+    useEffect(() => {
+        const abortController = new AbortController()
+
+        const fetchYearTotals = async () => {
+            try {
+                if (!formData.projectId || !formData.partnerName || !formData.assessments || formData.assessments.length === 0) {
+                    setYearTotalsByYear({})
+                    return
+                }
+
+                setIsLoadingYearTotals(true)
+
+                const params = new URLSearchParams({
+                    projectId: formData.projectId,
+                    datasetId: formData.partnerName,
+                    location: formData.location || 'US'
+                })
+                params.append('assessments', formData.assessments.join(','))
+
+                // Reduce the count query by window(s) based on selected deck timing:
+                // - BOY (Fall) => Fall only
+                // - MOY (Winter) => Fall + Winter
+                // - EOY (Spring) => Winter + Spring
+                const windowSelection = (formData.quarters || '').toLowerCase()
+                const windowsForCount =
+                    windowSelection === 'fall'
+                        ? ['Fall']
+                        : windowSelection === 'winter'
+                          ? ['Fall', 'Winter']
+                          : windowSelection === 'spring'
+                            ? ['Winter', 'Spring']
+                            : []
+                if (windowsForCount.length > 0) {
+                    params.append('windows', windowsForCount.join(','))
+                }
+
+                const relevantTables = formData.assessments.map((a) => formData.customDataSources?.[a]).filter(Boolean) as string[]
+                if (relevantTables.length > 0) {
+                    params.append('tablePaths', relevantTables.join(','))
+                }
+
+                // If districtwide is turned OFF and school charts are enabled, filter counts to selected schools.
+                // This estimates "how big it would be" for non-district graphs.
+                const selectedSchools = new Set<string>()
+                const schoolsByAssessment: Record<string, Set<string>> = {}
+                type ScopeShape = {
+                    includeDistrictwide?: boolean
+                    includeSchools?: boolean
+                    schools?: string[]
+                    resolvedSchools?: string[]
+                }
+                const scopes = formData.assessmentScopes as Record<string, ScopeShape>
+
+                for (const aid of formData.assessments) {
+                    const scope = scopes?.[aid]
+                    if (!scope) continue
+                    const includeDistrictwide = scope.includeDistrictwide !== false
+                    const includeSchools = scope.includeSchools !== false
+                    const schools = Array.isArray(scope.resolvedSchools) && scope.resolvedSchools.length > 0 ? scope.resolvedSchools : scope.schools
+                    if (!includeDistrictwide && includeSchools && Array.isArray(schools) && schools.length > 0) {
+                        if (!schoolsByAssessment[aid]) schoolsByAssessment[aid] = new Set<string>()
+                        schools.forEach((s: string) => {
+                            const ss = String(s)
+                            selectedSchools.add(ss)
+                            schoolsByAssessment[aid].add(ss)
+                        })
+                    }
+                }
+                if (selectedSchools.size > 0) {
+                    // Backwards-compatible: keep global schools too
+                    params.append('schools', Array.from(selectedSchools).join(','))
+                    // Preferred: send per-assessment school lists so NWEA/iReady don't accidentally filter each other.
+                    Object.entries(schoolsByAssessment).forEach(([aid, set]) => {
+                        const vals = Array.from(set)
+                        if (vals.length > 0) params.append(`schools_${aid}`, vals.join(','))
+                    })
+                }
+
+                const res = await fetch(`/api/bigquery/year-row-counts?${params.toString()}`, {
+                    signal: abortController.signal
+                })
+                if (!res.ok) {
+                    setYearTotalsByYear({})
+                    return
+                }
+
+                const data = await res.json()
+                if (data?.success && data?.totals_by_year) {
+                    setYearTotalsByYear(data.totals_by_year as Record<string, number>)
+                } else {
+                    setYearTotalsByYear({})
+                }
+            } catch (error) {
+                if (error instanceof Error && error.name === 'AbortError') return
+                console.error('[Create Deck] Error fetching year row counts:', error)
+                setYearTotalsByYear({})
+            } finally {
+                setIsLoadingYearTotals(false)
+            }
+        }
+
+        fetchYearTotals()
+        return () => abortController.abort()
+    }, [
+        formData.projectId,
+        formData.partnerName,
+        formData.location,
+        formData.assessments.join(','),
+        formData.quarters,
+        JSON.stringify(formData.assessmentScopes || {}),
+        Object.values(formData.customDataSources || {})
+            .sort()
+            .join(',')
+    ])
+
+    // Track years that exceed the safety threshold
+    useEffect(() => {
+        const bad = (formData.years || []).filter((y) => (yearTotalsByYear?.[y] || 0) > 1_000_000)
+        setOverLimitYears(bad)
+    }, [formData.years, yearTotalsByYear])
+
+    // Toast immediately when a newly-selected year exceeds the safety threshold (avoid spam).
+    useEffect(() => {
+        const current = new Set(overLimitYears)
+        const warned = warnedOverLimitYearsRef.current
+
+        // If a year is no longer over-limit, allow warning again if the user re-selects it later.
+        for (const y of Array.from(warned)) {
+            if (!current.has(y)) warned.delete(y)
+        }
+
+        for (const y of overLimitYears) {
+            if (warned.has(y)) continue
+            warned.add(y)
+            const cnt = yearTotalsByYear?.[y]
+            const cntStr = typeof cnt === 'number' && !isNaN(cnt) ? cnt.toLocaleString() : 'unknown'
+            toast.warning(`Warning: Year ${y} has ${cntStr} rows (> 1,000,000). This will crash and will not produce a slide deck.`)
+        }
+    }, [overLimitYears, yearTotalsByYear])
+
+    const formatRowCount = (n: number) => {
+        if (!isFinite(n)) return ''
+        return `${Math.round(n).toLocaleString()} rows`
+    }
 
     // Combined loading state to prevent stale UI
     const isLoadingChoices =
@@ -282,6 +433,15 @@ export default function CreateSlide() {
 
         if (formData.years.length < 2) {
             toast.error('Please select at least 2 years (2023-2026)')
+            return
+        }
+
+        if (overLimitYears.length > 0) {
+            toast.error(
+                `Selected year(s) ${overLimitYears.join(
+                    ', '
+                )} exceed 1,000,000 rows. This will crash and will not produce a slide deck. Please remove the year(s) or narrow your filters.`
+            )
             return
         }
 
@@ -752,9 +912,20 @@ export default function CreateSlide() {
                                                 onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
                                                 placeholder={isLoadingChoices ? 'Loading years...' : 'Select at least 2 year(s)...'}
                                                 disabled={isLoadingChoices}
+                                                getOptionSubLabel={(y) => {
+                                                    const n = yearTotalsByYear?.[y]
+                                                    if (typeof n !== 'number' || isNaN(n) || n <= 0) return undefined
+                                                    return formatRowCount(n)
+                                                }}
                                             />
                                             {formData.years.length > 0 && formData.years.length < 2 && (
                                                 <p className="text-destructive text-sm">Please select at least 2 years</p>
+                                            )}
+                                            {overLimitYears.length > 0 && (
+                                                <p className="text-sm text-amber-700">
+                                                    Warning: {overLimitYears.join(', ')} exceed 1,000,000 rows
+                                                    {isLoadingYearTotals ? ' (checking...)' : ''}. This will crash and will not produce a slide deck.
+                                                </p>
                                             )}
                                         </div>
                                     </div>
