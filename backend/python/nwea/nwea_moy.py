@@ -58,6 +58,7 @@ import sys
 import json
 import warnings
 import logging
+from nwea_data import filter_nwea_subject_rows
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 # Suppress matplotlib font warnings
@@ -93,6 +94,60 @@ logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 logger.info(f"Logging initialized. Log file: {log_file}")
+
+# ----------------------------
+# Frontend-driven filter inputs
+# ----------------------------
+def _parse_env_csv(var_name: str):
+    raw = os.getenv(var_name)
+    if not raw:
+        return None
+    parts = [p.strip() for p in str(raw).split(",") if p.strip()]
+    return parts or None
+
+
+_selected_subjects = _parse_env_csv("NWEA_MOY_SUBJECTS")
+if _selected_subjects:
+    logger.info(f"[FILTER] Subject selection from frontend: {_selected_subjects}")
+
+
+def _requested_subjects(default_subjects: list[str]):
+    """Subjects to generate for per-subject sections (e.g., Section 3/4)."""
+    return _selected_subjects if _selected_subjects else default_subjects
+
+
+def _requested_core_subjects():
+    """
+    Core NWEA subjects used in many legacy sections.
+    Returns a subset of ["Reading", "Mathematics"] if frontend selected subjects.
+    """
+    if not _selected_subjects:
+        return ["Reading", "Mathematics"]
+    subj_join = " | ".join(str(s).casefold() for s in _selected_subjects)
+    out = []
+    if any(k in subj_join for k in ["reading", "ela", "language arts"]):
+        out.append("Reading")
+    if "math" in subj_join:
+        out.append("Mathematics")
+    return out
+
+
+def _requested_core_dual_subjects():
+    """
+    For legacy dual-subject dashboards that are hard-coded to 2 columns.
+
+    If frontend selects subjects and it does NOT include both Reading and Math,
+    we skip these dashboards to avoid partial/blank layouts.
+    """
+    if not _selected_subjects:
+        return ["Reading", "Math K-12"], ["Reading", "Math"]
+
+    subj_join = " | ".join(str(s).casefold() for s in _selected_subjects)
+    has_read = any(k in subj_join for k in ["reading", "ela", "language arts"])
+    has_math = "math" in subj_join
+    if not (has_read and has_math):
+        return [], []
+    return ["Reading", "Math K-12"], ["Reading", "Math"]
 
 
 def _write_chart_data(out_path: Path, chart_data: dict) -> None:
@@ -783,7 +838,7 @@ for raw in [None] + _section0_schools:
         folder = scope_label.replace(" ", "_")
 
     payload = {}
-    for subj in ["Reading", "Mathematics"]:
+    for subj in _requested_core_subjects():
         proj, act, metrics, _ = _prep_section0(scope_df, subj)
         if proj is None:
             continue
@@ -1007,6 +1062,9 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
     school_raw: str | None = None,
     scope_label: str | None = None,
     preview: bool = False,
+    *,
+    _subjects_override: list[str] | None = None,
+    _titles_override: list[str] | None = None,
 ):
     """Faceted dashboard showing Reading and Math Fall vs Winter snapshot.
 
@@ -1016,12 +1074,48 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
       - Bottom row: Insight card (Fall → Winter deltas)
     """
 
-    fig = plt.figure(figsize=figsize, dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3, wspace=0.25)
+    # Use explicit override (internal recursion helper) if provided.
+    if isinstance(_subjects_override, list) and _subjects_override:
+        subjects = _subjects_override
+    else:
+        # Use frontend-selected subjects if present; otherwise default to Reading + Mathematics.
+        subjects = _selected_subjects if _selected_subjects else ["Reading", "Mathematics"]
 
-    subjects = ["Reading", "Math K-12"]
-    titles = ["Reading", "Math"]
+    def _display_title(s: str) -> str:
+        sl = str(s).strip().casefold()
+        if "math" in sl:
+            return "Math"
+        if "reading" in sl or "ela" in sl or "language arts" in sl:
+            return "Reading"
+        return str(s).strip() or str(s)
+
+    if isinstance(_titles_override, list) and _titles_override:
+        titles = _titles_override
+    else:
+        titles = [_display_title(s) for s in subjects]
+
+    # 3+ subjects => generate one single-subject chart per subject
+    if len(subjects) > 2 and not (isinstance(_subjects_override, list) and _subjects_override):
+        out_paths = []
+        for subj, title in zip(subjects, titles):
+            out_paths.extend(
+                plot_nwea_dual_subject_fall_winter_dashboard(
+                    df,
+                    figsize=figsize,
+                    school_raw=school_raw,
+                    scope_label=scope_label,
+                    preview=preview,
+                    _subjects_override=[subj],
+                    _titles_override=[title],
+                )
+                or []
+            )
+        return out_paths
+
+    ncols = len(subjects) if len(subjects) in (1, 2) else 2
+    fig = plt.figure(figsize=figsize, dpi=300)
+    gs = fig.add_gridspec(nrows=3, ncols=ncols, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
 
     def draw_stacked_bar(ax, pct_df):
         stack_df = (
@@ -1242,9 +1336,15 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     scope = scope_label or main_label
-    out_name = (
-        f"{scope.replace(' ', '_')}_section0_1_dual_subject_fall_winter_snapshot.png"
-    )
+    if len(subjects) == 1:
+        safe_subj = titles[0].replace(" ", "_").replace("/", "_")
+        out_name = (
+            f"{scope.replace(' ', '_')}_section0_1_{safe_subj}_fall_winter_snapshot.png"
+        )
+    else:
+        out_name = (
+            f"{scope.replace(' ', '_')}_section0_1_dual_subject_fall_winter_snapshot.png"
+        )
     out_path = out_dir / out_name
 
     logger.info(f"[CHART] Generating chart: {out_path}")
@@ -1280,6 +1380,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
     if preview:
         plt.show()
     plt.close()
+    return [str(out_path)]
 
 
 # ---------------------------------------------------------------------
@@ -1361,16 +1462,12 @@ def _prep_nwea_for_charts(
     after_window = len(d)
     logger.info(f"[FILTER] After window filter '{window_filter}': {after_window:,} rows (removed {initial_rows - after_window:,})")
 
-    # 2. course-based filtering (case-insensitive substring match)
-    subj_norm = subject_str.strip().casefold()
-    if "math" in subj_norm:
-        d = d[d["course"].astype(str).str.contains("math", case=False, na=False)].copy()
-        logger.info(f"[FILTER] After Math course filter: {len(d):,} rows (removed {after_window - len(d):,})")
-    elif "reading" in subj_norm:
-        d = d[
-            d["course"].astype(str).str.contains("reading", case=False, na=False)
-        ].copy()
-        logger.info(f"[FILTER] After Reading course filter: {len(d):,} rows (removed {after_window - len(d):,})")
+    # 2. subject filtering (supports Reading/Math as well as optional MAP Growth subjects)
+    before_subject = len(d)
+    d = filter_nwea_subject_rows(d, subject_str)
+    logger.info(
+        f"[FILTER] After subject '{subject_str}' filter: {len(d):,} rows (removed {before_subject - len(d):,})"
+    )
 
     # 3. require valid quintile bucket
     before_quintile = len(d)
@@ -1544,17 +1641,57 @@ def plot_nwea_dual_subject_dashboard(
     school_raw=None,
     scope_label=None,
     preview=False,
+    *,
+    _subjects_override: list[str] | None = None,
+    _titles_override: list[str] | None = None,
 ):
     """
     Faceted dashboard showing both Math and Reading for a given scope (district or school).
     """
     logger.info(f"[CHART] plot_nwea_dual_subject_dashboard: Starting | Scope: {scope_label} | Window: {window_filter} | Input rows: {len(df):,}")
-    fig = plt.figure(figsize=figsize, dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3, wspace=0.25)
+    # Use explicit override (internal recursion helper) if provided.
+    if isinstance(_subjects_override, list) and _subjects_override:
+        subjects = _subjects_override
+    else:
+        # Use frontend-selected subjects if present; otherwise default to Reading + Mathematics.
+        subjects = _selected_subjects if _selected_subjects else ["Reading", "Mathematics"]
 
-    subjects = ["Reading", "Math K-12"]
-    titles = ["Reading", "Math"]
+    def _display_title(s: str) -> str:
+        sl = str(s).strip().casefold()
+        if "math" in sl:
+            return "Math"
+        if "reading" in sl or "ela" in sl or "language arts" in sl:
+            return "Reading"
+        return str(s).strip() or str(s)
+
+    if isinstance(_titles_override, list) and _titles_override:
+        titles = _titles_override
+    else:
+        titles = [_display_title(s) for s in subjects]
+
+    # 3+ subjects => generate one single-subject chart per subject
+    if len(subjects) > 2 and not (isinstance(_subjects_override, list) and _subjects_override):
+        out_paths = []
+        for subj, title in zip(subjects, titles):
+            out_paths.extend(
+                plot_nwea_dual_subject_dashboard(
+                    df,
+                    window_filter=window_filter,
+                    figsize=figsize,
+                    school_raw=school_raw,
+                    scope_label=scope_label,
+                    preview=preview,
+                    _subjects_override=[subj],
+                    _titles_override=[title],
+                )
+                or []
+            )
+        return out_paths
+
+    ncols = len(subjects) if len(subjects) in (1, 2) else 2
+    fig = plt.figure(figsize=figsize, dpi=300)
+    gs = fig.add_gridspec(nrows=3, ncols=ncols, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
 
     # Build sidecar chart data payload as we go
     _pct_payload = []
@@ -1810,7 +1947,13 @@ def plot_nwea_dual_subject_dashboard(
     out_dir = charts_dir / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    out_name = f"{scope_label.replace(' ', '_')}_section1_dual_subject_dashboard.png"
+    if len(subjects) == 1:
+        safe_subj = titles[0].replace(" ", "_").replace("/", "_")
+        out_name = (
+            f"{scope_label.replace(' ', '_')}_section1_{safe_subj}_dashboard.png"
+        )
+    else:
+        out_name = f"{scope_label.replace(' ', '_')}_section1_dual_subject_dashboard.png"
     out_path = out_dir / out_name
 
     hf._save_and_render(fig, out_path)
@@ -1833,6 +1976,7 @@ def plot_nwea_dual_subject_dashboard(
     if preview:
         plt.show()
     plt.close()
+    return [str(out_path)]
 
 
 # ---------------------------------------------------------------------
@@ -1934,6 +2078,18 @@ def plot_nwea_subject_dashboard_by_group(
         else school_display
     )
 
+    # Legacy group dashboard is a 2-column layout (Reading + Math). Respect frontend
+    # subject filters by skipping if both aren't selected.
+    if _selected_subjects:
+        subj_join = " | ".join(str(s).casefold() for s in _selected_subjects)
+        has_read = any(k in subj_join for k in ["reading", "ela", "language arts"])
+        has_math = "math" in subj_join
+        if not (has_read and has_math):
+            logger.info(
+                f"[CHART] Section 2: skipping group dashboard for '{group_name}' (frontend did not request both Reading and Math)"
+            )
+            return
+
     subjects = ["Reading", "Mathematics"]
     subject_titles = ["Reading", "Mathematics"]
     # Apply group mask first
@@ -1956,16 +2112,7 @@ def plot_nwea_subject_dashboard_by_group(
     min_ns = []
     for subj in subjects:
         # Filter for subject
-        if subj == "Reading":
-            subj_df = d0[
-                d0["course"].astype(str).str.contains("reading", case=False, na=False)
-            ].copy()
-        elif subj == "Mathematics":
-            subj_df = d0[
-                d0["course"].astype(str).str.contains("math", case=False, na=False)
-            ].copy()
-        else:
-            subj_df = d0.copy()
+        subj_df = filter_nwea_subject_rows(d0, subj)
         if subj_df.empty:
             pct_dfs.append(None)
             score_dfs.append(None)
@@ -2372,9 +2519,9 @@ def plot_nwea_blended_dashboard(
         else school_display
     )
 
-    # --- Alias "Math K-12" to "Math" for display/chart titles ---
+    # --- Friendly title label ---
     course_str_for_title = course_str
-    if course_str_for_title == "Math K-12":
+    if str(course_str_for_title).strip().casefold() in ("math k-12", "mathematics", "math"):
         course_str_for_title = "Math"
 
     # -------------------------------
@@ -2386,20 +2533,12 @@ def plot_nwea_blended_dashboard(
     before_grade = len(df_left)
     df_left = df_left[df_left["grade"] == current_grade].copy()
     logger.info(f"[FILTER] After grade {current_grade} filter: {len(df_left):,} rows (removed {before_grade - len(df_left):,})")
-    # Filter on course_str
-    if "course" in df_left.columns:
-        before_course = len(df_left)
-        if course_str == "Math K-12":
-            df_left = df_left[
-                df_left["course"].astype(str).str.contains("math", case=False, na=False)
-            ]
-            logger.info(f"[FILTER] After Math course filter: {len(df_left):,} rows (removed {before_course - len(df_left):,})")
-        elif course_str == "Reading":
-            df_left = df_left[df_left["course"].astype(str).str.startswith("Reading")]
-            logger.info(f"[FILTER] After Reading course filter: {len(df_left):,} rows (removed {before_course - len(df_left):,})")
-        else:
-            print(f"[blended] skipping invalid course_str: {course_str}")
-            return
+    # Filter on course/subject (supports Reading/Math K-12 as well as optional MAP Growth subjects)
+    before_course = len(df_left)
+    df_left = filter_nwea_subject_rows(df_left, course_str)
+    logger.info(
+        f"[FILTER] After subject '{course_str}' filter: {len(df_left):,} rows (removed {before_course - len(df_left):,})"
+    )
     pct_df_left, score_df_left, metrics_left, time_order_left = _prep_nwea_for_charts(
         df_left,
         subject_str=course_str,
@@ -2470,19 +2609,10 @@ def plot_nwea_blended_dashboard(
                 & (cohort_slice["year"] == year)
             ].copy()
 
-            if "course" in cohort_slice.columns:
-                if course_str == "Math K-12":
-                    cohort_slice = cohort_slice[
-                        cohort_slice["course"]
-                        .astype(str)
-                        .str.contains("math", case=False, na=False)
-                    ]
-                elif course_str == "Reading":
-                    cohort_slice = cohort_slice[
-                        cohort_slice["course"].astype(str).str.startswith("Reading")
-                    ]
-                else:
-                    continue
+            # Subject filter (supports optional MAP Growth subjects)
+            cohort_slice = filter_nwea_subject_rows(cohort_slice, course_str)
+            if cohort_slice.empty:
+                continue
 
             if "teststartdate" in cohort_slice.columns:
                 cohort_slice["teststartdate"] = pd.to_datetime(
@@ -3054,23 +3184,24 @@ def _run_scope(scope_df, scope_label, school_raw):
             continue
         if _selected_grades is not None and g_int not in _selected_grades:
             continue
-        courses_in_data = set(scope_df["course"].dropna().unique())
-        for course_str in ["Math K-12", "Reading"]:
-            if (course_str == "Math K-12" and "Math K-12" in courses_in_data) or (
-                course_str == "Reading"
-                and any(str(c).startswith("Reading") for c in courses_in_data)
-            ):
-                plot_nwea_blended_dashboard(
-                    scope_df.copy(),
-                    course_str=course_str,
-                    current_grade=g_int,
-                    window_filter="Winter",
-                    cohort_year=anchor_year,
-                    figsize=(16, 9),
-                    school_raw=school_raw,
-                    preview=False,
-                    scope_label=scope_label,
+        subjects_to_generate = _requested_subjects(["Reading", "Mathematics"])
+        for subject_str in subjects_to_generate:
+            if filter_nwea_subject_rows(scope_df, subject_str).empty:
+                logger.info(
+                    f"[CHART] Section 3: skipping subject '{subject_str}' for Grade {g_int} (no matching rows)"
                 )
+                continue
+            plot_nwea_blended_dashboard(
+                scope_df.copy(),
+                course_str=subject_str,
+                current_grade=g_int,
+                window_filter="Winter",
+                cohort_year=anchor_year,
+                figsize=(16, 9),
+                school_raw=school_raw,
+                preview=False,
+                scope_label=scope_label,
+            )
 
 
 # ---- Run for district ----
@@ -3101,14 +3232,7 @@ def _prep_cgp_trend(df: pd.DataFrame, subject_str: str) -> pd.DataFrame:
 
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == "WINTER"].copy()
-
-    subj_norm = subject_str.strip().casefold()
-    if "math" in subj_norm:
-        d = d[d["course"].astype(str).str.contains("math", case=False, na=False)].copy()
-    elif "reading" in subj_norm:
-        d = d[
-            d["course"].astype(str).str.contains("reading", case=False, na=False)
-        ].copy()
+    d = filter_nwea_subject_rows(d, subject_str)
 
     if "falltowinterconditionalgrowthpercentile" not in d.columns:
         return pd.DataFrame(
@@ -3330,8 +3454,21 @@ def _save_cgp_chart(
 
 
 def _run_cgp_dual_trend(scope_df, scope_label):
+    # This legacy chart is a 2-column layout (Reading + Math). If frontend filters
+    # subjects and does not include both Reading and Math, skip to avoid a broken layout.
+    if _selected_subjects:
+        subj_join = " | ".join(str(s).casefold() for s in _selected_subjects)
+        has_read = any(k in subj_join for k in ["reading", "ela", "language arts"])
+        has_math = "math" in subj_join
+        if not (has_read and has_math):
+            logger.info(
+                f"[CHART] Section 4 CGP: skipping for {scope_label} (frontend did not request both Reading and Math)"
+            )
+            return
+
+    subjects_for_cgp = ["Reading", "Mathematics"]
     cgp_trend = pd.concat(
-        [_prep_cgp_trend(scope_df, subj) for subj in ["Reading", "Mathematics"]],
+        [_prep_cgp_trend(scope_df, subj) for subj in subjects_for_cgp],
         ignore_index=True,
     )
     if cgp_trend.empty:
@@ -3350,7 +3487,7 @@ def _run_cgp_dual_trend(scope_df, scope_label):
 
     axes = []
     n_labels_axes = []
-    for i, subject_str in enumerate(["Reading", "Mathematics"]):
+    for i, subject_str in enumerate(subjects_for_cgp):
         ax = fig.add_subplot(gs[0, i])
         axes.append(ax)
         sub_df = cgp_trend[
@@ -3369,17 +3506,9 @@ def _run_cgp_dual_trend(scope_df, scope_label):
         # So n-count is not present by default -- need to get from source
         # Here, we will try to get n from the underlying scope_df
         # Compute n for each time_label for this subject and scope
-        subj_norm = subject_str.strip().casefold()
         d = scope_df.copy()
         d = d[d["testwindow"].astype(str).str.upper() == "WINTER"].copy()
-        if "math" in subj_norm:
-            d = d[
-                d["course"].astype(str).str.contains("math", case=False, na=False)
-            ].copy()
-        elif "reading" in subj_norm:
-            d = d[
-                d["course"].astype(str).str.contains("reading", case=False, na=False)
-            ].copy()
+        d = filter_nwea_subject_rows(d, subject_str)
 
         # Use same year_short, time_label logic as _prep_cgp_trend
         def _short_year(y):
@@ -3827,7 +3956,7 @@ d0 = nwea_base.copy()
 d0["year"] = pd.to_numeric(d0["year"], errors="coerce")
 d0["grade"] = pd.to_numeric(d0["grade"], errors="coerce")
 grades = sorted(d0["grade"].dropna().unique())
-subjects = ["Reading", "Mathematics"]
+subjects = _requested_core_subjects()
 preview = False  # or True for interactive preview
 
 for grade in grades:
@@ -3900,7 +4029,7 @@ for grade in grades:
 # %% SECTION 5 DRIVER — By School
 all_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
 grades = sorted(nwea_base["grade"].dropna().unique())
-subjects = ["Reading", "Mathematics"]
+subjects = _requested_core_subjects()
 preview = False  # set True if preview needed
 
 for raw_school in all_schools:

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 
 const DEFAULT_FILTERS = {
-    subjects: ['Reading', 'Mathematics', 'ELA', 'Math'],
+    // Include STAR Spanish option as a possible UI filter; actual availability is discovered via /api/bigquery/assessment-filters
+    subjects: ['Reading', 'Reading (Spanish)', 'Mathematics', 'ELA', 'Math'],
     quarters: ['Fall', 'Winter', 'Spring'],
     supportsGrades: true,
     supportsStudentGroups: true,

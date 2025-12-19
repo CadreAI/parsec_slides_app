@@ -27,6 +27,7 @@ from .star_data import (
     load_star_data,
     get_scopes,
     prep_star_for_charts,
+    filter_star_subject_rows,
     _short_year
 )
 from .star_filters import (
@@ -45,6 +46,30 @@ from .star_chart_utils import (
 # Chart tracking for CSV generation
 chart_links = []
 _chart_tracking_set = set()
+
+def _requested_star_subjects(chart_filters):
+    """
+    Return ordered STAR subject labels based on chart_filters.subjects.
+    Supports: Reading, Reading (Spanish), Mathematics.
+    """
+    subjects_filter = (chart_filters or {}).get("subjects") or []
+    if not isinstance(subjects_filter, list) or len(subjects_filter) == 0:
+        return ["Reading", "Mathematics"]
+    norm = [str(s).strip().lower() for s in subjects_filter if s is not None]
+    out = []
+    if any(("reading" in s and "spanish" in s) or ("spanish reading" in s) for s in norm):
+        out.append("Reading (Spanish)")
+    if any(("reading" in s) or (s == "ela") for s in norm):
+        out.append("Reading")
+    if any(("math" in s) for s in norm):
+        out.append("Mathematics")
+    seen = set()
+    out2 = []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            out2.append(s)
+    return out2 or ["Reading", "Mathematics"]
 
 def track_chart(chart_name, file_path, scope="district", section=None, chart_data=None):
     """Track chart for CSV generation and save chart data if provided"""
@@ -109,11 +134,7 @@ def _prep_section0_star_winter(df, subject):
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
     
-    subj = subject.lower()
-    if "math" in subj:
-        d = d[d["activity_type"].str.contains("math", case=False, na=False)]
-    else:
-        d = d[d["activity_type"].str.contains("read", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject)
     
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
@@ -505,13 +526,8 @@ def _prep_star_fall_winter(df, subj):
     d = d[d["academicyear"] == target_year].copy()
     d = d[d["testwindow"].astype(str).str.upper().isin(["FALL", "WINTER"])].copy()
     
-    # subject filtering
-    subj_norm = subj.casefold()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)].copy()
-    else:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)].copy()
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)].copy()
+    # subject filtering (includes Spanish Reading preference)
+    d = filter_star_subject_rows(d, subj)
     
     # valid benchmark levels only
     d = d[d["state_benchmark_achievement"].notna()].copy()
@@ -595,6 +611,12 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
     
     subjects = ["reading", "math"]
     titles = ["Reading", "Math"]
+    # Sidecar JSON payloads for chart_analyzer.py
+    json_subjects: list[str] = []
+    pct_payload: list[dict] = []
+    score_payload: list[dict] = []
+    metrics_payload: list[dict] = []
+    time_orders: list[str] = []
     axes = [
         [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
         [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])],
@@ -604,7 +626,7 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
     for i, subj in enumerate(subjects):
-        pct_df, score_df, metrics, _ = _prep_star_fall_winter(df, subj)
+        pct_df, score_df, metrics, time_order = _prep_star_fall_winter(df, subj)
         
         if pct_df.empty or score_df.empty or "time_label" not in pct_df.columns:
             for ax in (axes[0][i], axes[1][i], axes[2][i]):
@@ -612,6 +634,20 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
             axes[1][i].text(0.5, 0.5, f"No {titles[i]} data", transform=axes[1][i].transAxes,
                            ha="center", va="center", fontsize=12, fontweight="bold", color="#999999")
             continue
+
+        # Prepare sidecar payloads (only for subjects that have data)
+        json_subjects.append(titles[i])
+        pct_payload.append({"subject": titles[i], "data": pct_df.to_dict("records")})
+        score_payload.append({"subject": titles[i], "data": score_df.to_dict("records")})
+        if isinstance(metrics, dict):
+            m = dict(metrics)
+            # Drop embedded df to keep JSON smaller; we already include pct_data/score_data.
+            m.pop("pct_df", None)
+        else:
+            m = {}
+        metrics_payload.append(m)
+        if not time_orders and isinstance(time_order, list):
+            time_orders = [str(t) for t in time_order]
         
         # Panel 1 — 100% stacked bars
         ax = axes[0][i]
@@ -706,7 +742,17 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "subjects": subjects, "metrics": metrics}
+    chart_data = {
+        "chart_type": "star_winter_section1_1_fall_winter_progression",
+        "section": 1.1,
+        "scope": scope_label,
+        "window_filter": "Fall/Winter",
+        "subjects": json_subjects or titles,
+        "pct_data": pct_payload,
+        "score_data": score_payload,
+        "metrics": metrics_payload,
+        "time_orders": time_orders,
+    }
     track_chart(f"Section 1.1: Fall → Winter Progression", out_path, scope=scope_label, section=1.1, chart_data=chart_data)
     print(f"Saved Section 1.1: {out_path}")
     return str(out_path)
@@ -723,6 +769,12 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
     
     subjects = ["reading", "math"]
     titles = ["Reading", "Math"]
+    # Sidecar JSON payloads for chart_analyzer.py
+    json_subjects: list[str] = []
+    pct_payload: list[dict] = []
+    score_payload: list[dict] = []
+    metrics_payload: list[dict] = []
+    time_orders: list[str] = []
     axes = [
         [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
         [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])],
@@ -733,7 +785,7 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
     any_subject_plotted = False
     
     for i, subj in enumerate(subjects):
-        pct_df, score_df, metrics, _ = _prep_star_fall_winter(df, subj)
+        pct_df, score_df, metrics, time_order = _prep_star_fall_winter(df, subj)
         
         if pct_df.empty or score_df.empty:
             for ax in (axes[0][i], axes[1][i], axes[2][i]):
@@ -741,6 +793,19 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
             continue
         
         any_subject_plotted = True
+
+        # Sidecar payloads (only for subjects that have data)
+        json_subjects.append(titles[i])
+        pct_payload.append({"subject": titles[i], "data": pct_df.to_dict("records")})
+        score_payload.append({"subject": titles[i], "data": score_df.to_dict("records")})
+        if isinstance(metrics, dict):
+            m = dict(metrics)
+            m.pop("pct_df", None)
+        else:
+            m = {}
+        metrics_payload.append(m)
+        if not time_orders and isinstance(time_order, list):
+            time_orders = [str(t) for t in time_order]
         
         # Same plotting logic as Section 1.1
         ax = axes[0][i]
@@ -839,7 +904,18 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "grade": grade, "subjects": subjects}
+    chart_data = {
+        "chart_type": "star_winter_section1_2_fall_winter_progression_by_grade",
+        "section": 1.2,
+        "scope": scope_label,
+        "window_filter": "Fall/Winter",
+        "subjects": json_subjects or titles,
+        "grade_data": {"grade": int(grade) if grade is not None else grade},
+        "pct_data": pct_payload,
+        "score_data": score_payload,
+        "metrics": metrics_payload,
+        "time_orders": time_orders,
+    }
     track_chart(f"Section 1.2: Grade {grade} Fall → Winter", out_path, scope=scope_label, section=1.2, chart_data=chart_data)
     print(f"Saved Section 1.2 (Grade {grade}): {out_path}")
     return str(out_path)
@@ -893,13 +969,14 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
     
     subjects = ["reading", "math"]
     titles = ["Reading", "Math"]
-    pct_dfs, score_dfs, metrics_list = [], [], []
+    pct_dfs, score_dfs, metrics_list, time_orders_list = [], [], [], []
     
     for subj in subjects:
-        pct_df, score_df, metrics, _ = _prep_star_fall_winter(d0, subj)
+        pct_df, score_df, metrics, time_order = _prep_star_fall_winter(d0, subj)
         pct_dfs.append(pct_df)
         score_dfs.append(score_df)
         metrics_list.append(metrics)
+        time_orders_list.append(time_order)
     
     fig = plt.figure(figsize=(16, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
@@ -1024,7 +1101,42 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "group_name": group_name, "subjects": subjects}
+    json_subjects: list[str] = []
+    pct_payload: list[dict] = []
+    score_payload: list[dict] = []
+    metrics_payload: list[dict] = []
+    time_orders: list[str] = []
+
+    for i in range(len(subjects)):
+        if pct_dfs[i] is None or pct_dfs[i].empty:
+            continue
+        if score_dfs[i] is None or score_dfs[i].empty:
+            continue
+        json_subjects.append(titles[i])
+        pct_payload.append({"subject": titles[i], "data": pct_dfs[i].to_dict("records")})
+        score_payload.append({"subject": titles[i], "data": score_dfs[i].to_dict("records")})
+        met = metrics_list[i]
+        if isinstance(met, dict):
+            m = dict(met)
+            m.pop("pct_df", None)
+        else:
+            m = {}
+        metrics_payload.append(m)
+        if not time_orders and isinstance(time_orders_list[i], list):
+            time_orders = [str(t) for t in time_orders_list[i]]
+
+    chart_data = {
+        "chart_type": "star_winter_section1_3_fall_winter_progression_by_group",
+        "section": 1.3,
+        "scope": scope_label,
+        "window_filter": "Fall/Winter",
+        "subjects": json_subjects or titles,
+        "cohort_data": {"group_name": group_name},
+        "pct_data": pct_payload,
+        "score_data": score_payload,
+        "metrics": metrics_payload,
+        "time_orders": time_orders,
+    }
     track_chart(f"Section 1.3: {group_name} Fall → Winter", out_path, scope=scope_label, section=1.3, chart_data=chart_data)
     print(f"[1.3] Saved: {out_path}")
     return str(out_path)
@@ -1234,7 +1346,43 @@ def plot_star_subject_dashboard_by_group_winter(
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "window_filter": window_filter, "group_name": group_name, "subjects": subjects}
+    # Sidecar JSON for chart_analyzer.py
+    json_subjects: list[str] = []
+    pct_payload: list[dict] = []
+    score_payload: list[dict] = []
+    metrics_payload: list[dict] = []
+    time_order_top: list[str] = []
+
+    for i in range(len(subjects)):
+        if pct_dfs[i] is None or score_dfs[i] is None:
+            continue
+        if pct_dfs[i].empty or score_dfs[i].empty:
+            continue
+        json_subjects.append(subject_titles[i])
+        pct_payload.append({"subject": subject_titles[i], "data": pct_dfs[i].to_dict("records")})
+        score_payload.append({"subject": subject_titles[i], "data": score_dfs[i].to_dict("records")})
+        met = metrics_list[i]
+        if isinstance(met, dict):
+            m = dict(met)
+            m.pop("pct_df", None)
+        else:
+            m = {}
+        metrics_payload.append(m)
+        if not time_order_top and isinstance(time_orders[i], list):
+            time_order_top = [str(t) for t in time_orders[i]]
+
+    chart_data = {
+        "chart_type": "star_winter_section2_student_group_trends",
+        "section": 2,
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "subjects": json_subjects or subject_titles,
+        "cohort_data": {"group_name": group_name},
+        "pct_data": pct_payload,
+        "score_data": score_payload,
+        "metrics": metrics_payload,
+        "time_orders": time_order_top,
+    }
     track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2, chart_data=chart_data)
     print(f"Saved Section 2: {out_path}")
     return str(out_path)
@@ -1275,12 +1423,7 @@ def _prep_star_matched_cohort_by_grade_winter(df, subject_str, current_grade, wi
             & (base["academicyear"] == yr)
         ].copy()
         
-        subj_norm = subject_str.strip().lower()
-        if "math" in subj_norm:
-            tmp = tmp[tmp["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-        elif "read" in subj_norm:
-            tmp = tmp[tmp["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-            tmp = tmp[~tmp["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+        tmp = filter_star_subject_rows(tmp, subject_str)
         
         tmp = tmp[tmp["state_benchmark_achievement"].notna()]
         
@@ -1401,16 +1544,11 @@ def plot_star_blended_dashboard_winter(
     d = d[d[grade_col] == current_grade]
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     d = d[d["state_benchmark_achievement"].notna()]
     
-    pct_df_left, score_df_left, metrics_left, _ = prep_star_for_charts(
+    pct_df_left, score_df_left, metrics_left, time_order_left = prep_star_for_charts(
         d, subject_str=subject_str, window_filter=window_filter
     )
     
@@ -1483,12 +1621,30 @@ def plot_star_blended_dashboard_winter(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 3: {out_path}")
     
+    m_left = dict(metrics_left) if isinstance(metrics_left, dict) else {}
+    m_left.pop("pct_df", None)
+    m_right = dict(metrics_right) if isinstance(metrics_right, dict) else {}
+    m_right.pop("pct_df", None)
+
     chart_data = {
+        "chart_type": "star_winter_section3_overall_and_cohort_trends",
+        "section": 3,
         "scope": scope_label,
         "window_filter": window_filter,
-        "grade": current_grade,
-        "subject": subject_str,
-        "metrics": metrics_left,
+        # This chart has two panels (Overall vs Cohort) for a single subject
+        "subjects": ["Overall", "Cohort"],
+        "grade_data": {"grade": int(current_grade), "subject": subject_str},
+        "pct_data": [
+            {"subject": "Overall", "data": pct_df_left.to_dict("records") if not pct_df_left.empty else []},
+            {"subject": "Cohort", "data": pct_df_right.to_dict("records") if not pct_df_right.empty else []},
+        ],
+        "score_data": [
+            {"subject": "Overall", "data": score_df_left.to_dict("records") if not score_df_left.empty else []},
+            {"subject": "Cohort", "data": score_df_right.to_dict("records") if not score_df_right.empty else []},
+        ],
+        "metrics": [m_left, m_right],
+        "time_orders": [str(t) for t in (time_order_left or [])],
+        "cohort_data": {"cohort_labels": [str(c) for c in (cohort_labels or [])]},
     }
     track_chart(f"Section 3: Grade {current_grade} {subject_str}", out_path, scope=scope_label, section=3, chart_data=chart_data)
     
@@ -1505,12 +1661,7 @@ def plot_star_growth_by_site_winter(
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     d = d[d["state_benchmark_achievement"].notna()]
     
@@ -1533,11 +1684,13 @@ def plot_star_growth_by_site_winter(
             school_df, subject_str=subject_str, window_filter=window_filter
         )
         if not pct_df.empty and not score_df.empty:
+            m = dict(metrics) if isinstance(metrics, dict) else {}
+            m.pop("pct_df", None)
             school_data[school] = {
-                "pct_df": pct_df,
-                "score_df": score_df,
-                "metrics": metrics,
-                "time_order": time_order
+                "metrics": m,
+                "time_order": [str(t) for t in (time_order or [])],
+                "pct_data": pct_df.to_dict("records"),
+                "score_data": score_df.to_dict("records"),
             }
     
     if not school_data:
@@ -1589,10 +1742,12 @@ def plot_star_growth_by_site_winter(
     print(f"Saved Section 4: {out_path}")
     
     chart_data = {
+        "chart_type": "star_winter_section4_growth_by_site",
+        "section": 4,
         "scope": scope_label,
         "window_filter": window_filter,
-        "subject": subject_str,
-        "schools": list(school_data.keys())
+        "subjects": [subject_str],
+        "school_data": school_data,
     }
     track_chart(f"Section 4: {subject_str} Growth by Site", out_path, scope=scope_label, section=4, chart_data=chart_data)
     
@@ -1620,12 +1775,7 @@ def _prep_star_sgp_data_winter(df, subject_str, current_grade, window_filter):
     d = d[d[grade_col] == current_grade]
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     # Check for SGP columns - Winter uses Fall→Winter SGP vector
     if "current_sgp_vector" in d.columns:
@@ -1731,12 +1881,7 @@ def _prep_star_sgp_cohort_winter(df, subject_str, current_grade, window_filter):
             & (d["current_sgp_vector"] == "FALL_WINTER")
         ].copy()
         
-        subj = subject_str.lower()
-        if "math" in subj:
-            d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-        else:
-            d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-            d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+        d = filter_star_subject_rows(d, subject_str)
         
         if d.empty:
             continue
@@ -1921,12 +2066,21 @@ def plot_star_sgp_growth_winter(
     hf._save_and_render(fig, out_path, dev_mode=preview)
     print(f"Saved Section 5: {out_path}")
     
+    m = dict(metrics_grade) if isinstance(metrics_grade, dict) else {}
+    m.pop("pct_df", None)
     chart_data = {
+        "chart_type": "star_winter_section5_sgp_growth",
+        "section": 5,
         "scope": scope_label,
         "window_filter": window_filter,
-        "grade": current_grade,
-        "subject": subject_str,
-        "metrics": metrics_grade,
+        "subjects": [subject_str],
+        "grade_data": {"grade": int(current_grade), "subject": subject_str},
+        "metrics": [m],
+        "time_orders": [str(t) for t in (time_order or [])],
+        "sgp_data": {
+            "grade_trend": sgp_df_grade.to_dict("records") if not sgp_df_grade.empty else [],
+            "cohort_trend": cohort_df.to_dict("records") if not cohort_df.empty else [],
+        },
     }
     track_chart(f"Section 5: Grade {current_grade} {subject_str} SGP", out_path, scope=scope_label, section=5, chart_data=chart_data)
     
@@ -2152,8 +2306,9 @@ def main(star_data=None):
     
     anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
     
+    subjects_to_plot = _requested_star_subjects(chart_filters)
     for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
+        for subj in subjects_to_plot:
             if not should_generate_subject(subj, chart_filters):
                 continue
             for grade in selected_grades:
@@ -2186,7 +2341,7 @@ def main(star_data=None):
     for scope_df, scope_label, folder in scopes:
         # Only generate for district scope (shows all schools)
         if folder == "_district":
-            for subj in ["Reading", "Mathematics"]:
+            for subj in subjects_to_plot:
                 if not should_generate_subject(subj, chart_filters):
                     continue
                 try:
@@ -2212,7 +2367,7 @@ def main(star_data=None):
     # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort (Winter)
     print("\n[Section 5] Generating STAR SGP Growth (Winter)...")
     for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
+        for subj in subjects_to_plot:
             if not should_generate_subject(subj, chart_filters):
                 continue
             for grade in selected_grades:

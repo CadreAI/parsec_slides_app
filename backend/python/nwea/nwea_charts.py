@@ -30,6 +30,7 @@ from .nwea_data import (
     load_nwea_data,
     get_scopes,
     prep_nwea_for_charts,
+    filter_nwea_subject_rows,
     _short_year
 )
 from .nwea_filters import (
@@ -750,13 +751,10 @@ def _prep_nwea_matched_cohort_by_grade(df, course_str, current_grade, window_fil
             & (cohort_slice["year"] == year)
         ].copy()
         
-        if "course" in cohort_slice.columns:
-            if course_str == "Math K-12":
-                cohort_slice = cohort_slice[cohort_slice["course"] == "Math K-12"]
-            elif course_str == "Reading":
-                cohort_slice = cohort_slice[cohort_slice["course"].str.startswith("Reading")]
-            else:
-                continue
+        # Support additional MAP Growth subjects (Science, Language Usage, etc.)
+        cohort_slice = filter_nwea_subject_rows(cohort_slice, course_str)
+        if cohort_slice.empty:
+            continue
         
         if "teststartdate" in cohort_slice.columns:
             cohort_slice["teststartdate"] = pd.to_datetime(cohort_slice["teststartdate"], errors="coerce")
@@ -849,17 +847,14 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     folder_name = "_district" if school_display is None else school_display.replace(" ", "_")
     district_label = cfg.get("district_name", ["District (All Students)"])[0] if not school_display else school_display
     
-    course_str_for_title = "Math" if course_str == "Math K-12" else course_str
+    course_str_for_title = "Math" if "math" in str(course_str).strip().casefold() else course_str
     
     df_left = df.copy()
     df_left["grade"] = pd.to_numeric(df_left["grade"], errors="coerce")
     df_left = df_left[df_left["grade"] == current_grade].copy()
     
-    if "course" in df_left.columns:
-        if course_str == "Math K-12":
-            df_left = df_left[df_left["course"] == "Math K-12"]
-        elif course_str == "Reading":
-            df_left = df_left[df_left["course"].str.startswith("Reading")]
+    # Filter to subject for left-side trends (supports additional MAP Growth subjects)
+    df_left = filter_nwea_subject_rows(df_left, course_str)
     
     pct_df_left, score_df_left, metrics_left, time_order_left = prep_nwea_for_charts(df_left, subject_str=course_str, window_filter=window_filter)
     
@@ -1835,28 +1830,33 @@ def main(nwea_data=None):
             if grade_df.empty:
                 continue
             
-            courses_in_data = set(grade_df["course"].dropna().unique())
-            for course_str in ["Math K-12", "Reading"]:
-                # Map course string to subject name for filter check
-                subject_name = "Mathematics" if course_str == "Math K-12" else "Reading"
+            # Default: only Reading + Math. If user selected subjects, generate those too (e.g., Science).
+            subjects_to_generate = ["Reading", "Mathematics"]
+            if chart_filters and isinstance(chart_filters.get("subjects"), list) and len(chart_filters.get("subjects")) > 0:
+                subjects_to_generate = [str(s).strip() for s in chart_filters.get("subjects") if s is not None and str(s).strip()]
+
+            for subject_name in subjects_to_generate:
                 if not should_generate_subject(subject_name, chart_filters):
                     continue
-                
-                if (course_str == "Math K-12" and "Math K-12" in courses_in_data) or \
-                   (course_str == "Reading" and any(str(c).startswith("Reading") for c in courses_in_data)):
-                    for quarter in selected_quarters:
-                        try:
-                            print(f"  [Section 3] Generating chart for {scope_label} - Grade {g} - {course_str} - {quarter}")
-                            plot_nwea_blended_dashboard(
-                                grade_df.copy(), course_str=course_str, current_grade=int(g),
-                                window_filter=quarter, cohort_year=anchor_year, output_dir=args.output_dir, cfg=cfg,
-                                figsize=(16, 9), school_raw=school_raw, preview=hf.DEV_MODE, scope_label=scope_label)
-                        except Exception as e:
-                            print(f"  [Section 3] Error generating chart for {scope_label} - Grade {g} - {course_str} ({quarter}): {e}")
-                            if hf.DEV_MODE:
-                                import traceback
-                                traceback.print_exc()
-                            continue
+
+                # Only attempt this subject if there are rows for it in this grade slice
+                if filter_nwea_subject_rows(grade_df.copy(), subject_name).empty:
+                    continue
+
+                for quarter in selected_quarters:
+                    try:
+                        print(f"  [Section 3] Generating chart for {scope_label} - Grade {g} - {subject_name} - {quarter}")
+                        plot_nwea_blended_dashboard(
+                            grade_df.copy(), course_str=subject_name, current_grade=int(g),
+                            window_filter=quarter, cohort_year=anchor_year, output_dir=args.output_dir, cfg=cfg,
+                            figsize=(16, 9), school_raw=school_raw, preview=hf.DEV_MODE, scope_label=scope_label
+                        )
+                    except Exception as e:
+                        print(f"  [Section 3] Error generating chart for {scope_label} - Grade {g} - {subject_name} ({quarter}): {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
     
     # Use filtered scopes (data is already filtered by chart_filters)
     for scope_df, scope_label, folder in scopes:

@@ -861,11 +861,23 @@ def save_chart(
     *,
     level: str = "district",
     school: str | None = None,
-    charts_dir: str = "../charts",
+    charts_dir: str | None = None,
     dpi: int = 200,
     fmt: tuple[str, ...] = ("png",),
 ):
     from pathlib import Path
+    import os
+    import tempfile
+
+    # Default to runner-provided temp charts dir when available; otherwise fall back to
+    # a per-run system temp directory to avoid writing into the repo (../charts).
+    if charts_dir is None:
+        charts_dir = (
+            os.getenv("NWEA_BOY_CHARTS_DIR")
+            or os.getenv("NWEA_MOY_CHARTS_DIR")
+            or os.getenv("NWEA_CHARTS_DIR")
+            or tempfile.mkdtemp(prefix="parsec_nwea_charts_")
+        )
 
     base = Path(charts_dir)
     if level.lower() == "district":

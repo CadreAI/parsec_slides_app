@@ -83,7 +83,8 @@ def should_generate_subject(subject, filters):
     subject_map = {
         "Math": ["Math", "Mathematics"],
         "Mathematics": ["Math", "Mathematics"],
-        "Reading": ["Reading", "ELA"]
+        "Reading": ["Reading", "ELA"],
+        "Reading (Spanish)": ["Reading (Spanish)", "Spanish Reading", "Reading Spanish"]
     }
     # Normalize filter values and subject name
     filter_subjects = [str(s).strip() for s in filters["subjects"]]

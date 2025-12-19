@@ -5,6 +5,7 @@ STAR data loading and preparation utilities
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 import pandas as pd
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,6 +20,65 @@ def load_config_from_args(config_json_str):
         return json.loads(config_json_str)
     except:
         return {}
+
+
+def _pick_first_col(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
+    """Return the first candidate column name present in df (case-insensitive)."""
+    if df is None or df.empty:
+        # Still allow column detection on empty df
+        pass
+    cols = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in cols:
+            return cols[cand.lower()]
+    return None
+
+
+def filter_star_subject_rows(df: pd.DataFrame, subject_str: str) -> pd.DataFrame:
+    """
+    STAR subject filter that also handles Spanish Reading.
+
+    Behavior:
+      - Math: keep rows where activity_type contains "math"
+      - Reading:
+          - base reading rows: activity_type contains "read"
+          - exclude Language Usage: activity_type contains "language"
+          - If subject_str indicates Spanish (contains "spanish"/"españ"/"espanol"), keep ONLY Spanish reading rows
+          - Otherwise (plain Reading), keep ONLY non-Spanish reading rows
+    """
+    d = df.copy()
+
+    activity_col = _pick_first_col(d, ["activity_type", "activitytype", "activity"])
+    if not activity_col:
+        return d.iloc[0:0].copy()
+
+    activity = d[activity_col].astype(str)
+    subj_norm = str(subject_str).strip().casefold()
+
+    if "math" in subj_norm:
+        return d[activity.str.contains("math", case=False, na=False)].copy()
+
+    if "read" in subj_norm:
+        base = d[activity.str.contains("read", case=False, na=False)].copy()
+        # Exclude Language Usage from Reading
+        base = base[~base[activity_col].astype(str).str.contains("language", case=False, na=False)].copy()
+
+        if base.empty:
+            return base
+
+        # Identify Spanish reading rows
+        spanish_mask = (
+            base[activity_col].astype(str).str.contains("spanish", case=False, na=False)
+            | base[activity_col].astype(str).str.contains("españ", case=False, na=False)
+            | base[activity_col].astype(str).str.contains("espanol", case=False, na=False)
+        )
+        wants_spanish = ("spanish" in subj_norm) or ("españ" in subj_norm) or ("espanol" in subj_norm)
+        if wants_spanish:
+            return base[spanish_mask].copy()
+        # Plain Reading: exclude Spanish reading so English + Spanish can be charted separately
+        return base[~spanish_mask].copy()
+
+    return d.iloc[0:0].copy()
 
 
 def normalize_star_dataframe(df, cfg=None):
@@ -190,17 +250,9 @@ def prep_star_for_charts(df, subject_str, window_filter="Fall"):
     # 1. restrict to requested test window
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()].copy()
     
-    # 2. activity_type-based filtering (case-insensitive substring match)
-    subj_norm = subject_str.strip().casefold()
-    if "math" in subj_norm:
-        d = d[
-            d["activity_type"].astype(str).str.contains("math", case=False, na=False)
-        ].copy()
-    elif "read" in subj_norm:
-        d = d[
-            d["activity_type"].astype(str).str.contains("read", case=False, na=False)
-        ].copy()
-    else:
+    # 2. subject filtering (includes Spanish Reading preference)
+    d = filter_star_subject_rows(d, subject_str)
+    if d.empty:
         return pd.DataFrame(), pd.DataFrame(), {}, []
     
     if d.empty:

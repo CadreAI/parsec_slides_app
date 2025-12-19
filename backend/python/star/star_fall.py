@@ -26,6 +26,7 @@ from .star_data import (
     load_star_data,
     get_scopes,
     prep_star_for_charts,
+    filter_star_subject_rows,
     _short_year
 )
 from .star_filters import (
@@ -44,6 +45,31 @@ from .star_chart_utils import (
 # Chart tracking for CSV generation
 chart_links = []
 _chart_tracking_set = set()
+
+def _requested_star_subjects(chart_filters):
+    """
+    Return ordered STAR subject labels based on chart_filters.subjects.
+    Supports: Reading, Reading (Spanish), Mathematics.
+    """
+    subjects_filter = (chart_filters or {}).get("subjects") or []
+    if not isinstance(subjects_filter, list) or len(subjects_filter) == 0:
+        return ["Reading", "Mathematics"]
+    norm = [str(s).strip().lower() for s in subjects_filter if s is not None]
+    out = []
+    if any(("reading" in s and "spanish" in s) or ("spanish reading" in s) for s in norm):
+        out.append("Reading (Spanish)")
+    if any(("reading" in s) or (s == "ela") for s in norm):
+        out.append("Reading")
+    if any(("math" in s) for s in norm):
+        out.append("Mathematics")
+    # Deduplicate preserving order
+    seen = set()
+    out2 = []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            out2.append(s)
+    return out2 or ["Reading", "Mathematics"]
 
 def track_chart(chart_name, file_path, scope="district", section=None, chart_data=None):
     """Track chart for CSV generation and save chart data if provided"""
@@ -108,11 +134,7 @@ def _prep_section0_star(df, subject):
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
     
-    subj = subject.lower()
-    if "math" in subj:
-        d = d[d["activity_type"].str.contains("math", case=False, na=False)]
-    else:
-        d = d[d["activity_type"].str.contains("read", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject)
     
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
@@ -1782,8 +1804,9 @@ def main(star_data=None):
     
     # Always generate individual charts per grade (no consolidated charts)
     
+    subjects_to_plot = _requested_star_subjects(chart_filters)
     for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
+        for subj in subjects_to_plot:
             if not should_generate_subject(subj, chart_filters):
                 continue
             # Use first quarter only if multiple quarters selected (reduces charts significantly)
@@ -1814,7 +1837,7 @@ def main(star_data=None):
     for scope_df, scope_label, folder in scopes:
         # Only generate for district scope (shows all schools)
         if folder == "_district":
-            for subj in ["Reading", "Mathematics"]:
+            for subj in subjects_to_plot:
                 if not should_generate_subject(subj, chart_filters):
                     continue
                 # Use first quarter only if multiple quarters selected
@@ -1840,7 +1863,7 @@ def main(star_data=None):
     # Always generate individual charts per grade (no consolidated charts for SGP growth)
     
     for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
+        for subj in subjects_to_plot:
             if not should_generate_subject(subj, chart_filters):
                 continue
             # Use first quarter only if multiple quarters selected

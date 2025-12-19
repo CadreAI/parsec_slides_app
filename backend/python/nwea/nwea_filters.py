@@ -55,7 +55,11 @@ def should_generate_subject(subject, filters):
     """Check if a subject should be generated based on filters"""
     if not filters or filters.get("subjects") is None or len(filters.get("subjects", [])) == 0:
         return True  # Generate all if no filter
-    subject_map = {"Mathematics": ["Math", "Mathematics"], "Reading": ["Reading"]}
+    # NWEA sometimes labels ELA as "Language Arts" in subject columns.
+    subject_map = {
+        "Mathematics": ["Math", "Mathematics"],
+        "Reading": ["Reading", "Language Arts", "ELA"],
+    }
     # Normalize filter values and subject name
     filter_subjects = [str(s).strip() for s in filters["subjects"]]
     subject_normalized = str(subject).strip()

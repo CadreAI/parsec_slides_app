@@ -25,6 +25,7 @@ from .star_data import (
     load_star_data,
     get_scopes,
     prep_star_for_charts,
+    filter_star_subject_rows,
     _short_year
 )
 from .star_filters import (
@@ -107,11 +108,7 @@ def _prep_section0_star(df, subject):
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
     
-    subj = subject.lower()
-    if "math" in subj:
-        d = d[d["activity_type"].str.contains("math", case=False, na=False)]
-    else:
-        d = d[d["activity_type"].str.contains("read", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject)
     
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
@@ -791,11 +788,7 @@ def _prep_star_matched_cohort_by_grade(df, subject_str, current_grade, window_fi
             & (base["academicyear"] == yr)
         ].copy()
         
-        subj_norm = subject_str.strip().lower()
-        if "math" in subj_norm:
-            tmp = tmp[tmp["subject"].astype(str).str.contains("math", case=False, na=False)]
-        elif "read" in subj_norm:
-            tmp = tmp[tmp["subject"].astype(str).str.contains("read", case=False, na=False)]
+        tmp = filter_star_subject_rows(tmp, subject_str)
         
         tmp = tmp[tmp["state_benchmark_achievement"].notna()]
         
@@ -917,11 +910,7 @@ def plot_star_blended_dashboard(
     d = d[d[grade_col] == current_grade]
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["subject"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["subject"].astype(str).str.contains("read", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     d = d[d["state_benchmark_achievement"].notna()]
     
@@ -1034,11 +1023,7 @@ def plot_star_growth_by_site(
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["subject"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["subject"].astype(str).str.contains("read", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     d = d[d["state_benchmark_achievement"].notna()]
     
@@ -1159,11 +1144,7 @@ def _prep_star_sgp_data(df, subject_str, current_grade, window_filter):
     d = d[d[grade_col] == current_grade]
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["subject"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["subject"].astype(str).str.contains("read", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     # Check for SGP columns
     sgp_col = None

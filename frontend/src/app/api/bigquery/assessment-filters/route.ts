@@ -108,9 +108,28 @@ export async function GET(req: NextRequest) {
             const subjects = new Set<string>()
             const quarters = new Set<string>()
 
+            const titleCase = (s: string) =>
+                s
+                    .toLowerCase()
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                    .join(' ')
+
+            const normalizeNweaSubject = (raw: string): string | null => {
+                const cleaned = String(raw || '').trim()
+                if (!cleaned) return null
+                const s = cleaned.toLowerCase()
+                if (s.includes('math')) return 'Mathematics'
+                if (s.includes('reading') || s.includes('ela') || s.includes('language arts') || s.includes('language_arts')) return 'Reading'
+                // Keep other MAP Growth subjects as distinct selectable sections (e.g., Science, Language Usage)
+                const base = cleaned.split(' - ')[0].split('-')[0].split(':')[0].trim()
+                return titleCase(base)
+            }
+
             // iReady/CERS uses subject column, NWEA uses Course column, STAR uses activity_type column
             if (assessmentId === 'iready' || assessmentId === 'cers') {
-                // For iReady/CERS: Use subject column, check for "math" and "ela" (case-insensitive)
+                // For iReady/CERS: Prefer subject column if present; fallback to activity_type if subject isn't available.
                 const subjectColumns = ['subject', 'Subject']
                 for (const subjectCol of subjectColumns) {
                     try {
@@ -143,90 +162,180 @@ export async function GET(req: NextRequest) {
                         continue
                     }
                 }
+
+                // Fallback (some iReady exports may not have subject, but have an activity_type-like column)
+                if (assessmentId === 'iready' && subjects.size === 0) {
+                    const activityTypeColumns = ['activity_type', 'Activity_Type', 'ActivityType']
+                    for (const activityCol of activityTypeColumns) {
+                        try {
+                            const query = `
+                                SELECT DISTINCT \`${activityCol}\` as activity_type
+                                FROM \`${projectId}.${datasetId}.${foundTable}\`
+                                WHERE \`${activityCol}\` IS NOT NULL
+                                LIMIT 100
+                            `
+                            const [rows] = await client.query({ query, location })
+                            rows.forEach((row: { activity_type?: string }) => {
+                                if (!row.activity_type) return
+                                const s = String(row.activity_type).trim().toLowerCase()
+                                if (s.includes('math')) subjects.add('Math')
+                                if (s.includes('ela') || s.includes('reading')) subjects.add('ELA')
+                            })
+                            if (subjects.size > 0) break
+                        } catch {
+                            continue
+                        }
+                    }
+                }
             } else if (assessmentId === 'star') {
-                // For STAR: Use activity_type column, check for "math" and "read" (case-insensitive)
-                const activityTypeColumns = ['activity_type', 'Activity_Type', 'ActivityType']
-                for (const activityCol of activityTypeColumns) {
+                // For STAR: Prefer subject column if present; fallback to activity_type.
+
+                // 1) Try subject column(s) first (some STAR exports include this).
+                const subjectColumns = ['subject', 'Subject']
+                for (const subjectCol of subjectColumns) {
                     try {
                         const query = `
-                            SELECT DISTINCT \`${activityCol}\` as activity_type
+                            SELECT DISTINCT \`${subjectCol}\` as subject
                             FROM \`${projectId}.${datasetId}.${foundTable}\`
-                            WHERE \`${activityCol}\` IS NOT NULL
+                            WHERE \`${subjectCol}\` IS NOT NULL
                             LIMIT 100
                         `
                         const [rows] = await client.query({ query, location })
 
-                        // Filter subjects based on activity_type column content
-                        rows.forEach((row: { activity_type?: string }) => {
-                            if (row.activity_type) {
-                                const activityStr = String(row.activity_type).trim().toLowerCase()
+                        rows.forEach((row: { subject?: string }) => {
+                            if (!row.subject) return
+                            const subjStr = String(row.subject).trim().toLowerCase()
 
-                                // Check for Math: activity_type contains "math" (case-insensitive)
-                                if (activityStr.includes('math')) {
-                                    subjects.add('Math')
-                                }
-
-                                // Check for Reading: activity_type contains "read" (case-insensitive)
-                                if (activityStr.includes('read')) {
-                                    subjects.add('Reading')
-                                }
+                            if (subjStr.includes('math')) {
+                                subjects.add('Mathematics')
                             }
+
+                            if (subjStr.includes('read')) {
+                                subjects.add('Reading')
+                            }
+
+                            // Spanish reading as separate option if present
+                            if (subjStr.includes('read') && (subjStr.includes('spanish') || subjStr.includes('españ') || subjStr.includes('espanol'))) {
+                                subjects.add('Reading (Spanish)')
+                            }
+                        })
+                        if (subjects.size > 0) break // we found enough via subject col
+                    } catch {
+                        continue
+                    }
+                }
+
+                // 2) Fallback to activity_type if subject wasn't found/usable
+                if (subjects.size === 0) {
+                    const activityTypeColumns = ['activity_type', 'Activity_Type', 'ActivityType']
+                    for (const activityCol of activityTypeColumns) {
+                        try {
+                            const query = `
+                                SELECT DISTINCT \`${activityCol}\` as activity_type
+                                FROM \`${projectId}.${datasetId}.${foundTable}\`
+                                WHERE \`${activityCol}\` IS NOT NULL
+                                LIMIT 100
+                            `
+                            const [rows] = await client.query({ query, location })
+
+                            // Filter subjects based on activity_type column content
+                            rows.forEach((row: { activity_type?: string }) => {
+                                if (row.activity_type) {
+                                    const activityStr = String(row.activity_type).trim().toLowerCase()
+
+                                    // Check for Math: activity_type contains "math" (case-insensitive)
+                                    if (activityStr.includes('math')) {
+                                        // Use "Mathematics" for UI consistency with other assessments
+                                        subjects.add('Mathematics')
+                                    }
+
+                                    // Check for Reading: activity_type contains "read" (case-insensitive)
+                                    if (activityStr.includes('read')) {
+                                        subjects.add('Reading')
+                                    }
+
+                                    // Spanish reading (keep as a separate selectable option if present in data)
+                                    if (
+                                        activityStr.includes('read') &&
+                                        (activityStr.includes('spanish') || activityStr.includes('españ') || activityStr.includes('espanol'))
+                                    ) {
+                                        subjects.add('Reading (Spanish)')
+                                    }
+                                }
+                            })
+                            if (subjects.size > 0) break
+                        } catch {
+                            continue
+                        }
+                    }
+                }
+            } else {
+                // For NWEA: Prefer subject column if present; fallback to Course column.
+
+                // 1) Try subject column(s) first
+                const subjectColumns = ['subject', 'Subject']
+                for (const subjectCol of subjectColumns) {
+                    try {
+                        const query = `
+                            SELECT DISTINCT \`${subjectCol}\` as subject
+                            FROM \`${projectId}.${datasetId}.${foundTable}\`
+                            WHERE \`${subjectCol}\` IS NOT NULL
+                            LIMIT 100
+                        `
+                        const [rows] = await client.query({ query, location })
+                        rows.forEach((row: { subject?: string }) => {
+                            if (!row.subject) return
+                            const normalized = normalizeNweaSubject(row.subject)
+                            if (normalized) subjects.add(normalized)
                         })
                         if (subjects.size > 0) break
                     } catch {
                         continue
                     }
                 }
-            } else {
-                // For NWEA: Use Course column, check for "reading" and "math" (case-insensitive)
-                const courseColumns = ['Course', 'course']
-                let foundCourseColumn: string | null = null
 
-                // Check if Course column exists
-                for (const courseCol of courseColumns) {
-                    try {
-                        const testQuery = `SELECT \`${courseCol}\` FROM \`${projectId}.${datasetId}.${foundTable}\` LIMIT 1`
-                        await client.query({ query: testQuery, location })
-                        foundCourseColumn = courseCol
-                        break
-                    } catch {
-                        continue
+                // 2) Fallback to Course column if needed
+                if (subjects.size === 0) {
+                    const courseColumns = ['Course', 'course']
+                    let foundCourseColumn: string | null = null
+
+                    // Check if Course column exists
+                    for (const courseCol of courseColumns) {
+                        try {
+                            const testQuery = `SELECT \`${courseCol}\` FROM \`${projectId}.${datasetId}.${foundTable}\` LIMIT 1`
+                            await client.query({ query: testQuery, location })
+                            foundCourseColumn = courseCol
+                            break
+                        } catch {
+                            continue
+                        }
+                    }
+
+                    if (foundCourseColumn) {
+                        try {
+                            // Query distinct Course values
+                            const query = `
+                                SELECT DISTINCT \`${foundCourseColumn}\` as course
+                                FROM \`${projectId}.${datasetId}.${foundTable}\`
+                                WHERE \`${foundCourseColumn}\` IS NOT NULL
+                                LIMIT 100
+                            `
+                            const [rows] = await client.query({ query, location })
+
+                            // Filter subjects based on Course column content (like NWEA does)
+                            rows.forEach((row: { course?: string }) => {
+                                if (row.course) {
+                                    const normalized = normalizeNweaSubject(row.course)
+                                    if (normalized) subjects.add(normalized)
+                                }
+                            })
+                        } catch (error) {
+                            console.warn(`[Assessment Filters] Could not query Course column:`, error)
+                        }
                     }
                 }
 
-                if (foundCourseColumn) {
-                    try {
-                        // Query distinct Course values
-                        const query = `
-                            SELECT DISTINCT \`${foundCourseColumn}\` as course
-                            FROM \`${projectId}.${datasetId}.${foundTable}\`
-                            WHERE \`${foundCourseColumn}\` IS NOT NULL
-                            LIMIT 100
-                        `
-                        const [rows] = await client.query({ query, location })
-
-                        // Filter subjects based on Course column content (like NWEA does)
-                        rows.forEach((row: { course?: string }) => {
-                            if (row.course) {
-                                const courseStr = String(row.course).trim().toLowerCase()
-
-                                // Check for Reading: course contains "reading" (case-insensitive)
-                                if (courseStr.includes('reading')) {
-                                    subjects.add('Reading')
-                                }
-
-                                // Check for Mathematics: course contains "math" (case-insensitive)
-                                if (courseStr.includes('math')) {
-                                    subjects.add('Mathematics')
-                                }
-                            }
-                        })
-                    } catch (error) {
-                        console.warn(`[Assessment Filters] Could not query Course column:`, error)
-                    }
-                }
-
-                // Fallback to subject column if Course column not found or no subjects found
+                // Final fallback to subject column if still empty (kept for backward compatibility)
                 if (subjects.size === 0) {
                     const subjectColumns = ['subject', 'Subject']
                     for (const subjectCol of subjectColumns) {
@@ -239,14 +348,8 @@ export async function GET(req: NextRequest) {
                             `
                             const [rows] = await client.query({ query, location })
                             rows.forEach((row: { subject?: string }) => {
-                                if (row.subject) {
-                                    const subjectStr = String(row.subject).trim().toLowerCase()
-                                    if (subjectStr.includes('math')) {
-                                        subjects.add('Mathematics')
-                                    } else if (subjectStr.includes('reading')) {
-                                        subjects.add('Reading')
-                                    }
-                                }
+                                const normalized = row.subject ? normalizeNweaSubject(row.subject) : null
+                                if (normalized) subjects.add(normalized)
                             })
                             if (subjects.size > 0) break
                         } catch {

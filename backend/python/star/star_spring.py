@@ -27,6 +27,7 @@ from .star_data import (
     load_star_data,
     get_scopes,
     prep_star_for_charts,
+    filter_star_subject_rows,
     _short_year
 )
 from .star_filters import (
@@ -45,6 +46,30 @@ from .star_chart_utils import (
 # Chart tracking for CSV generation
 chart_links = []
 _chart_tracking_set = set()
+
+def _requested_star_subjects(chart_filters):
+    """
+    Return ordered STAR subject labels based on chart_filters.subjects.
+    Supports: Reading, Reading (Spanish), Mathematics.
+    """
+    subjects_filter = (chart_filters or {}).get("subjects") or []
+    if not isinstance(subjects_filter, list) or len(subjects_filter) == 0:
+        return ["Reading", "Mathematics"]
+    norm = [str(s).strip().lower() for s in subjects_filter if s is not None]
+    out = []
+    if any(("reading" in s and "spanish" in s) or ("spanish reading" in s) for s in norm):
+        out.append("Reading (Spanish)")
+    if any(("reading" in s) or (s == "ela") for s in norm):
+        out.append("Reading")
+    if any(("math" in s) for s in norm):
+        out.append("Mathematics")
+    seen = set()
+    out2 = []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            out2.append(s)
+    return out2 or ["Reading", "Mathematics"]
 
 def track_chart(chart_name, file_path, scope="district", section=None, chart_data=None):
     """Track chart for CSV generation and save chart data if provided"""
@@ -109,11 +134,7 @@ def _prep_section0_star_spring(df, subject):
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
     
-    subj = subject.lower()
-    if "math" in subj:
-        d = d[d["activity_type"].str.contains("math", case=False, na=False)]
-    else:
-        d = d[d["activity_type"].str.contains("read", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject)
     
     if d.empty or d["academicyear"].dropna().empty:
         return None, None, None, None
@@ -499,13 +520,8 @@ def _prep_star_winter_spring(df, subj):
     d = d[d["academicyear"] == 2026].copy()
     d = d[d["testwindow"].astype(str).str.upper().isin(["WINTER", "SPRING"])].copy()
     
-    # subject filtering
-    subj_norm = subj.casefold()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)].copy()
-    else:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)].copy()
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)].copy()
+    # subject filtering (includes Spanish Reading preference)
+    d = filter_star_subject_rows(d, subj)
     
     # valid benchmark levels only
     d = d[d["state_benchmark_achievement"].notna()].copy()
@@ -1269,12 +1285,7 @@ def _prep_star_matched_cohort_by_grade_spring(df, subject_str, current_grade, wi
             & (base["academicyear"] == yr)
         ].copy()
         
-        subj_norm = subject_str.strip().lower()
-        if "math" in subj_norm:
-            tmp = tmp[tmp["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-        elif "read" in subj_norm:
-            tmp = tmp[tmp["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-            tmp = tmp[~tmp["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+        tmp = filter_star_subject_rows(tmp, subject_str)
         
         tmp = tmp[tmp["state_benchmark_achievement"].notna()]
         
@@ -1395,12 +1406,7 @@ def plot_star_blended_dashboard_spring(
     d = d[d[grade_col] == current_grade]
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     d = d[d["state_benchmark_achievement"].notna()]
     
@@ -1499,12 +1505,7 @@ def plot_star_growth_by_site_spring(
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     d = d[d["state_benchmark_achievement"].notna()]
     
@@ -1614,12 +1615,7 @@ def _prep_star_sgp_data_spring(df, subject_str, current_grade, window_filter):
     d = d[d[grade_col] == current_grade]
     d = d[d["testwindow"].astype(str).str.upper() == window_filter.upper()]
     
-    subj_norm = subject_str.strip().lower()
-    if "math" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-    elif "read" in subj_norm:
-        d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-        d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+    d = filter_star_subject_rows(d, subject_str)
     
     # Check for SGP columns - Spring uses Winter→Spring SGP vector
     if "current_sgp_vector" in d.columns:
@@ -1725,12 +1721,7 @@ def _prep_star_sgp_cohort_spring(df, subject_str, current_grade, window_filter):
             & (d["current_sgp_vector"] == "WINTER_SPRING")
         ].copy()
         
-        subj = subject_str.lower()
-        if "math" in subj:
-            d = d[d["activity_type"].astype(str).str.contains("math", case=False, na=False)]
-        else:
-            d = d[d["activity_type"].astype(str).str.contains("read", case=False, na=False)]
-            d = d[~d["activity_type"].astype(str).str.contains("language", case=False, na=False)]
+        d = filter_star_subject_rows(d, subject_str)
         
         if d.empty:
             continue
@@ -2146,8 +2137,9 @@ def main(star_data=None):
     
     anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
     
+    subjects_to_plot = _requested_star_subjects(chart_filters)
     for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
+        for subj in subjects_to_plot:
             if not should_generate_subject(subj, chart_filters):
                 continue
             for grade in selected_grades:
@@ -2180,7 +2172,7 @@ def main(star_data=None):
     for scope_df, scope_label, folder in scopes:
         # Only generate for district scope (shows all schools)
         if folder == "_district":
-            for subj in ["Reading", "Mathematics"]:
+            for subj in subjects_to_plot:
                 if not should_generate_subject(subj, chart_filters):
                     continue
                 try:
@@ -2206,7 +2198,7 @@ def main(star_data=None):
     # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort (Spring)
     print("\n[Section 5] Generating STAR SGP Growth (Spring)...")
     for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
+        for subj in subjects_to_plot:
             if not should_generate_subject(subj, chart_filters):
                 continue
             for grade in selected_grades:

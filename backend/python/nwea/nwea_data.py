@@ -21,6 +21,45 @@ def load_config_from_args(config_json_str):
         return {}
 
 
+def filter_nwea_subject_rows(df: pd.DataFrame, subject_str: str) -> pd.DataFrame:
+    """
+    Generic NWEA subject filter.
+
+    Supports legacy patterns (Reading, Math K-12/Mathematics) and passes through
+    other MAP Growth subjects (e.g., Science, Language Usage) by substring match.
+    """
+    d = df.copy()
+    if d.empty:
+        return d
+
+    # Prefer course column; fallback to subject if present.
+    subj_col = "course" if "course" in d.columns else ("subject" if "subject" in d.columns else None)
+    if not subj_col:
+        return d.iloc[0:0].copy()
+
+    subj_norm = str(subject_str).strip().casefold()
+    col = d[subj_col].astype(str)
+
+    # Math (MAP Growth typically uses "Math K-12" in course)
+    if "math" in subj_norm:
+        return d[col.str.contains("math", case=False, na=False)].copy()
+    if subj_norm == "math k-12":
+        return d[col.str.contains("math k-12", case=False, na=False)].copy()
+
+    # Reading / Language Arts
+    if "reading" in subj_norm or "language arts" in subj_norm or subj_norm == "ela":
+        # Keep reading-ish rows but avoid Language Usage being lumped into Reading.
+        base = d[col.str.contains("reading|language arts|language_arts|ela", case=False, na=False, regex=True)].copy()
+        base = base[~base[subj_col].astype(str).str.contains("language usage", case=False, na=False)].copy()
+        return base
+
+    # Other subjects: simple contains match on the subject label
+    if subj_norm:
+        return d[col.str.contains(subj_norm, case=False, na=False)].copy()
+
+    return d.iloc[0:0].copy()
+
+
 def normalize_nwea_dataframe(df):
     """Normalize NWEA DataFrame (column names, mappings, etc.)"""
     nwea_base = df.copy()
@@ -194,11 +233,7 @@ def prep_nwea_for_charts(df, subject_str, window_filter="Fall"):
     if "testwindow" in df.columns:
         print(f"[prep_nwea_for_charts] Rows after window filter: {len(d)}")
     
-    subj_norm = subject_str.strip().casefold()
-    if "math" in subj_norm:
-        d = d[d["course"].astype(str).str.contains("math k-12", case=False, na=False)].copy()
-    elif "reading" in subj_norm:
-        d = d[d["course"].astype(str).str.contains("reading", case=False, na=False)].copy()
+    d = filter_nwea_subject_rows(d, subject_str)
     
     d = d[d["achievementquintile"].notna()].copy()
     d["year"] = pd.to_numeric(d["year"].astype(str).str[:4], errors="coerce")

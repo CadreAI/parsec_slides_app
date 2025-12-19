@@ -406,6 +406,14 @@ export default function CreateSlide() {
                     ? ireadyResolvedSchools
                     : undefined
 
+            // Scope controls for runner-based NWEA scripts (Fall/Winter legacy runners)
+            // We keep this separate from iReady to avoid collisions when multiple assessments are selected.
+            const hasNwea = selectedAssessmentIds.includes('nwea')
+            const nweaScope = hasNwea ? formData.assessmentScopes['nwea'] : undefined
+            const nweaIncludeDistrictwide = nweaScope?.includeDistrictwide !== false
+            const nweaIncludeSchools = nweaScope?.includeSchools !== false
+            const nweaDistrictOnly = Boolean(hasNwea && nweaIncludeDistrictwide && !nweaIncludeSchools)
+
             const chartFilters = {
                 grades:
                     formData.grades.length > 0
@@ -431,6 +439,9 @@ export default function CreateSlide() {
                 // iReady scope selection (district vs schools)
                 district_only: ireadyDistrictOnly ? true : undefined,
                 schools: ireadySelectedSchools
+                ,
+                // NWEA scope selection (district vs schools)
+                nwea_district_only: nweaDistrictOnly ? true : undefined
             }
 
             const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`
@@ -660,7 +671,7 @@ export default function CreateSlide() {
                                                                 location={formData.location}
                                                                 customDataSource={formData.customDataSources[source.id]}
                                                                 scope={formData.assessmentScopes[source.id]}
-                                                                onScopeChange={handleAssessmentScopeChange}
+                                                                onScopeChangeAction={handleAssessmentScopeChange}
                                                                 partnerConfig={PARTNER_CONFIG}
                                                             />
                                                         )}

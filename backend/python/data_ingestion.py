@@ -46,13 +46,21 @@ def ingest_nwea(
     """
     chart_filters = chart_filters or {}
 
+    def _is_placeholder_district(name: str) -> bool:
+        s = str(name or "").strip().lower()
+        return s in {"districtwide", "district", "district (all students)"}
+
     # Map config-level filters to chart_filters if not already set
     # Frontend may send district_name and selected_schools at config level
     if not chart_filters.get('districts') and config.get('district_name'):
         districts = config.get('district_name')
         if isinstance(districts, list) and len(districts) > 0:
-            chart_filters['districts'] = districts
-            print(f"[Data Ingestion] Mapped district_name to chart_filters.districts: {districts}")
+            # Avoid treating placeholder labels like "Districtwide" as an actual district filter.
+            if len(districts) == 1 and _is_placeholder_district(districts[0]):
+                print(f"[Data Ingestion] Skipping district filter mapping (placeholder district_name): {districts}")
+            else:
+                chart_filters['districts'] = districts
+                print(f"[Data Ingestion] Mapped district_name to chart_filters.districts: {districts}")
 
     if not chart_filters.get('schools') and config.get('selected_schools'):
         schools = config.get('selected_schools')
@@ -152,7 +160,7 @@ def ingest_nwea(
     else:
         print(f"[Data Ingestion] Querying years: {years}")
     
-    print(f"[Data Ingestion] NWEA: Executing single query for years: {years}")
+    print(f"[Data Ingestion] NWEA: Executing one query per year: {years}")
     print(f"[Data Ingestion] Table: {table_id}")
 
     # Get exclude columns from config if specified
@@ -163,7 +171,7 @@ def ingest_nwea(
     if not exclude_cols and isinstance(config.get('exclude_cols'), dict):
         exclude_cols = config.get('exclude_cols', {}).get('nwea', [])
 
-    # Build and execute single SQL query
+    # Build and execute one SQL query per year (easier debugging + smaller result sets)
     try:
         credentials_path = config.get('gcp', {}).get('credentials_path')
         client = get_bigquery_client(project_id, credentials_path)
@@ -181,25 +189,49 @@ def ingest_nwea(
         elif 'academicyear' in [col.lower() for col in table_columns]:
             year_column = 'AcademicYear'
         
-        # Build SQL query with selected years, and push down school filter if selected
-        sql_filters = {
-            'years': years,
-            'available_columns': table_columns,
-        }
-        if chart_filters.get('quarters'):
-            sql_filters['quarters'] = chart_filters['quarters']
-        # If Districtwide is included, avoid school-name filtering in SQL so we fetch ALL data
-        # and do school slicing later during chart generation.
-        sql_filters['include_districtwide'] = include_districtwide
-        if nwea_selected_schools and not include_districtwide:
-            sql_filters['schools'] = nwea_selected_schools
-        sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column, filters=sql_filters)
+        # Build SQL per year first (so errors are easier to attribute)
+        sql_by_year: Dict[int, str] = {}
+        for y in years:
+            sql_filters = {
+                'years': [y],
+                'available_columns': table_columns,
+            }
+            if chart_filters.get('quarters'):
+                sql_filters['quarters'] = chart_filters['quarters']
+            # If Districtwide is included, avoid school-name filtering in SQL so we fetch ALL data
+            # and do school slicing later during chart generation.
+            sql_filters['include_districtwide'] = include_districtwide
+            if nwea_selected_schools and not include_districtwide:
+                sql_filters['schools'] = nwea_selected_schools
+            sql_by_year[int(y)] = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column, filters=sql_filters)
 
-        print(f"[Data Ingestion] SQL Query:")
-        print(f"[Data Ingestion] {sql}")
-        print(f"[Data Ingestion] Executing query...")
-        rows = run_query(sql, client, None)
-        print(f"[Data Ingestion] Retrieved {len(rows):,} total rows from query")
+        # Execute all year queries concurrently
+        def _run_year_query(y: int, sql: str):
+            # Use a fresh client per worker to avoid any thread-safety surprises.
+            c = get_bigquery_client(project_id, credentials_path)
+            yr_rows = run_query(sql, c, None)
+            return y, yr_rows
+
+        rows: list[dict] = []
+        max_workers = min(4, len(sql_by_year)) if len(sql_by_year) > 0 else 1
+        print(f"[Data Ingestion] Executing {len(sql_by_year)} year-queries with max_workers={max_workers}")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for y, sql in sorted(sql_by_year.items()):
+                print(f"[Data Ingestion] SQL Query (year={y}):")
+                print(f"[Data Ingestion] {sql}")
+                futures.append(executor.submit(_run_year_query, y, sql))
+
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    y, year_rows = fut.result()
+                    print(f"[Data Ingestion] Retrieved {len(year_rows):,} rows for year {y}")
+                    rows.extend(year_rows)
+                except Exception as e:
+                    print(f"[Data Ingestion] Error querying a year: {e}")
+
+        print(f"[Data Ingestion] Retrieved {len(rows):,} total rows from {len(sql_by_year)} year-queries")
     except Exception as e:
         error_msg = str(e)
         print(f"[Data Ingestion] Error: {error_msg}")
@@ -290,20 +322,28 @@ def ingest_nwea(
     # Handle both column name variations: DistrictName -> districtname, or district_name -> district_name
     if chart_filters.get('districts'):
         districts = chart_filters['districts']
-        district_col = None
-        
-        # Check for both possible column names (after clean_column_names normalization)
-        if 'districtname' in df.columns:
-            district_col = 'districtname'
-        elif 'district_name' in df.columns:
-            district_col = 'district_name'
-        
-        if district_col:
-            before_filter = len(df)
-            df = df[df[district_col].isin(districts)]
-            print(f"[Data Ingestion] Applied district filter using column '{district_col}': {before_filter} -> {len(df)} rows")
-        else:
-            print(f"[Data Ingestion] Warning: District filter specified but no district column found (checked: districtname, district_name)")
+        try:
+            # Skip placeholder district labels (common UI default) to avoid filtering everything out.
+            if isinstance(districts, list) and len(districts) > 0 and all(_is_placeholder_district(d) for d in districts):
+                print(f"[Data Ingestion] Skipping district filter (placeholder districts): {districts}")
+                districts = None
+        except Exception:
+            pass
+        if districts:
+            district_col = None
+
+            # Check for both possible column names (after clean_column_names normalization)
+            if 'districtname' in df.columns:
+                district_col = 'districtname'
+            elif 'district_name' in df.columns:
+                district_col = 'district_name'
+
+            if district_col:
+                before_filter = len(df)
+                df = df[df[district_col].isin(districts)]
+                print(f"[Data Ingestion] Applied district filter using column '{district_col}': {before_filter} -> {len(df)} rows")
+            else:
+                print(f"[Data Ingestion] Warning: District filter specified but no district column found (checked: districtname, district_name)")
 
     # NWEA: No deduplication needed - SQL query uses SELECT DISTINCT
     # The database handles deduplication, so we keep all rows as-is

@@ -1,10 +1,12 @@
 'use client'
 
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { getClusteredSchoolOptions, getDistrictOptions } from '@/utils/formHelpers'
+import { useEffect } from 'react'
 
 interface AssessmentScopeSelectorProps {
     assessmentId: string
@@ -19,7 +21,7 @@ interface AssessmentScopeSelectorProps {
         includeDistrictwide?: boolean
         includeSchools?: boolean
     }
-    onScopeChange: (
+    onScopeChangeAction: (
         assessmentId: string,
         scope: {
             districts: string[]
@@ -39,7 +41,7 @@ export function AssessmentScopeSelector({
     location,
     customDataSource,
     scope,
-    onScopeChange,
+    onScopeChangeAction,
     partnerConfig
 }: AssessmentScopeSelectorProps) {
     // Fetch districts and schools for this specific assessment
@@ -57,6 +59,34 @@ export function AssessmentScopeSelector({
 
     // Get district options
     const districtOptions = getDistrictOptions(availableDistricts, partnerName, partnerConfig)
+
+    // UX: if there is exactly one district available, auto-select it.
+    // This prevents confusing states like: districtSchoolMap has keys but the selected districts array is empty.
+    useEffect(() => {
+        if (!hasActualDistricts) return
+        if (isLoadingDistrictsSchools) return
+        if (!partnerName) return
+        if (Array.isArray(scope.districts) && scope.districts.length > 0) return
+        if (districtOptions.length !== 1) return
+
+        const onlyDistrict = districtOptions[0]
+        onScopeChangeAction(assessmentId, {
+            ...scope,
+            districts: [onlyDistrict],
+            schools: [],
+            resolvedSchools: []
+        })
+        // Intentionally omit `scope` object from deps to avoid re-triggering due to identity changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        assessmentId,
+        districtOptions.join(','),
+        hasActualDistricts,
+        isLoadingDistrictsSchools,
+        partnerName,
+        (scope.districts || []).join(','),
+        onScopeChangeAction
+    ])
 
     // Aggregate schools from all selected districts
     const aggregatedSchools = scope.districts.flatMap((district) => districtSchoolMap[district] || [])
@@ -100,6 +130,28 @@ export function AssessmentScopeSelector({
         <div className="ml-6 mt-3 space-y-3 rounded-lg border-l-2 border-blue-200 bg-blue-50/30 p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-600">📍 Scope for {assessmentId}</div>
 
+            {/* Quick action */}
+            <div className="flex flex-wrap items-center gap-2">
+                <Button
+                    type="button"
+                    variant={includeDistrictwide && !includeSchools ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                        onScopeChangeAction(assessmentId, {
+                            ...scope,
+                            includeDistrictwide: true,
+                            includeSchools: false,
+                            schools: [],
+                            resolvedSchools: []
+                        })
+                    }}
+                    disabled={isLoadingDistrictsSchools}
+                >
+                    District only
+                </Button>
+                <p className="text-xs text-gray-600">Skips all school charts for this assessment</p>
+            </div>
+
             {/* District Selection - Only show if we have actual districts */}
             {hasActualDistricts && (
                 <div className="space-y-2">
@@ -108,7 +160,7 @@ export function AssessmentScopeSelector({
                         options={districtOptions}
                         selected={scope.districts}
                         onChange={(selected) => {
-                            onScopeChange(assessmentId, {
+                            onScopeChangeAction(assessmentId, {
                                 ...scope,
                                 districts: selected,
                                 schools: [], // Reset schools when districts change
@@ -127,7 +179,7 @@ export function AssessmentScopeSelector({
                     id={`${assessmentId}-includeDistrictwide`}
                     checked={includeDistrictwide}
                     onChange={(e) => {
-                        onScopeChange(assessmentId, {
+                        onScopeChangeAction(assessmentId, {
                             ...scope,
                             includeDistrictwide: e.target.checked
                         })
@@ -148,7 +200,7 @@ export function AssessmentScopeSelector({
                     id={`${assessmentId}-includeSchools`}
                     checked={includeSchools}
                     onChange={(e) => {
-                        onScopeChange(assessmentId, {
+                        onScopeChangeAction(assessmentId, {
                             ...scope,
                             includeSchools: e.target.checked,
                             schools: e.target.checked ? scope.schools : [],
@@ -173,7 +225,7 @@ export function AssessmentScopeSelector({
                         options={finalSchoolOptions}
                         selected={scope.schools}
                         onChange={(selected) => {
-                            onScopeChange(assessmentId, {
+                            onScopeChangeAction(assessmentId, {
                                 ...scope,
                                 schools: selected,
                                 resolvedSchools: resolveSelectedSchools(selected)

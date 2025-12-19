@@ -78,6 +78,16 @@ def generate_nwea_winter_charts(
         }
     )
 
+    # Frontend override: district-only charts
+    # Mirrors iready_*_runner behavior. Use a NWEA-specific key to avoid collisions when
+    # multiple assessments are selected (e.g., iReady school charts + NWEA district-only).
+    try:
+        cf = chart_filters or {}
+        if bool(cf.get("nwea_district_only")) is True:
+            env["NWEA_MOY_SCOPE_MODE"] = "district_only"
+    except Exception:
+        pass
+
     # Scope control (district_only vs district + schools vs selected schools).
     # Prefer config.assessment_scopes['nwea'] if present.
     try:
@@ -90,7 +100,8 @@ def generate_nwea_winter_charts(
         schools = nwea_scope.get("schools") if include_schools else None
         if isinstance(schools, list) and schools:
             env["NWEA_MOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
-            env["NWEA_MOY_SCOPE_MODE"] = "selected_schools"
+            if env.get("NWEA_MOY_SCOPE_MODE") != "district_only":
+                env["NWEA_MOY_SCOPE_MODE"] = "selected_schools"
         if include_districtwide and not include_schools:
             env["NWEA_MOY_SCOPE_MODE"] = "district_only"
     except Exception:
@@ -110,6 +121,15 @@ def generate_nwea_winter_charts(
         grades = (chart_filters or {}).get("grades") or []
         if isinstance(grades, list) and grades:
             env["NWEA_MOY_GRADES"] = ",".join(str(g) for g in grades)
+    except Exception:
+        pass
+
+    # Pass selected subjects from frontend into the legacy script.
+    # Frontend uses chart_filters["subjects"] as an array of strings.
+    try:
+        subjects = (chart_filters or {}).get("subjects") or []
+        if isinstance(subjects, list) and subjects:
+            env["NWEA_MOY_SUBJECTS"] = ",".join(str(s) for s in subjects if str(s).strip())
     except Exception:
         pass
 
@@ -166,6 +186,24 @@ def generate_nwea_winter_charts(
                 shutil.copy2(data_src, data_dest)
             except Exception:
                 pass
+
+    # Persist subprocess logs into output_dir so Celery logs aren't the only place to debug.
+    try:
+        logs_out_dir = out_dir / "_logs" / "nwea_moy"
+        logs_out_dir.mkdir(parents=True, exist_ok=True)
+        for log_src in sorted(run_logs_dir.glob("*.txt")):
+            try:
+                shutil.copy2(log_src, logs_out_dir / log_src.name)
+            except Exception:
+                pass
+        # Also write a small tail summary for quick inspection.
+        try:
+            tail = (proc.stdout or "")[-8000:] + "\n\n" + (proc.stderr or "")[-8000:]
+            (logs_out_dir / "nwea_moy_subprocess_tail.txt").write_text(tail, encoding="utf-8")
+        except Exception:
+            pass
+    except Exception:
+        pass
 
     # Cleanup temp workspace (charts have been copied out)
     shutil.rmtree(run_root, ignore_errors=True)
