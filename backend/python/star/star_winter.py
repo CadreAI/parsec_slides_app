@@ -1747,7 +1747,15 @@ def plot_star_growth_by_site_winter(
         "scope": scope_label,
         "window_filter": window_filter,
         "subjects": [subject_str],
-        "school_data": school_data,
+        "school_data": {
+            school: {
+                "pct_data": data["pct_df"].to_dict("records") if not data["pct_df"].empty else [],
+                "score_data": data["score_df"].to_dict("records") if not data["score_df"].empty else [],
+                "metrics": data["metrics"],
+                "time_order": data["time_order"]
+            }
+            for school, data in school_data.items()
+        },
     }
     track_chart(f"Section 4: {subject_str} Growth by Site", out_path, scope=scope_label, section=4, chart_data=chart_data)
     
@@ -2469,4 +2477,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
