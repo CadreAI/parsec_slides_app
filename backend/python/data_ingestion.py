@@ -364,6 +364,126 @@ def ingest_nwea(
     # This allows us to collect all grade data and filter later as needed
     # (Grade filtering removed per user request - only filter by years)
 
+    # ------------------------------------------------------------
+    # Memory optimization: prune to columns needed for NWEA charting
+    # ------------------------------------------------------------
+    try:
+        nwea_keep_cols = {
+            # Core identifiers / scope
+            "year",
+            "academicyear",
+            "testwindow",
+            "termname",
+            "course",
+            "subject",
+            "schoolname",
+            "learning_center",
+            "school",
+            "districtname",
+            "district_name",
+            "uniqueidentifier",
+            "student_stateid",
+            "studentid",
+            "ssid",
+            # Timing / dedupe
+            "teststartdate",
+            "teststarttime",
+            # Scores / proficiency
+            "testritscore",
+            "testpercentile",
+            "teststandarderror",
+            "percentcorrect",
+            "achievementquintile",
+            "projectedproficiencylevel2",
+            "cers_overall_performanceband",
+            # Grades
+            "grade",
+            # Student group filters commonly used in charts
+            "englishlearner",
+            "studentswithdisabilities",
+            "socioeconomicallydisadvantaged",
+            "ethnicityrace",
+            "gender",
+            "foster",
+            "homeless",
+            # Growth columns (Fall/Winter/Spring)
+            "falltofallconditionalgrowthindex",
+            "falltofallconditionalgrowthpercentile",
+            "falltofallgrowthquintile",
+            "falltofallmetprojectedgrowth",
+            "falltofallobservedgrowth",
+            "falltofallobservedgrowthse",
+            "falltofallprojectedgrowth",
+            "falltowinterconditionalgrowthindex",
+            "falltowinterconditionalgrowthpercentile",
+            "falltowintergrowthquintile",
+            "falltowintermetprojectedgrowth",
+            "falltowinterobservedgrowth",
+            "falltowinterobservedgrowthse",
+            "falltowinterprojectedgrowth",
+            "falltospringconditionalgrowthindex",
+            "falltospringconditionalgrowthpercentile",
+            "falltospringgrowthquintile",
+            "falltospringmetprojectedgrowth",
+            "falltospringobservedgrowth",
+            "falltospringobservedgrowthse",
+            "falltospringprojectedgrowth",
+            "typicalfalltofallgrowth",
+            "typicalfalltowintergrowth",
+            "typicalfalltospringgrowth",
+        }
+
+        drop_cols = [c for c in df.columns if c not in nwea_keep_cols]
+        if drop_cols:
+            df.drop(columns=drop_cols, inplace=True, errors="ignore")
+            print(f"[Data Ingestion] NWEA: Dropped {len(drop_cols)} unused columns to reduce memory")
+    except Exception as e:
+        print(f"[Data Ingestion] NWEA: Column pruning skipped due to error: {e}")
+
+    # Downcast types where safe to reduce memory further
+    try:
+        # Numeric
+        for c in ["year", "academicyear", "grade"]:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce", downcast="integer")
+        for c in [
+            "testritscore",
+            "testpercentile",
+            "teststandarderror",
+            "percentcorrect",
+            "falltofallconditionalgrowthindex",
+            "falltofallconditionalgrowthpercentile",
+            "falltowinterconditionalgrowthindex",
+            "falltowinterconditionalgrowthpercentile",
+            "falltospringconditionalgrowthindex",
+            "falltospringconditionalgrowthpercentile",
+            "typicalfalltofallgrowth",
+            "typicalfalltowintergrowth",
+            "typicalfalltospringgrowth",
+        ]:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce", downcast="float")
+
+        # Categoricals (highly repetitive strings)
+        for c in [
+            "testwindow",
+            "termname",
+            "course",
+            "subject",
+            "achievementquintile",
+            "projectedproficiencylevel2",
+            "cers_overall_performanceband",
+            "ethnicityrace",
+            "gender",
+        ]:
+            if c in df.columns:
+                try:
+                    df[c] = df[c].astype("category")
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[Data Ingestion] NWEA: Downcast skipped due to error: {e}")
+
     # Convert back to list of dicts
     result = df.to_dict('records')
 
