@@ -30,6 +30,9 @@ def sql_nwea(
         SQL query string
     """
     filters = filters or {}
+    # If Districtwide charts are requested, we must NOT filter by school name in SQL.
+    # School-level slicing happens later during chart generation.
+    include_districtwide = bool(filters.get("include_districtwide"))
 
     def _sql_escape(s: str) -> str:
         return str(s).replace("'", "\\'")
@@ -192,7 +195,7 @@ def sql_nwea(
     )"""
 
     # Optional school filter pushdown
-    schools = filters.get("schools") or []
+    schools = [] if include_districtwide else (filters.get("schools") or [])
     if not isinstance(schools, list):
         schools = []
     school_clause = None

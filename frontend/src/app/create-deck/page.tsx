@@ -54,7 +54,16 @@ export default function CreateSlide() {
         // Slide Configuration
         deckName: '',
         // Per-assessment scopes: { 'NWEA': { districts: [], schools: [] }, 'iReady': { ... } }
-        assessmentScopes: {} as Record<string, { districts: string[]; schools: string[]; districtOnly?: boolean }>,
+        assessmentScopes: {} as Record<
+            string,
+            {
+                districts: string[]
+                schools: string[] // UI-selected values (may be clustered names)
+                resolvedSchools?: string[] // expanded raw school names (used for backend ingestion/charting)
+                includeDistrictwide?: boolean
+                includeSchools?: boolean
+            }
+        >,
         grades: [] as string[],
         years: [] as string[],
         quarters: '' as string,
@@ -129,7 +138,8 @@ export default function CreateSlide() {
                     newScopes[value] = {
                         districts: [],
                         schools: [],
-                        districtOnly: false
+                        includeDistrictwide: true,
+                        includeSchools: true
                     }
                 } else {
                     // Remove scope for deselected assessment
@@ -219,7 +229,10 @@ export default function CreateSlide() {
         }))
     }
 
-    const handleAssessmentScopeChange = (assessmentId: string, scope: { districts: string[]; schools: string[]; districtOnly?: boolean }) => {
+    const handleAssessmentScopeChange = (
+        assessmentId: string,
+        scope: { districts: string[]; schools: string[]; includeDistrictwide?: boolean; includeSchools?: boolean }
+    ) => {
         setFormData((prev) => ({
             ...prev,
             assessmentScopes: {
@@ -253,9 +266,11 @@ export default function CreateSlide() {
                 toast.error(`Please configure scope for ${assessmentId}`)
                 return
             }
-            // Must have either districts, schools, or district-only mode enabled
-            if (scope.districts.length === 0 && scope.schools.length === 0 && !scope.districtOnly) {
-                toast.error(`Please select at least one district or school for ${assessmentId}`)
+            const includeDistrictwide = scope.includeDistrictwide !== false
+            const includeSchools = scope.includeSchools !== false
+            // Must include districtwide and/or at least one school
+            if (!includeDistrictwide && (!includeSchools || scope.schools.length === 0)) {
+                toast.error(`Please enable Districtwide and/or select at least one school for ${assessmentId}`)
                 return
             }
         }
@@ -293,15 +308,20 @@ export default function CreateSlide() {
             // Aggregate scopes from all assessments
             const aggregatedDistricts = new Set<string>()
             const aggregatedSchools = new Set<string>()
-            let hasDistrictOnlyMode = false
+            let anyDistrictwideOnly = false
 
             formData.assessments.forEach((assessmentId) => {
                 const scope = formData.assessmentScopes[assessmentId]
                 if (scope) {
                     scope.districts.forEach((d) => aggregatedDistricts.add(d))
-                    scope.schools.forEach((s) => aggregatedSchools.add(s))
-                    if (scope.districtOnly) {
-                        hasDistrictOnlyMode = true
+                    const includeDistrictwide = scope.includeDistrictwide !== false
+                    const includeSchools = scope.includeSchools !== false
+                    if (includeSchools) {
+                        const resolved = Array.isArray(scope.resolvedSchools) && scope.resolvedSchools.length > 0 ? scope.resolvedSchools : scope.schools
+                        resolved.forEach((s) => aggregatedSchools.add(s))
+                    }
+                    if (includeDistrictwide && !includeSchools) {
+                        anyDistrictwideOnly = true
                     }
                 }
             })
@@ -309,12 +329,27 @@ export default function CreateSlide() {
             const districtList = Array.from(aggregatedDistricts).sort()
             const schoolList = Array.from(aggregatedSchools).sort()
 
-            console.log('[Frontend] Aggregated scopes:', { districtList, schoolList, hasDistrictOnlyMode, assessmentScopes: formData.assessmentScopes })
+            console.log('[Frontend] Aggregated scopes:', { districtList, schoolList, anyDistrictwideOnly, assessmentScopes: formData.assessmentScopes })
+
+            // Resolve clustered school selections (if present) into raw school lists for backend use.
+            const resolvedAssessmentScopes = Object.fromEntries(
+                Object.entries(formData.assessmentScopes || {}).map(([aid, scope]) => {
+                    const resolved = Array.isArray(scope?.resolvedSchools) && scope.resolvedSchools.length > 0 ? scope.resolvedSchools : scope?.schools || []
+                    return [
+                        aid,
+                        {
+                            ...scope,
+                            schools: resolved
+                        }
+                    ]
+                })
+            )
 
             // Build config object
             const config = {
                 partner_name: formData.partnerName || 'demodashboard',
-                district_name: districtList,
+                // Some partners (esp. charter-style datasets) don't have a district field; use Districtwide.
+                district_name: districtList.length > 0 ? districtList : ['Districtwide'],
                 school_name_map: {
                     'Parsec Academy': 'Parsec Academy',
                     '': 'No assigned program'
@@ -337,13 +372,40 @@ export default function CreateSlide() {
                     config_dir: '.'
                 },
                 // Scope selection: aggregated from all assessment scopes
-                selected_schools: hasDistrictOnlyMode ? [] : schoolList, // Empty if any assessment has district-only mode
-                include_district_scope: districtList.length > 0, // Include district scope if any districts selected
+                selected_schools: schoolList,
+                // Include district scope if there are districts OR if this partner doesn't have districts but we have schools.
+                include_district_scope: districtList.length > 0 || schoolList.length > 0 || anyDistrictwideOnly,
                 // Store per-assessment scopes for future granular filtering (not yet implemented in backend)
-                assessment_scopes: formData.assessmentScopes
+                assessment_scopes: resolvedAssessmentScopes
             }
 
             // Build chart filters
+            // Note: ingestion + runners increasingly rely on config.assessment_scopes for per-assessment scope.
+            // chartFilters retains some legacy keys for runner-based scripts.
+
+            const selectedAssessmentIds = Array.isArray(formData.assessments) ? formData.assessments : []
+            const includeDistrictwideAny = selectedAssessmentIds.some((aid) => {
+                const scope = formData.assessmentScopes[aid]
+                return scope?.includeDistrictwide !== false
+            })
+
+            // Scope controls for runner-based iReady scripts:
+            // - chartFilters.district_only: generate district charts only (skip all school loops)
+            // - chartFilters.schools: generate district + only these school charts
+            const hasIready = selectedAssessmentIds.includes('iready')
+            const ireadyScope = hasIready ? formData.assessmentScopes['iready'] : undefined
+            const ireadyIncludeDistrictwide = ireadyScope?.includeDistrictwide !== false
+            const ireadyIncludeSchools = ireadyScope?.includeSchools !== false
+            const ireadyDistrictOnly = Boolean(hasIready && ireadyIncludeDistrictwide && !ireadyIncludeSchools)
+            const ireadyResolvedSchools =
+                hasIready && Array.isArray(ireadyScope?.resolvedSchools) && ireadyScope!.resolvedSchools!.length > 0
+                    ? ireadyScope!.resolvedSchools
+                    : ireadyScope?.schools
+            const ireadySelectedSchools =
+                hasIready && !ireadyDistrictOnly && ireadyIncludeSchools && Array.isArray(ireadyResolvedSchools) && ireadyResolvedSchools.length > 0
+                    ? ireadyResolvedSchools
+                    : undefined
+
             const chartFilters = {
                 grades:
                     formData.grades.length > 0
@@ -359,7 +421,16 @@ export default function CreateSlide() {
                 quarters: formData.quarters ? [formData.quarters] : undefined,
                 subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
                 student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
-                race: formData.race.length > 0 ? formData.race : undefined
+                race: formData.race.length > 0 ? formData.race : undefined,
+
+                // Districtwide aggregate selection (any assessment)
+                // include_districtwide tells backend ingestion to avoid school-name SQL filters
+                // when generating a districtwide aggregate (even if school charts are also requested).
+                include_districtwide: includeDistrictwideAny ? true : undefined,
+
+                // iReady scope selection (district vs schools)
+                district_only: ireadyDistrictOnly ? true : undefined,
+                schools: ireadySelectedSchools
             }
 
             const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`

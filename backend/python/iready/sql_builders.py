@@ -151,8 +151,11 @@ def sql_iready(
             END
         ) - 3""")
 
-    # Optional school filter pushdown
-    schools = filters.get("schools") or []
+    # Optional school filter pushdown.
+    # If districtwide is included, do NOT push down school-name filtering:
+    # district aggregate needs all schools; school selection happens later in chart generation.
+    include_districtwide = bool(filters.get("include_districtwide"))
+    schools = [] if include_districtwide else (filters.get("schools") or [])
     if not isinstance(schools, list):
         schools = []
     if schools:

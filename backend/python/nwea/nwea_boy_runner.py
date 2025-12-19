@@ -76,6 +76,24 @@ def generate_nwea_fall_charts(
         }
     )
 
+    # Scope control (district_only vs district + schools vs selected schools).
+    # Prefer config.assessment_scopes['nwea'] if present.
+    try:
+        scopes = (config or {}).get("assessment_scopes") or {}
+        nwea_scope = scopes.get("nwea") or {}
+        include_districtwide = nwea_scope.get("includeDistrictwide")
+        include_schools = nwea_scope.get("includeSchools")
+        include_districtwide = True if include_districtwide is None else bool(include_districtwide)
+        include_schools = True if include_schools is None else bool(include_schools)
+        schools = nwea_scope.get("schools") if include_schools else None
+        if isinstance(schools, list) and schools:
+            env["NWEA_BOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
+            env["NWEA_BOY_SCOPE_MODE"] = "selected_schools"
+        if include_districtwide and not include_schools:
+            env["NWEA_BOY_SCOPE_MODE"] = "district_only"
+    except Exception:
+        pass
+
     # Pass selected grades from frontend into the legacy script
     try:
         grades = (chart_filters or {}).get("grades") or []

@@ -78,6 +78,20 @@ def generate_iready_fall_charts(
         }
     )
 
+    # Scope control (district_only vs district + schools vs selected schools)
+    # Mirrors iready_moy_runner.py behavior.
+    try:
+        cf = chart_filters or {}
+        schools = cf.get("schools") or []
+        if cf.get("district_only"):
+            env["IREADY_BOY_SCOPE_MODE"] = "district_only"
+        if isinstance(schools, list) and schools:
+            env["IREADY_BOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
+            if env.get("IREADY_BOY_SCOPE_MODE") != "district_only":
+                env["IREADY_BOY_SCOPE_MODE"] = "selected_schools"
+    except Exception:
+        pass
+
     # Pass selected grades from frontend into the legacy script (used for grade-level batches)
     try:
         grades = (chart_filters or {}).get("grades") or []

@@ -182,10 +182,66 @@ def _cfg_first(cfg_obj: dict, key: str, default: str) -> str:
     return str(v)
 
 
-district_label = _cfg_first(cfg, "district_name", "Districtwide")
+district_label = _cfg_first(cfg, "district_name", "District")
 
 # Base charts directory (overrideable by runner)
 CHARTS_DIR = Path(os.getenv("IREADY_BOY_CHARTS_DIR") or "../charts")
+
+# ---------------------------------------------------------------------
+# Scope selection (district-only vs district + schools vs selected schools)
+#
+# Env vars (set by runner / backend):
+# - IREADY_BOY_SCOPE_MODE:
+#     - "district_only" (skip all school loops)
+#     - "selected_schools" (only loop selected schools; still include district)
+#     - default/other: district + all schools
+# - IREADY_BOY_SCHOOLS="School A,School B" (names can be raw or normalized)
+# ---------------------------------------------------------------------
+_scope_mode = str(os.getenv("IREADY_BOY_SCOPE_MODE") or "").strip().lower()
+_env_schools = os.getenv("IREADY_BOY_SCHOOLS")
+_selected_schools = []
+if _env_schools:
+    _selected_schools = [s.strip() for s in str(_env_schools).split(",") if s.strip()]
+
+
+def _include_school_charts() -> bool:
+    return _scope_mode not in ("district_only", "district")
+
+
+def _school_selected(raw_school: str) -> bool:
+    """Match against raw school or normalized school display (case-insensitive)."""
+    if not _selected_schools:
+        return True
+    raw = str(raw_school or "").strip()
+    disp = ""
+    try:
+        disp = hf._safe_normalize_school_name(raw_school, cfg)
+    except Exception:
+        disp = raw
+    raw_l = raw.lower()
+    disp_l = str(disp or "").strip().lower()
+    wanted = {s.lower() for s in _selected_schools}
+    return raw_l in wanted or disp_l in wanted
+
+
+def _iter_schools(df: pd.DataFrame):
+    # Prefer `learning_center` if present (charter-style exports), otherwise fall back.
+    school_col = None
+    for col_name in ["learning_center", "school", "schoolname", "school_name"]:
+        if col_name in df.columns:
+            try:
+                if df[col_name].dropna().astype(str).str.strip().ne("").any():
+                    school_col = col_name
+                    break
+            except Exception:
+                school_col = col_name
+                break
+    if not school_col:
+        return
+    for rs in sorted(df[school_col].dropna().unique()):
+        if not _school_selected(rs):
+            continue
+        yield school_col, rs
 
 
 def _write_chart_data(out_path: Path, chart_data: dict) -> None:
@@ -564,11 +620,12 @@ folder = "_district"
 run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
 
 # Site-level
-for raw_school in sorted(iready_base["school"].dropna().unique()):
-    scope_df = iready_base[iready_base["school"] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-    folder = scope_label.replace(" ", "_")
-    run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
+if _include_school_charts():
+    for school_col, raw_school in _iter_schools(iready_base):
+        scope_df = iready_base[iready_base[school_col] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+        folder = scope_label.replace(" ", "_")
+        run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
 
 print("Section 0 batch complete.")
 
@@ -1015,18 +1072,19 @@ plot_iready_dual_subject_dashboard(
 )
 
 # ---- Site-level ----
-for raw_school in sorted(iready_base["school"].dropna().unique()):
-    scope_df = iready_base[iready_base["school"] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+if _include_school_charts():
+    for school_col, raw_school in _iter_schools(iready_base):
+        scope_df = iready_base[iready_base[school_col] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
 
-    plot_iready_dual_subject_dashboard(
-        scope_df,
-        window_filter="Fall",
-        figsize=(16, 9),
-        school_raw=raw_school,  # keep raw for internal filters
-        scope_label=scope_label,  # standardized label for chart titles + filenames
-        preview=False,
-    )
+        plot_iready_dual_subject_dashboard(
+            scope_df,
+            window_filter="Fall",
+            figsize=(16, 9),
+            school_raw=raw_school,  # keep raw for internal filters
+            scope_label=scope_label,  # standardized label for chart titles + filenames
+            preview=False,
+        )
 
 # %% SECTION 2 - Student Group Performance Trends
 # ---------------------------------------------------------------------
@@ -1435,27 +1493,28 @@ for group_name, group_def in sorted(
     )
 
 # ---- Site-level ----
-for raw_school in sorted(iready_base["schoolname"].dropna().unique()):
-    scope_df = iready_base[iready_base["schoolname"] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+if _include_school_charts():
+    for school_col, raw_school in _iter_schools(iready_base):
+        scope_df = iready_base[iready_base[school_col] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
 
-    for group_name, group_def in sorted(
-        student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
-    ):
-        if group_def.get("type") == "all":
-            continue
-        if _selected_groups and group_name not in _selected_groups:
-            continue
-        plot_iready_subject_dashboard_by_group(
-            scope_df.copy(),
-            subject_str=None,
-            window_filter="Fall",
-            group_name=group_name,
-            group_def=group_def,
-            figsize=(16, 9),
-            school_raw=raw_school,
-            scope_label=scope_label,
-        )
+        for group_name, group_def in sorted(
+            student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
+        ):
+            if group_def.get("type") == "all":
+                continue
+            if _selected_groups and group_name not in _selected_groups:
+                continue
+            plot_iready_subject_dashboard_by_group(
+                scope_df.copy(),
+                subject_str=None,
+                window_filter="Fall",
+                group_name=group_name,
+                group_def=group_def,
+                figsize=(16, 9),
+                school_raw=raw_school,
+                scope_label=scope_label,
+            )
 
 
 # %% SECTION 3 — Overall + Cohort Trends (i-Ready)
@@ -1962,25 +2021,26 @@ for g in sorted(_base["student_grade"].dropna().unique()):
             preview=False,
         )
 
-for raw_school in sorted(_base["school"].dropna().unique()):
-    site_df = _base[_base["school"] == raw_school].copy()
-    site_df["academicyear"] = pd.to_numeric(site_df["academicyear"], errors="coerce")
-    site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
-    anchor = int(site_df["academicyear"].max())
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-    for g in sorted(site_df["student_grade"].dropna().unique()):
-        if _selected_grades and int(g) not in _selected_grades:
-            continue
-        for subj in ["ELA", "Math"]:
-            plot_iready_blended_dashboard(
-                site_df.copy(),
-                subj,
-                int(g),
-                "Fall",
-                anchor,
-                scope_label=scope_label,
-                preview=False,
-            )
+if _include_school_charts():
+    for school_col, raw_school in _iter_schools(_base):
+        site_df = _base[_base[school_col] == raw_school].copy()
+        site_df["academicyear"] = pd.to_numeric(site_df["academicyear"], errors="coerce")
+        site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
+        anchor = int(site_df["academicyear"].max())
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+        for g in sorted(site_df["student_grade"].dropna().unique()):
+            if _selected_grades and int(g) not in _selected_grades:
+                continue
+            for subj in ["ELA", "Math"]:
+                plot_iready_blended_dashboard(
+                    site_df.copy(),
+                    subj,
+                    int(g),
+                    "Fall",
+                    anchor,
+                    scope_label=scope_label,
+                    preview=False,
+                )
 # %% SECTION 4 — Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)
 # ---------------------------------------------------------------------
 # Matches Section 2 exactly in layout and mathtext behavior
@@ -2159,11 +2219,12 @@ district_label = _cfg_first(cfg, "district_name", "Districtwide")
 _plot_mid_above_to_cers_faceted(scope_df, district_label, folder_name="_district")
 
 school_col = "school" if "school" in iready_base.columns else "schoolname"
-for raw_school in sorted(iready_base[school_col].dropna().unique()):
-    site_df = iready_base[iready_base[school_col] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-    folder = scope_label.replace(" ", "_")
-    _plot_mid_above_to_cers_faceted(site_df, scope_label, folder_name=folder)
+if _include_school_charts():
+    for school_col, raw_school in _iter_schools(iready_base):
+        site_df = iready_base[iready_base[school_col] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+        folder = scope_label.replace(" ", "_")
+        _plot_mid_above_to_cers_faceted(site_df, scope_label, folder_name=folder)
 # %%
 
 
@@ -2402,21 +2463,21 @@ for subj in ["ELA", "Math"]:
             folder_name="_district",
         )
 
-school_col = "school" if "school" in iready_base.columns else "schoolname"
-for raw_school in sorted(df[school_col].dropna().unique()):
-    site_df = df[df[school_col] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-    folder = scope_label.replace(" ", "_")
-    for subj in ["ELA", "Math"]:
-        dsub = site_df[
-            site_df["subject"].astype(str).str.lower() == subj.lower()
-        ].copy()
-        if not dsub.empty:
-            _plot_mid_flag_stacked(
-                dsub,
-                subj,
-                scope_label=scope_label,
-                folder_name=folder,
-                school_raw=raw_school,
-            )
+if _include_school_charts():
+    for school_col, raw_school in _iter_schools(df):
+        site_df = df[df[school_col] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+        folder = scope_label.replace(" ", "_")
+        for subj in ["ELA", "Math"]:
+            dsub = site_df[
+                site_df["subject"].astype(str).str.lower() == subj.lower()
+            ].copy()
+            if not dsub.empty:
+                _plot_mid_flag_stacked(
+                    dsub,
+                    subj,
+                    scope_label=scope_label,
+                    folder_name=folder,
+                    school_raw=raw_school,
+                )
 # %%

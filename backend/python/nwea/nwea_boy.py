@@ -145,6 +145,16 @@ with open(CONFIG_PATH, "r") as f:
 
 print(f"Loaded config for: {cfg.get('partner_name', partner_name)}")
 
+# Charter-style partners may omit district_name or provide an empty list.
+# Ensure downstream cfg.get("district_name")[0] calls always have a usable value.
+try:
+    _dn = cfg.get("district_name")
+    _dn0 = _dn[0] if isinstance(_dn, list) and _dn else None
+    if not _dn0 or not str(_dn0).strip():
+        cfg["district_name"] = ["District"]
+except Exception:
+    cfg["district_name"] = ["District"]
+
 # ---------------------------------------------------------------------
 # SINGLE PREVIEW / DEV-MODE TOGGLE
 # One source of truth: CLI or ENV override; defaults to False
@@ -187,6 +197,24 @@ if not csv_path.exists():
 
 nwea_base = pd.read_csv(csv_path)
 nwea_base.columns = nwea_base.columns.str.strip().str.lower()
+
+# Charter-style exports sometimes put site/school in `learning_center` instead of `schoolname`.
+# Normalize a single school key into `schoolname` so the rest of the script (loops, filtering,
+# folder naming, matching) works unchanged.
+_school_key_candidates = ["learning_center", "schoolname", "school", "school_name"]
+_school_key = None
+for _c in _school_key_candidates:
+    if _c in nwea_base.columns:
+        try:
+            if nwea_base[_c].dropna().astype(str).str.strip().ne("").any():
+                _school_key = _c
+                break
+        except Exception:
+            _school_key = _c
+            break
+
+if _school_key and _school_key != "schoolname":
+    nwea_base["schoolname"] = nwea_base[_school_key]
 # --- Normalize projected proficiency labels globally ---
 prof_prof_map = {
     "Not Met": "Level 1 - Standard Not Met",
@@ -201,6 +229,49 @@ prof_prof_map = {
 
 # Base charts directory (overrideable by runner)
 CHARTS_DIR = Path(os.getenv("NWEA_BOY_CHARTS_DIR") or "../charts")
+
+# ---------------------------------------------------------------------
+# Scope selection (district-only vs district + schools vs selected schools)
+#
+# Env vars (set by runner / backend):
+# - NWEA_BOY_SCOPE_MODE:
+#     - "district_only" (skip all school loops)
+#     - "selected_schools" (only loop selected schools; still include district)
+#     - default/other: district + all schools
+# - NWEA_BOY_SCHOOLS="School A,School B" (names can be raw or normalized)
+# ---------------------------------------------------------------------
+_scope_mode = str(os.getenv("NWEA_BOY_SCOPE_MODE") or "").strip().lower()
+_env_schools = os.getenv("NWEA_BOY_SCHOOLS")
+_selected_schools = []
+if _env_schools:
+    _selected_schools = [s.strip() for s in str(_env_schools).split(",") if s.strip()]
+
+
+def _include_school_charts() -> bool:
+    return _scope_mode not in ("district_only", "district")
+
+
+def _school_selected(raw_school: str) -> bool:
+    """Match against raw school or normalized school display (case-insensitive)."""
+    if not _selected_schools:
+        return True
+    raw = str(raw_school or "").strip()
+    disp = ""
+    try:
+        disp = hf._safe_normalize_school_name(raw_school, cfg)
+    except Exception:
+        disp = raw
+    raw_l = raw.lower()
+    disp_l = str(disp or "").strip().lower()
+    wanted = {s.lower() for s in _selected_schools}
+    return raw_l in wanted or disp_l in wanted
+
+
+def _iter_schools(df: pd.DataFrame):
+    for rs in sorted(df["schoolname"].dropna().unique()):
+        if not _school_selected(rs):
+            continue
+        yield rs
 
 
 def _write_chart_data(out_path: Path, chart_data: dict) -> None:
@@ -607,7 +678,8 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
 
 
 # ---- RUN SECTION 0 ----
-for raw in [None] + sorted(nwea_base["schoolname"].dropna().unique()):
+_section0_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
+for raw in [None] + _section0_schools:
     if raw is None:
         scope_df = nwea_base.copy()
         scope_label = cfg.get("district_name", ["Districtwide"])[0]
@@ -1154,20 +1226,21 @@ plot_nwea_dual_subject_dashboard(
 # ---------------------------------------------------------------------
 # Dual Subject Dashboard by School
 # ---------------------------------------------------------------------
-for raw_school in sorted(nwea_base["schoolname"].dropna().unique()):
-    school_display = hf._safe_normalize_school_name(raw_school, cfg)
-    folder = school_display.replace(" ", "_").replace("/", "_").replace("&", "and")
+if _include_school_charts():
+    for raw_school in _iter_schools(nwea_base):
+        school_display = hf._safe_normalize_school_name(raw_school, cfg)
+        folder = school_display.replace(" ", "_").replace("/", "_").replace("&", "and")
 
-    school_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
+        school_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
 
-    plot_nwea_dual_subject_dashboard(
-        school_df,
-        window_filter="Fall",
-        figsize=(16, 9),
-        school_raw=school_display,
-        scope_label=school_display,  # <-- pass same label for title + save
-        preview=False,
-    )
+        plot_nwea_dual_subject_dashboard(
+            school_df,
+            window_filter="Fall",
+            figsize=(16, 9),
+            school_raw=school_display,
+            scope_label=school_display,  # <-- pass same label for title + save
+            preview=False,
+        )
 
 # %% SECTION 2 - Student Group Performance Trends
 # ---------------------------------------------------------------------
@@ -1595,27 +1668,28 @@ for group_name, group_def in sorted(
     )
 
 # ---- Site-level
-for raw_school in sorted(nwea_base["schoolname"].dropna().unique()):
-    scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+if _include_school_charts():
+    for raw_school in _iter_schools(nwea_base):
+        scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
 
-    for group_name, group_def in sorted(
-        student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
-    ):
-        if group_def.get("type") == "all":
-            continue
-        if _selected_groups and group_name not in _selected_groups:
-            continue
-        plot_nwea_subject_dashboard_by_group(
-            scope_df.copy(),
-            subject_str=None,
-            window_filter="Fall",
-            group_name=group_name,
-            group_def=group_def,
-            figsize=(16, 9),
-            school_raw=raw_school,
-            scope_label=scope_label,
-        )
+        for group_name, group_def in sorted(
+            student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
+        ):
+            if group_def.get("type") == "all":
+                continue
+            if _selected_groups and group_name not in _selected_groups:
+                continue
+            plot_nwea_subject_dashboard_by_group(
+                scope_df.copy(),
+                subject_str=None,
+                window_filter="Fall",
+                group_name=group_name,
+                group_def=group_def,
+                figsize=(16, 9),
+                school_raw=raw_school,
+                scope_label=scope_label,
+            )
 
 
 # %% SECTION 3 - Overall + Cohort Trends
@@ -2741,10 +2815,11 @@ def _run_cgp_dual_trend(scope_df, scope_label):
 district_label = cfg.get("district_name", ["Districtwide"])[0]
 _run_cgp_dual_trend(nwea_base.copy(), district_label)
 
-for raw_school in sorted(nwea_base["schoolname"].dropna().unique()):
-    scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
-    scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-    _run_cgp_dual_trend(scope_df, scope_label)
+if _include_school_charts():
+    for raw_school in _iter_schools(nwea_base):
+        scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+        _run_cgp_dual_trend(scope_df, scope_label)
 
 
 # %% SECTION 5 — CGP/CGI Growth: Grade Trend + Backward Cohort (Unmatched)
@@ -3136,7 +3211,7 @@ for grade in grades:
         )
 
 # %% SECTION 5 DRIVER — By School
-all_schools = sorted(nwea_base["schoolname"].dropna().unique())
+all_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
 grades = sorted(nwea_base["grade"].dropna().unique())
 subjects = ["Reading", "Mathematics"]
 preview = False  # set True if preview needed
@@ -3518,7 +3593,8 @@ def _plot_projection_2026(scope_label, folder_name, results, preview=False):
 
 
 # ---- RUN SECTION 6 ----
-for raw in [None] + sorted(nwea_base["schoolname"].dropna().unique()):
+_section6_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
+for raw in [None] + _section6_schools:
     if raw is None:
         scope_df = nwea_base.copy()
         scope_label = cfg.get("district_name", ["Districtwide"])[0]

@@ -96,6 +96,22 @@ def generate_iready_winter_charts(
     except Exception:
         pass
 
+    # Scope selection (district vs schools)
+    # Supported chart_filters options:
+    # - chart_filters["district_only"] = True → district charts only
+    # - chart_filters["schools"] = ["School A", "School B"] → only these schools (plus district)
+    try:
+        cf = chart_filters or {}
+        if bool(cf.get("district_only")) is True:
+            env["IREADY_MOY_SCOPE_MODE"] = "district_only"
+        schools = cf.get("schools") or []
+        if isinstance(schools, list) and len(schools) > 0:
+            env["IREADY_MOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
+            if env.get("IREADY_MOY_SCOPE_MODE") != "district_only":
+                env["IREADY_MOY_SCOPE_MODE"] = "selected_schools"
+    except Exception:
+        pass
+
     proc = subprocess.run(
         [sys.executable, str(script_path), "--full"],
         cwd=run_cwd,

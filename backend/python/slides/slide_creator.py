@@ -687,9 +687,14 @@ def create_slides_presentation(
                 total_slides_needed += 1
                 i += 1
         
-        print(f"[Slides] Creating {total_slides_needed} chart slide(s) for {len(normalized_charts)} chart(s)")
+        # IMPORTANT: We insert divider slides later and our pairing logic during rendering can diverge
+        # from this simple estimate (non-sequential pairing). To avoid dropping charts, we over-allocate.
+        total_slides_to_create = max(2 * total_slides_needed, total_slides_needed)
+        print(
+            f"[Slides] Creating {total_slides_to_create} chart slide(s) (2× buffer) for {len(normalized_charts)} chart(s)"
+        )
         
-        for slide_idx in range(total_slides_needed):
+        for slide_idx in range(total_slides_to_create):
             chart_slide_id = f'chart_slide_{slide_idx}'
             insertion_index = 1 + slide_idx  # After cover slide
             create_slide_requests.append(create_chart_slide_request(presentation_id, chart_slide_id, insertion_index))
@@ -781,6 +786,7 @@ def create_slides_presentation(
     if chart_urls:
         slide_index = 1  # Start after cover slide
         global_chart_index = 0
+        extra_slide_counter = 0
         
         # Verify chart_urls and normalized_charts are aligned
         if len(chart_urls) != len(normalized_charts):
@@ -988,6 +994,38 @@ def create_slides_presentation(
                     except Exception as e:
                         print(f"[Divider] ✗ Error inserting divider slide: {e}")
             
+            # Ensure we have enough slide slots. If we run out, append more blank slides (doubling strategy).
+            if slide_index >= len(all_slides):
+                extra_to_create = max(10, len(all_slides))
+                print(
+                    f"[Slides] Ran out of slides at index {slide_index}. "
+                    f"Appending {extra_to_create} more blank slide(s)..."
+                )
+                extra_requests = []
+                insertion_base = len(all_slides)
+                for k in range(extra_to_create):
+                    extra_slide_counter += 1
+                    new_slide_id = f"chart_slide_extra_{extra_slide_counter}"
+                    extra_requests.append(
+                        create_chart_slide_request(
+                            presentation_id=presentation_id,
+                            slide_object_id=new_slide_id,
+                            insertion_index=insertion_base + k,
+                        )
+                    )
+                try:
+                    slides_service.presentations().batchUpdate(
+                        presentationId=presentation_id,
+                        body={"requests": extra_requests},
+                    ).execute()
+                    updated_presentation = slides_service.presentations().get(
+                        presentationId=presentation_id
+                    ).execute()
+                    all_slides = updated_presentation.get("slides", [])
+                    print(f"[Slides] ✓ Slides appended. Total slides now: {len(all_slides)}")
+                except Exception as e:
+                    print(f"[Slides] ✗ Failed to append slides: {e}")
+
             if slide_index < len(all_slides):
                 chart_slide = all_slides[slide_index]
                 slide_object_id = chart_slide.get('objectId')

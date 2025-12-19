@@ -92,9 +92,38 @@ def ingest_nwea(
     # must be done in Python after data retrieval
     base_filters = {}
 
+    # NWEA scope selection (prefer per-assessment scopes from config if available)
+    assessment_scopes = config.get("assessment_scopes") or {}
+    nwea_scope_present = "nwea" in assessment_scopes
+    nwea_scope = assessment_scopes.get("nwea") or {}
+
+    def _bool_scope(key: str, default: bool = True) -> bool:
+        v = nwea_scope.get(key)
+        if v is None:
+            return default
+        return bool(v)
+
+    nwea_include_districtwide = _bool_scope("includeDistrictwide", True)
+    nwea_include_schools = _bool_scope("includeSchools", True)
+
+    # Selected schools for NWEA (only relevant if includeSchools is enabled)
+    nwea_selected_schools = None
+    if nwea_include_schools and isinstance(nwea_scope.get("schools"), list) and len(nwea_scope.get("schools")) > 0:
+        nwea_selected_schools = nwea_scope.get("schools")
+    elif not nwea_scope_present and chart_filters.get("schools"):
+        # Back-compat fallback (only if we don't have per-assessment scope info)
+        nwea_selected_schools = chart_filters.get("schools")
+
+    # If districtwide is included, we intentionally avoid school-name filtering in SQL/Python
+    # so the district aggregate can include ALL schools.
+    if nwea_scope_present:
+        include_districtwide = bool(nwea_include_districtwide)
+    else:
+        include_districtwide = bool(chart_filters.get("include_districtwide"))
+
     # School filter (column name is "School" not "SchoolName")
-    if chart_filters.get('schools'):
-        base_filters['schools'] = chart_filters['schools']
+    if nwea_selected_schools and not include_districtwide:
+        base_filters['schools'] = nwea_selected_schools
 
     # NWEA: Do NOT filter by grades or quarters during data collection
     # Only filter by years. Grade and quarter filtering happens during chart generation.
@@ -104,7 +133,8 @@ def ingest_nwea(
     # Note: districts filter is applied in Python after query (no DistrictName column in NWEA)
 
     # Warn if no filters are applied (will fetch all data)
-    if not base_filters.get('schools'):
+    # If include_districtwide=True this is expected/desired for district aggregation.
+    if not base_filters.get('schools') and not include_districtwide:
         print(f"[Data Ingestion] ⚠️  WARNING: No school filter applied!")
         print(f"[Data Ingestion] ⚠️  This will fetch data for ALL schools (may be very large)")
 
@@ -158,8 +188,11 @@ def ingest_nwea(
         }
         if chart_filters.get('quarters'):
             sql_filters['quarters'] = chart_filters['quarters']
-        if chart_filters.get('schools'):
-            sql_filters['schools'] = chart_filters['schools']
+        # If Districtwide is included, avoid school-name filtering in SQL so we fetch ALL data
+        # and do school slicing later during chart generation.
+        sql_filters['include_districtwide'] = include_districtwide
+        if nwea_selected_schools and not include_districtwide:
+            sql_filters['schools'] = nwea_selected_schools
         sql = sql_nwea(table_id=table_id, exclude_cols=exclude_cols, year_column=year_column, filters=sql_filters)
 
         print(f"[Data Ingestion] SQL Query:")
@@ -208,8 +241,9 @@ def ingest_nwea(
     # School filter
     # For charter schools, school name may be in learning_center column instead of school column
     # Use fuzzy matching similar to get_scopes() to handle name variations
-    if chart_filters.get('schools'):
-        schools = chart_filters['schools']
+    # NOTE: reuse include_districtwide computed above (per NWEA scope).
+    if nwea_selected_schools and not include_districtwide:
+        schools = nwea_selected_schools
         school_col = None
         
         # Check learning_center first (for charter schools), then school (for regular schools)
@@ -249,6 +283,8 @@ def ingest_nwea(
                 print(f"[Data Ingestion] Keeping all data - will let get_scopes() handle filtering")
         else:
             print(f"[Data Ingestion] Warning: School filter specified but no school column found (checked: learning_center, school)")
+    elif nwea_selected_schools and include_districtwide:
+        print("[Data Ingestion] NWEA: include_districtwide=True — skipping school-name filtering (SQL + Python)")
 
     # District filter (applied in Python since DistrictName column doesn't exist in NWEA)
     # Handle both column name variations: DistrictName -> districtname, or district_name -> district_name
@@ -312,6 +348,24 @@ def ingest_iready(
     """
     chart_filters = chart_filters or {}
 
+    # Per-assessment scope selection (preferred), with back-compat fallbacks.
+    assessment_scopes = config.get("assessment_scopes") or {}
+    iready_scope_present = "iready" in assessment_scopes
+    iready_scope = assessment_scopes.get("iready") or {}
+
+    def _bool_scope(key: str, default: bool = True) -> bool:
+        v = iready_scope.get(key)
+        if v is None:
+            return default
+        return bool(v)
+
+    iready_include_districtwide = _bool_scope("includeDistrictwide", True)
+    iready_include_schools = _bool_scope("includeSchools", True)
+
+    iready_selected_schools = None
+    if iready_include_schools and isinstance(iready_scope.get("schools"), list) and len(iready_scope.get("schools")) > 0:
+        iready_selected_schools = iready_scope.get("schools")
+
     # Map config-level filters to chart_filters if not already set
     if not chart_filters.get('districts') and config.get('district_name'):
         districts = config.get('district_name')
@@ -319,7 +373,8 @@ def ingest_iready(
             chart_filters['districts'] = districts
             print(f"[Data Ingestion] Mapped district_name to chart_filters.districts: {districts}")
 
-    if not chart_filters.get('schools') and config.get('selected_schools'):
+    # Only map config.selected_schools if we don't have an iReady-specific list already
+    if not chart_filters.get('schools') and iready_selected_schools is None and config.get('selected_schools'):
         schools = config.get('selected_schools')
         if isinstance(schools, list) and len(schools) > 0:
             chart_filters['schools'] = schools
@@ -390,8 +445,17 @@ def ingest_iready(
                 'years': [year],
                 'available_columns': table_columns,
             }
-            if chart_filters.get('schools'):
-                sql_filters['schools'] = chart_filters['schools']
+            # If Districtwide is included, avoid school-name filtering in SQL so the
+            # district aggregate can include ALL schools (school filtering happens later in chart generation).
+            if iready_scope_present:
+                include_districtwide = bool(iready_include_districtwide)
+                schools_for_iready = iready_selected_schools
+            else:
+                include_districtwide = bool(chart_filters.get("include_districtwide"))
+                schools_for_iready = chart_filters.get("schools")
+            if schools_for_iready and not include_districtwide:
+                sql_filters['schools'] = schools_for_iready
+            sql_filters["include_districtwide"] = include_districtwide
             sql = sql_iready(table_id, exclude_cols, filters=sql_filters, year_column=year_column)
 
             print(f"[Data Ingestion] [Year {year}] Executing query...")
@@ -487,8 +551,17 @@ def ingest_iready(
     # School filter
     # iReady school strings often differ from UI labels (suffixes, punctuation, abbreviations),
     # so use fuzzy matching like NWEA instead of exact .isin().
-    if chart_filters.get('schools'):
-        schools = chart_filters['schools']
+    #
+    # If Districtwide is included, skip school-name filtering entirely here so the district aggregate
+    # can include ALL schools (school selection happens later in chart generation).
+    if iready_scope_present:
+        include_districtwide = bool(iready_include_districtwide)
+        schools_for_iready = iready_selected_schools
+    else:
+        include_districtwide = bool(chart_filters.get("include_districtwide"))
+        schools_for_iready = chart_filters.get("schools")
+    if schools_for_iready and not include_districtwide:
+        schools = schools_for_iready
         school_col = None
         
         # Check common iReady school columns (after clean_column_names)
@@ -526,6 +599,8 @@ def ingest_iready(
                 print(f"[Data Ingestion] Keeping all data - will let get_scopes() handle filtering")
         else:
             print(f"[Data Ingestion] Warning: School filter specified but no school column found (checked: learning_center, schoolname, school_name, school)")
+    elif schools_for_iready and include_districtwide:
+        print("[Data Ingestion] iReady: include_districtwide=True — skipping school-name filtering in Python")
 
     # Note: Year filtering is done in SQL, not in Python
     # This ensures we only fetch the years we need from BigQuery
