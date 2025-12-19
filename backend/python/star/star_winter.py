@@ -1801,21 +1801,6 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
         print(f"[Section 4 Overview] No SGP data found for {subject_str}")
         return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
     
-    # === DEBUGGING: Analyze SGP vectors in the data ===
-    # Write debug info to a log file
-    debug_log_path = "star_sgp_debug.log"
-    with open(debug_log_path, "a") as f:
-        f.write(f"\n=== DEBUG: {subject_str} SGP Analysis ===\n")
-        vector_counts = d_with_sgp["current_sgp_vector"].value_counts()
-        f.write(f"SGP vectors present in WINTER tests:\n{vector_counts}\n")
-        
-        # Show median SGP for each vector
-        for vector in vector_counts.index:
-            subset = d_with_sgp[d_with_sgp["current_sgp_vector"] == vector]
-            median_val = subset["current_sgp"].median()
-            f.write(f"  {vector}: n={len(subset)}, median={median_val:.1f}\n")
-        f.write("=" * 50 + "\n")
-    
     # Check what SGP vectors are available
     available_vectors = d_with_sgp["current_sgp_vector"].unique()
     vector_used = None  # Track which vector we use
