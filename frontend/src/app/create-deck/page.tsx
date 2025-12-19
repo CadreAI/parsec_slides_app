@@ -438,8 +438,7 @@ export default function CreateSlide() {
 
                 // iReady scope selection (district vs schools)
                 district_only: ireadyDistrictOnly ? true : undefined,
-                schools: ireadySelectedSchools
-                ,
+                schools: ireadySelectedSchools,
                 // NWEA scope selection (district vs schools)
                 nwea_district_only: nweaDistrictOnly ? true : undefined
             }
