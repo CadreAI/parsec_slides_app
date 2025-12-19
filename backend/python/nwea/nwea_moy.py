@@ -2421,16 +2421,34 @@ if _env_groups:
     _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
     print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
 
+# Optional: restrict race/ethnicity dashboards based on frontend selection.
+# The runner passes selected races as: NWEA_MOY_RACE="Hispanic or Latino,White"
+_env_race = os.getenv("NWEA_MOY_RACE")
+_selected_races = []
+if _env_race:
+    _selected_races = [r.strip() for r in str(_env_race).split(",") if r.strip()]
+    print(f"[FILTER] Race/Ethnicity selection from frontend: {_selected_races}")
+
+
+def _get_ethnicity_col(df: pd.DataFrame) -> str | None:
+    for c in ["ethnicityrace", "ethnicity_race", "race", "ethnicity"]:
+        if c in df.columns:
+            return c
+    return None
+
 # ---- District-level
 scope_df = nwea_base.copy()
 scope_label = district_label
 
+_has_frontend_filters = bool(_selected_groups or _selected_races)
+
+# Selected student groups
 for group_name, group_def in sorted(
     student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
 ):
     if group_def.get("type") == "all":
         continue
-    if _selected_groups and group_name not in _selected_groups:
+    if _has_frontend_filters and group_name not in _selected_groups:
         continue
     plot_nwea_subject_dashboard_by_group(
         scope_df.copy(),
@@ -2443,6 +2461,32 @@ for group_name, group_def in sorted(
         scope_label=scope_label,
     )
 
+# Selected races (may not exist as keys in student_groups_cfg when options are dynamic)
+if _selected_races:
+    eth_col = _get_ethnicity_col(scope_df)
+    if not eth_col:
+        logger.info(
+            "[CHART] Section 2: race filters provided but no ethnicity/race column found; skipping race charts"
+        )
+    else:
+        for race_name in _selected_races:
+            # Prefer config mapping if it exists (allows synonyms), otherwise exact match on column.
+            mapped = student_groups_cfg.get(race_name) if isinstance(student_groups_cfg, dict) else None
+            if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
+                race_def = mapped
+            else:
+                race_def = {"column": eth_col, "in": [race_name]}
+            plot_nwea_subject_dashboard_by_group(
+                scope_df.copy(),
+                subject_str=None,
+                window_filter="Winter",
+                group_name=race_name,
+                group_def=race_def,
+                figsize=(16, 9),
+                school_raw=None,
+                scope_label=scope_label,
+            )
+
 # ---- Site-level
 if _include_school_charts():
     for raw_school in _iter_schools(nwea_base):
@@ -2451,12 +2495,13 @@ if _include_school_charts():
         logger.info(f"[FILTER] Section 2: After school filter '{raw_school}': {len(scope_df):,} rows (removed {before_school - len(scope_df):,})")
         scope_label = hf._safe_normalize_school_name(raw_school, cfg)
 
+        # Selected student groups
         for group_name, group_def in sorted(
             student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
         ):
             if group_def.get("type") == "all":
                 continue
-            if _selected_groups and group_name not in _selected_groups:
+            if _has_frontend_filters and group_name not in _selected_groups:
                 continue
             plot_nwea_subject_dashboard_by_group(
                 scope_df.copy(),
@@ -2468,6 +2513,35 @@ if _include_school_charts():
                 school_raw=raw_school,
                 scope_label=scope_label,
             )
+
+        # Selected races
+        if _selected_races:
+            eth_col = _get_ethnicity_col(scope_df)
+            if not eth_col:
+                logger.info(
+                    f"[CHART] Section 2: race filters provided but no ethnicity/race column found for school '{raw_school}'; skipping race charts"
+                )
+            else:
+                for race_name in _selected_races:
+                    mapped = (
+                        student_groups_cfg.get(race_name)
+                        if isinstance(student_groups_cfg, dict)
+                        else None
+                    )
+                    if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
+                        race_def = mapped
+                    else:
+                        race_def = {"column": eth_col, "in": [race_name]}
+                    plot_nwea_subject_dashboard_by_group(
+                        scope_df.copy(),
+                        subject_str=None,
+                        window_filter="Winter",
+                        group_name=race_name,
+                        group_def=race_def,
+                        figsize=(16, 9),
+                        school_raw=raw_school,
+                        scope_label=scope_label,
+                    )
 
 
 # %% SECTION 3 - Overall + Cohort Trends
@@ -3956,6 +4030,8 @@ d0 = nwea_base.copy()
 d0["year"] = pd.to_numeric(d0["year"], errors="coerce")
 d0["grade"] = pd.to_numeric(d0["grade"], errors="coerce")
 grades = sorted(d0["grade"].dropna().unique())
+if _selected_grades is not None:
+    grades = [g for g in grades if int(g) in _selected_grades]
 subjects = _requested_core_subjects()
 preview = False  # or True for interactive preview
 
@@ -4029,6 +4105,8 @@ for grade in grades:
 # %% SECTION 5 DRIVER — By School
 all_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
 grades = sorted(nwea_base["grade"].dropna().unique())
+if _selected_grades is not None:
+    grades = [g for g in grades if int(g) in _selected_grades]
 subjects = _requested_core_subjects()
 preview = False  # set True if preview needed
 

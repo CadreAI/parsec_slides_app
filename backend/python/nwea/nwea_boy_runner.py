@@ -121,6 +121,14 @@ def generate_nwea_fall_charts(
     except Exception:
         pass
 
+    # Pass selected race/ethnicity from frontend into the legacy script
+    try:
+        races = (chart_filters or {}).get("race") or []
+        if isinstance(races, list) and races:
+            env["NWEA_BOY_RACE"] = ",".join(str(r) for r in races if str(r).strip())
+    except Exception:
+        pass
+
     # Pass selected subjects from frontend into the legacy script.
     # Frontend uses chart_filters["subjects"] as an array of strings.
     try:
