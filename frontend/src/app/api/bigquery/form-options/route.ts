@@ -135,7 +135,8 @@ export async function GET(req: NextRequest) {
             // Fallback to defaults if no table found
             console.warn(`[Form Options] ⚠ No tables found, using fallback grades`)
             const currentYear = new Date().getFullYear()
-            const fallbackYears = [currentYear, currentYear + 1, currentYear + 2, currentYear + 3].map((y) => y.toString())
+            // Latest 4 years (newest first)
+            const fallbackYears = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map((y) => y.toString())
             return NextResponse.json({
                 success: true,
                 grades: ['-1', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
@@ -309,7 +310,10 @@ export async function GET(req: NextRequest) {
             return parseInt(a) - parseInt(b)
         })
 
-        const years = Array.from(allYears).sort((a, b) => parseInt(a) - parseInt(b))
+        // Latest 4 years (newest first)
+        const years = Array.from(allYears)
+            .sort((a, b) => parseInt(b) - parseInt(a))
+            .slice(0, 4)
 
         console.log(`[Form Options] Combined results:`)
         console.log(`[Form Options]   Total unique grades: ${grades.length} - [${grades.join(', ')}]`)
@@ -324,7 +328,7 @@ export async function GET(req: NextRequest) {
         if (years.length === 0) {
             console.warn(`[Form Options] ⚠ No years found, using fallback`)
             const currentYear = new Date().getFullYear()
-            years.push(...[currentYear, currentYear + 1, currentYear + 2, currentYear + 3].map((y) => y.toString()))
+            years.push(...[currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map((y) => y.toString()))
         }
 
         console.log(`[Form Options] ✓ Returning ${grades.length} grades and ${years.length} years`)
@@ -339,7 +343,7 @@ export async function GET(req: NextRequest) {
 
         // Fallback to defaults
         const currentYear = new Date().getFullYear()
-        const fallbackYears = [currentYear, currentYear + 1, currentYear + 2, currentYear + 3].map((y) => y.toString())
+        const fallbackYears = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map((y) => y.toString())
 
         // Fallback to all possible grades (Pre-K to 12)
         const fallbackGrades = ['-1', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
