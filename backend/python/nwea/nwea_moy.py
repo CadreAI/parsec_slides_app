@@ -389,8 +389,9 @@ def _cfg_first(cfg_obj: dict, key: str, default: str) -> str:
 
 
 # District label (charter datasets may not have a district column; still produce an "all schools" aggregate)
-district_label = _cfg_first(cfg, "district_name", "District")
-district_all_students_label = _cfg_first(cfg, "district_name", "District (All Students)")
+# Allow a display-only override that does NOT affect filtering / school matching.
+district_label = _cfg_first(cfg, "district_display_name", _cfg_first(cfg, "district_name", "District"))
+district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label} (All Students)")
 
 
 def _is_district_scope(scope_label: str | None) -> bool:
@@ -4230,3 +4231,1665 @@ def _save_cgp_chart(
     )
     print(f"Saved: {out_path}")
     return out_path
+
+    # %%
+#########################################################################
+#
+# Charts for District-level runs to include all schools on the same chart
+# and all grade levels on the same chart
+#
+#########################################################################
+
+
+# %% SECTION 6 — District Fall vs Winter by School (ELA + Math)
+# ---------------------------------------------------------------------
+# Multi-indexed version of Section 0.1:
+#   - Latest year only
+#   - X-axis = schools
+#   - For each school: Fall and Winter 100% stacked bars side-by-side
+#   - Produce TWO full-size charts: one for Reading (ELA proxy) and one for Math
+# ---------------------------------------------------------------------
+
+
+def _prep_section6_fall_winter_by_school(
+    df: pd.DataFrame,
+    subject_str: str,
+) -> tuple[pd.DataFrame, int, list[str]]:
+    """Prepare percent-by-quintile for Fall vs Winter, split by school.
+
+    Returns:
+        pct_df: columns [school_display, testwindow, achievementquintile, pct, n, N_total]
+        target_year: int
+        school_order: list of school_display in plotted order
+    """
+
+    d = df.copy()
+
+    # 1) Restrict to Fall/Winter
+    d["testwindow"] = d["testwindow"].astype(str)
+    d = d[d["testwindow"].str.upper().isin(["FALL", "WINTER"])].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    # 2) Subject filter (mirror Section 0.1 semantics)
+    subj_norm = subject_str.strip().casefold()
+    if "math" in subj_norm:
+        d = d[d["course"].astype(str).str.contains("math", case=False, na=False)].copy()
+    else:
+        # Reading / ELA proxy
+        d = d[
+            d["course"].astype(str).str.contains("reading", case=False, na=False)
+        ].copy()
+
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    # 3) Require valid quintile bucket
+    d = d[d["achievementquintile"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    # 4) Latest year only
+    d["year_num"] = pd.to_numeric(d["year"].astype(str).str[:4], errors="coerce")
+    d = d[d["year_num"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    target_year = int(d["year_num"].max())
+    d = d[d["year_num"] == target_year].copy()
+    if d.empty:
+        return pd.DataFrame(), target_year, []
+
+    # 5) Normalize display school name (use helper for consistency)
+    # Keep raw schoolname for grouping, but add a display field for labels.
+    if "schoolname" in d.columns:
+        d["school_display"] = d["schoolname"].apply(
+            lambda s: hf._safe_normalize_school_name(s, cfg)
+        )
+    else:
+        d["school_display"] = "(No School)"
+
+    # 6) Dedupe to latest attempt per student per (school, window)
+    if "teststartdate" in d.columns:
+        d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
+    else:
+        d["teststartdate"] = pd.NaT
+
+    # Use uniqueidentifier when present; fallback to studentid if needed
+    id_col = (
+        "uniqueidentifier"
+        if "uniqueidentifier" in d.columns
+        else ("studentid" if "studentid" in d.columns else None)
+    )
+    if id_col is None:
+        # No stable id; proceed without dedupe (still better than failing)
+        id_col = "__row_id__"
+        d[id_col] = np.arange(len(d))
+
+    d.sort_values(
+        ["school_display", "testwindow", id_col, "teststartdate"], inplace=True
+    )
+    d = d.groupby(["school_display", "testwindow", id_col], as_index=False).tail(1)
+
+    # 7) Percent by quintile within each (school, window)
+    quint_counts = (
+        d.groupby(["school_display", "testwindow", "achievementquintile"])
+        .size()
+        .rename("n")
+        .reset_index()
+    )
+    total_counts = (
+        d.groupby(["school_display", "testwindow"])
+        .size()
+        .rename("N_total")
+        .reset_index()
+    )
+
+    pct_df = quint_counts.merge(
+        total_counts, on=["school_display", "testwindow"], how="left"
+    )
+    pct_df["pct"] = 100 * pct_df["n"] / pct_df["N_total"]
+
+    # 8) Ensure all quintiles exist for each (school, window)
+    # Normalize window labels to FALL/WINTER for ordering
+    pct_df["testwindow"] = pct_df["testwindow"].astype(str).str.upper()
+
+    school_order = sorted(pct_df["school_display"].dropna().unique().tolist())
+    window_order = ["FALL", "WINTER"]
+
+    all_idx = pd.MultiIndex.from_product(
+        [school_order, window_order, hf.NWEA_ORDER],
+        names=["school_display", "testwindow", "achievementquintile"],
+    )
+
+    pct_df = (
+        pct_df.set_index(["school_display", "testwindow", "achievementquintile"])
+        .reindex(all_idx)
+        .reset_index()
+    )
+
+    pct_df["pct"] = pct_df["pct"].fillna(0)
+    pct_df["n"] = pct_df["n"].fillna(0)
+
+    # Fill N_total within each (school, window)
+    pct_df["N_total"] = pct_df.groupby(["school_display", "testwindow"])[
+        "N_total"
+    ].transform(lambda s: s.ffill().bfill())
+
+    return pct_df, target_year, school_order
+
+
+def _plot_section6_fall_winter_by_school(
+    pct_df: pd.DataFrame,
+    subject_title: str,
+    target_year: int,
+    school_order: list[str],
+    preview: bool = False,
+):
+    """Plot one full-size district chart for a single subject."""
+
+    if pct_df.empty or not school_order:
+        print(f"[Section 6] Skipped {subject_title} (no data)")
+        return
+
+    fig, ax = plt.subplots(figsize=(16, 9), dpi=300)
+
+    # Positions: grouped by school; Fall left, Winter right
+    x = np.arange(len(school_order))
+    w = 0.36
+    offsets = {"FALL": -w / 2, "WINTER": w / 2}
+
+    # Pivot to (school, window) x quintile for fast lookup
+    pivot = (
+        pct_df.pivot_table(
+            index=["school_display", "testwindow"],
+            columns="achievementquintile",
+            values="pct",
+            aggfunc="sum",
+        )
+        .reindex(columns=hf.NWEA_ORDER)
+        .fillna(0)
+    )
+
+    # Stack each window separately
+    for window in ["FALL", "WINTER"]:
+        cumulative = np.zeros(len(school_order))
+        for cat in hf.NWEA_ORDER:
+            vals = []
+            for s in school_order:
+                try:
+                    vals.append(float(pivot.loc[(s, window), cat]))
+                except Exception:
+                    vals.append(0.0)
+            vals = np.array(vals, dtype=float)
+
+            bars = ax.bar(
+                x + offsets[window],
+                vals,
+                bottom=cumulative,
+                width=w,
+                color=hf.NWEA_COLORS[cat],
+                edgecolor="white",
+                linewidth=1.0,
+                alpha=0.6 if window == "FALL" else 1.0,
+            )
+
+            # Inline % labels
+            for i_bar, rect in enumerate(bars):
+                h = float(vals[i_bar])
+                if h >= LABEL_MIN_PCT:
+                    bottom_before = float(cumulative[i_bar])
+                    if cat in ("High", "HiAvg"):
+                        label_color = "white"
+                    elif cat in ("Avg", "LoAvg"):
+                        label_color = "#434343"
+                    elif cat == "Low":
+                        label_color = "white"
+                    else:
+                        label_color = "#434343"
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        bottom_before + h / 2,
+                        f"{h:.1f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        fontweight="bold",
+                        color=label_color,
+                    )
+
+            cumulative += vals
+
+    # Axes styling
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("% of Students")
+    ax.grid(axis="y", alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    # School labels at group centers (with n-counts per window)
+    n_map = (
+        pct_df.groupby(["school_display", "testwindow"])["N_total"]
+        .max()
+        .dropna()
+        .astype(int)
+        .to_dict()
+    )
+
+    x_labels = []
+    for s in school_order:
+        nf = int(n_map.get((s, "FALL"), 0) or 0)
+        nw = int(n_map.get((s, "WINTER"), 0) or 0)
+        x_labels.append(f"{s}\n(F n={nf} | W n={nw})")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(x_labels, rotation=35, ha="right")
+
+    # Add small "Fall" / "Winter" tags ABOVE each group
+    trans = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+    for xi in x:
+        ax.text(
+            xi + offsets["FALL"],
+            1.01,
+            "Fall",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#434343",
+            transform=trans,
+        )
+        ax.text(
+            xi + offsets["WINTER"],
+            1.01,
+            "Winter",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#434343",
+            transform=trans,
+        )
+
+    # Legend (shared)
+    legend_handles = [
+        Patch(facecolor=hf.NWEA_COLORS[q], edgecolor="none", label=q)
+        for q in hf.NWEA_ORDER
+    ]
+    ax.legend(
+        handles=legend_handles,
+        labels=hf.NWEA_ORDER,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.07),
+        ncol=len(hf.NWEA_ORDER),
+        frameon=False,
+        fontsize=9,
+        handlelength=1.5,
+        handletextpad=0.4,
+        columnspacing=1.0,
+    )
+
+    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    ax.set_title(
+        f"{district_name_cfg} • Fall vs Winter by School \n {subject_title} Winter {target_year}",
+        fontsize=18,
+        fontweight="bold",
+        pad=22,
+        y=1.05,
+    )
+
+    # Save to district folder
+    charts_dir = Path("../charts")
+    out_dir = charts_dir / "_district"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_subj = subject_title.replace(" ", "_").replace("/", "_")
+    out_path = (
+        out_dir
+        / f"{district_name_cfg.replace(' ', '_')}_section6_fall_winter_by_school_{safe_subj}.png"
+    )
+
+    hf._save_and_render(fig, out_path)
+    print(f"Saved Section 6 ({subject_title}): {out_path}")
+
+    if preview:
+        plt.show()
+    plt.close(fig)
+
+
+# ---- RUN SECTION 6 (district only) ----
+try:
+    district_label_06 = cfg.get("district_name", ["Districtwide"])[0]
+
+    # Reading / ELA
+    pct_ela, year_ela, schools_ela = _prep_section6_fall_winter_by_school(
+        nwea_base.copy(),
+        subject_str="Reading",
+    )
+    _plot_section6_fall_winter_by_school(
+        pct_ela,
+        subject_title="Reading",
+        target_year=year_ela,
+        school_order=schools_ela,
+        preview=False,
+    )
+
+    # Math
+    pct_math, year_math, schools_math = _prep_section6_fall_winter_by_school(
+        nwea_base.copy(),
+        subject_str="Math",
+    )
+    _plot_section6_fall_winter_by_school(
+        pct_math,
+        subject_title="Math",
+        target_year=year_math,
+        school_order=schools_math,
+        preview=False,
+    )
+except Exception as e:
+    print(f"[Section 6] ERROR: {e}")
+
+
+# %% SECTION 7 — District Fall vs Winter by Grade (ELA + Math)
+# ---------------------------------------------------------------------
+# Same concept as Section 6, but:
+#   - X-axis = grade levels (districtwide)
+#   - For each grade: Fall and Winter 100% stacked bars side-by-side
+#   - Produce TWO full-size charts: one for Reading (ELA proxy) and one for Math
+# ---------------------------------------------------------------------
+
+
+def _prep_section7_fall_winter_by_grade(
+    df: pd.DataFrame,
+    subject_str: str,
+) -> tuple[pd.DataFrame, int, list[int]]:
+    """Prepare percent-by-quintile for Fall vs Winter, split by grade.
+
+    Returns:
+        pct_df: columns [grade_num, testwindow, achievementquintile, pct, n, N_total]
+        target_year: int
+        grade_order: list of grade_num in plotted order
+    """
+
+    d = df.copy()
+
+    # 1) Restrict to Fall/Winter
+    d["testwindow"] = d["testwindow"].astype(str)
+    d = d[d["testwindow"].str.upper().isin(["FALL", "WINTER"])].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    # 2) Subject filter (mirror Section 0.1 semantics)
+    subj_norm = subject_str.strip().casefold()
+    if "math" in subj_norm:
+        d = d[d["course"].astype(str).str.contains("math", case=False, na=False)].copy()
+    else:
+        # Reading / ELA proxy
+        d = d[
+            d["course"].astype(str).str.contains("reading", case=False, na=False)
+        ].copy()
+
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    # 3) Require valid quintile bucket
+    d = d[d["achievementquintile"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    # 4) Latest year only
+    d["year_num"] = pd.to_numeric(d["year"].astype(str).str[:4], errors="coerce")
+    d = d[d["year_num"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    target_year = int(d["year_num"].max())
+    d = d[d["year_num"] == target_year].copy()
+    if d.empty:
+        return pd.DataFrame(), target_year, []
+
+    # 5) Grade normalization
+    # Prefer `grade` (used throughout this script); fallback to `student_grade` if needed.
+    grade_col = (
+        "grade"
+        if "grade" in d.columns
+        else ("student_grade" if "student_grade" in d.columns else None)
+    )
+    if grade_col is None:
+        return pd.DataFrame(), target_year, []
+
+    d["grade_num"] = pd.to_numeric(d[grade_col], errors="coerce")
+    d = d[d["grade_num"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), target_year, []
+
+    # Cast to int-like for grouping/ordering (keeps K=0 intact)
+    d["grade_num"] = d["grade_num"].astype(int)
+
+    # 6) Dedupe to latest attempt per student per (grade, window)
+    if "teststartdate" in d.columns:
+        d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
+    else:
+        d["teststartdate"] = pd.NaT
+
+    id_col = (
+        "uniqueidentifier"
+        if "uniqueidentifier" in d.columns
+        else ("studentid" if "studentid" in d.columns else None)
+    )
+    if id_col is None:
+        id_col = "__row_id__"
+        d[id_col] = np.arange(len(d))
+
+    d.sort_values(["grade_num", "testwindow", id_col, "teststartdate"], inplace=True)
+    d = d.groupby(["grade_num", "testwindow", id_col], as_index=False).tail(1)
+
+    # 7) Percent by quintile within each (grade, window)
+    quint_counts = (
+        d.groupby(["grade_num", "testwindow", "achievementquintile"])
+        .size()
+        .rename("n")
+        .reset_index()
+    )
+    total_counts = (
+        d.groupby(["grade_num", "testwindow"]).size().rename("N_total").reset_index()
+    )
+
+    pct_df = quint_counts.merge(
+        total_counts, on=["grade_num", "testwindow"], how="left"
+    )
+    pct_df["pct"] = 100 * pct_df["n"] / pct_df["N_total"]
+
+    # 8) Ensure all quintiles exist for each (grade, window)
+    pct_df["testwindow"] = pct_df["testwindow"].astype(str).str.upper()
+
+    grade_order = sorted(pct_df["grade_num"].dropna().unique().tolist())
+    window_order = ["FALL", "WINTER"]
+
+    all_idx = pd.MultiIndex.from_product(
+        [grade_order, window_order, hf.NWEA_ORDER],
+        names=["grade_num", "testwindow", "achievementquintile"],
+    )
+
+    pct_df = (
+        pct_df.set_index(["grade_num", "testwindow", "achievementquintile"])
+        .reindex(all_idx)
+        .reset_index()
+    )
+
+    pct_df["pct"] = pct_df["pct"].fillna(0)
+    pct_df["n"] = pct_df["n"].fillna(0)
+    pct_df["N_total"] = pct_df.groupby(["grade_num", "testwindow"])[
+        "N_total"
+    ].transform(lambda s: s.ffill().bfill())
+
+    return pct_df, target_year, grade_order
+
+
+def _plot_section7_fall_winter_by_grade(
+    pct_df: pd.DataFrame,
+    subject_title: str,
+    target_year: int,
+    grade_order: list[int],
+    preview: bool = False,
+):
+    """Plot one full-size district chart for a single subject."""
+
+    if pct_df.empty or not grade_order:
+        print(f"[Section 7] Skipped {subject_title} (no data)")
+        return
+
+    fig, ax = plt.subplots(figsize=(16, 9), dpi=300)
+
+    # Positions: grouped by grade; Fall left, Winter right
+    x = np.arange(len(grade_order))
+    w = 0.36
+    offsets = {"FALL": -w / 2, "WINTER": w / 2}
+
+    pivot = (
+        pct_df.pivot_table(
+            index=["grade_num", "testwindow"],
+            columns="achievementquintile",
+            values="pct",
+            aggfunc="sum",
+        )
+        .reindex(columns=hf.NWEA_ORDER)
+        .fillna(0)
+    )
+
+    for window in ["FALL", "WINTER"]:
+        cumulative = np.zeros(len(grade_order))
+        for cat in hf.NWEA_ORDER:
+            vals = []
+            for g in grade_order:
+                try:
+                    vals.append(float(pivot.loc[(g, window), cat]))
+                except Exception:
+                    vals.append(0.0)
+            vals = np.array(vals, dtype=float)
+
+            bars = ax.bar(
+                x + offsets[window],
+                vals,
+                bottom=cumulative,
+                width=w,
+                color=hf.NWEA_COLORS[cat],
+                edgecolor="white",
+                linewidth=1.0,
+                alpha=0.6 if window == "FALL" else 1.0,
+            )
+
+            for i_bar, rect in enumerate(bars):
+                h = float(vals[i_bar])
+                if h >= LABEL_MIN_PCT:
+                    bottom_before = float(cumulative[i_bar])
+                    if cat in ("High", "HiAvg"):
+                        label_color = "white"
+                    elif cat in ("Avg", "LoAvg"):
+                        label_color = "#434343"
+                    elif cat == "Low":
+                        label_color = "white"
+                    else:
+                        label_color = "#434343"
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        bottom_before + h / 2,
+                        f"{h:.1f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        fontweight="bold",
+                        color=label_color,
+                    )
+
+            cumulative += vals
+
+    # Axes styling
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("% of Students")
+    ax.grid(axis="y", alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    # Grade labels at group centers
+    def _grade_label(g: int) -> str:
+        return "K" if int(g) == 0 else str(int(g))
+
+    # Grade labels at group centers (with n-counts per window)
+    n_map = (
+        pct_df.groupby(["grade_num", "testwindow"])["N_total"]
+        .max()
+        .dropna()
+        .astype(int)
+        .to_dict()
+    )
+
+    x_labels = []
+    for g in grade_order:
+        nf = int(n_map.get((g, "FALL"), 0) or 0)
+        nw = int(n_map.get((g, "WINTER"), 0) or 0)
+        x_labels.append(f"{_grade_label(g)}\n(F n={nf} | W n={nw})")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(x_labels, rotation=35, ha="right")
+
+    # Add small "Fall" / "Winter" tags ABOVE each group
+    trans = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+    for xi in x:
+        ax.text(
+            xi + offsets["FALL"],
+            1.01,
+            "Fall",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#434343",
+            transform=trans,
+        )
+        ax.text(
+            xi + offsets["WINTER"],
+            1.01,
+            "Winter",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#434343",
+            transform=trans,
+        )
+
+    # Legend
+    legend_handles = [
+        Patch(facecolor=hf.NWEA_COLORS[q], edgecolor="none", label=q)
+        for q in hf.NWEA_ORDER
+    ]
+    ax.legend(
+        handles=legend_handles,
+        labels=hf.NWEA_ORDER,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.07),
+        ncol=len(hf.NWEA_ORDER),
+        frameon=False,
+        fontsize=9,
+        handlelength=1.5,
+        handletextpad=0.4,
+        columnspacing=1.0,
+    )
+
+    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    ax.set_title(
+        f"{district_name_cfg} • Fall vs Winter by Grade\n{subject_title} Winter {target_year}",
+        fontsize=18,
+        fontweight="bold",
+        pad=22,
+        y=1.05,
+    )
+
+    charts_dir = Path("../charts")
+    out_dir = charts_dir / "_district"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_subj = subject_title.replace(" ", "_").replace("/", "_")
+    out_path = (
+        out_dir
+        / f"{district_name_cfg.replace(' ', '_')}_section7_fall_winter_by_grade_{safe_subj}.png"
+    )
+
+    hf._save_and_render(fig, out_path)
+    print(f"Saved Section 7 ({subject_title}): {out_path}")
+
+    if preview:
+        plt.show()
+    plt.close(fig)
+
+
+# ---- RUN SECTION 7 (district only) ----
+try:
+    # Reading / ELA
+    pct_ela_g, year_ela_g, grades_ela = _prep_section7_fall_winter_by_grade(
+        nwea_base.copy(),
+        subject_str="Reading",
+    )
+    _plot_section7_fall_winter_by_grade(
+        pct_ela_g,
+        subject_title="Reading",
+        target_year=year_ela_g,
+        grade_order=grades_ela,
+        preview=False,
+    )
+
+    # Math
+    pct_math_g, year_math_g, grades_math = _prep_section7_fall_winter_by_grade(
+        nwea_base.copy(),
+        subject_str="Math",
+    )
+    _plot_section7_fall_winter_by_grade(
+        pct_math_g,
+        subject_title="Math",
+        target_year=year_math_g,
+        grade_order=grades_math,
+        preview=False,
+    )
+except Exception as e:
+    print(f"[Section 7] ERROR: {e}")
+
+# %% SECTION 8 — District Fall vs Winter by Student Group (ELA + Math)
+# ---------------------------------------------------------------------
+# X-axis = student groups (districtwide). For each group: Fall + Winter bars.
+# Uses cfg['student_groups'] + _apply_student_group_mask for membership.
+# ---------------------------------------------------------------------
+
+
+def _prep_section8_fall_winter_by_student_group(df: pd.DataFrame, subject_str: str):
+    d = df.copy()
+
+    d["testwindow"] = d["testwindow"].astype(str)
+    d = d[d["testwindow"].str.upper().isin(["FALL", "WINTER"])].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    subj_norm = subject_str.strip().casefold()
+    if "math" in subj_norm:
+        d = d[d["course"].astype(str).str.contains("math", case=False, na=False)].copy()
+    else:
+        d = d[
+            d["course"].astype(str).str.contains("reading", case=False, na=False)
+        ].copy()
+
+    d = d[d["achievementquintile"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    d["year_num"] = pd.to_numeric(d["year"].astype(str).str[:4], errors="coerce")
+    d = d[d["year_num"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), -1, []
+
+    target_year = int(d["year_num"].max())
+    d = d[d["year_num"] == target_year].copy()
+    if d.empty:
+        return pd.DataFrame(), target_year, []
+
+    if "teststartdate" in d.columns:
+        d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
+    else:
+        d["teststartdate"] = pd.NaT
+
+    id_col = (
+        "uniqueidentifier"
+        if "uniqueidentifier" in d.columns
+        else ("studentid" if "studentid" in d.columns else None)
+    )
+    if id_col is None:
+        id_col = "__row_id__"
+        d[id_col] = np.arange(len(d))
+
+    d.sort_values(["testwindow", id_col, "teststartdate"], inplace=True)
+    d = d.groupby(["testwindow", id_col], as_index=False).tail(1)
+
+    student_groups_cfg = cfg.get("student_groups", {})
+    group_order_map = cfg.get("student_group_order", {})
+
+    # --- Section 8: Choose which student groups to include ---
+    # Tip: comment/uncomment lines in the list below.
+    # Names must match keys in cfg['student_groups'] (except "All Students", which is always allowed).
+    ENABLED_GROUPS = [
+        "All Students",
+        "Socioeconomically Disadvantaged",  # SED
+        "Students with Disabilities",  # SWD
+        "English Learners",  # EL
+        "Foster",
+        "Homeless",
+        "White",
+        "Hispanic",
+        # --- Optional groups (uncomment to include) ---
+        # "African American",
+        # "American Indian",
+        # "Asian",
+        # "Filipino",
+        # "Pacific Islander",
+        # "Two or More Races",
+        # "Long-Term EL",
+        # "EL Only",
+        # "Non-EL",
+    ]
+
+    enabled_set = set(ENABLED_GROUPS) if ENABLED_GROUPS is not None else None
+
+    frames = []
+
+    # All Students
+    if enabled_set is None or "All Students" in enabled_set:
+        all_mask = _apply_student_group_mask(d, "All Students", {"type": "all"})
+        if all_mask is not None:
+            d_all = d[all_mask].copy()
+            if not d_all.empty:
+                frames.append(d_all.assign(student_group="All Students"))
+
+    # Configured groups
+    for group_name, group_def in student_groups_cfg.items():
+        if group_def.get("type") == "all":
+            continue
+
+        # Respect enabled list (if provided)
+        if enabled_set is not None and group_name not in enabled_set:
+            continue
+
+        try:
+            mask = _apply_student_group_mask(d, group_name, group_def)
+        except Exception:
+            continue
+        dg = d[mask].copy()
+        if dg.empty:
+            continue
+        frames.append(dg.assign(student_group=group_name))
+
+    if not frames:
+        return pd.DataFrame(), target_year, []
+
+    d2 = pd.concat(frames, ignore_index=True)
+
+    # --- Filter to groups with sufficient n (more than 11 students) ---
+    # Keep groups with >11 students in at least one window (Fall OR Winter).
+    # This avoids dropping everything when one window is missing for a subgroup.
+    _counts = (
+        d2.groupby(["student_group", "testwindow"], dropna=False)
+        .size()
+        .rename("n")
+        .reset_index()
+    )
+    _counts["testwindow"] = _counts["testwindow"].astype(str).str.upper()
+    _pivot = _counts.pivot_table(
+        index="student_group", columns="testwindow", values="n", aggfunc="sum"
+    ).fillna(0)
+    eligible_groups = _pivot[
+        (_pivot.get("FALL", 0) > 11) | (_pivot.get("WINTER", 0) > 11)
+    ].index.tolist()
+
+    # Always keep All Students if it exists and has sufficient n in either window
+    if "All Students" in _pivot.index:
+        if (_pivot.loc["All Students"].get("FALL", 0) > 11) or (
+            _pivot.loc["All Students"].get("WINTER", 0) > 11
+        ):
+            if "All Students" not in eligible_groups:
+                eligible_groups = ["All Students"] + eligible_groups
+
+    d2 = d2[d2["student_group"].isin(eligible_groups)].copy()
+    if d2.empty:
+        print("[Section 8] No student groups met n>11 threshold after filtering.")
+        return pd.DataFrame(), target_year, []
+
+    quint_counts = (
+        d2.groupby(["student_group", "testwindow", "achievementquintile"])
+        .size()
+        .rename("n")
+        .reset_index()
+    )
+    total_counts = (
+        d2.groupby(["student_group", "testwindow"])
+        .size()
+        .rename("N_total")
+        .reset_index()
+    )
+
+    pct_df = quint_counts.merge(
+        total_counts, on=["student_group", "testwindow"], how="left"
+    )
+    pct_df["pct"] = 100 * pct_df["n"] / pct_df["N_total"]
+    pct_df["testwindow"] = pct_df["testwindow"].astype(str).str.upper()
+
+    group_names = pct_df["student_group"].dropna().unique().tolist()
+
+    def _gkey(g: str):
+        if g == "All Students":
+            return (-1, g)
+        return (int(group_order_map.get(g, 99)), g)
+
+    group_order = [g for g in sorted(group_names, key=_gkey)]
+
+    all_idx = pd.MultiIndex.from_product(
+        [group_order, ["FALL", "WINTER"], hf.NWEA_ORDER],
+        names=["student_group", "testwindow", "achievementquintile"],
+    )
+
+    pct_df = (
+        pct_df.set_index(["student_group", "testwindow", "achievementquintile"])
+        .reindex(all_idx)
+        .reset_index()
+    )
+    pct_df["pct"] = pct_df["pct"].fillna(0)
+    pct_df["n"] = pct_df["n"].fillna(0)
+    pct_df["N_total"] = pct_df.groupby(["student_group", "testwindow"])[
+        "N_total"
+    ].transform(lambda s: s.ffill().bfill())
+
+    return pct_df, target_year, group_order
+
+
+def _plot_section8_fall_winter_by_student_group(
+    pct_df, subject_title, target_year, group_order, preview=False
+):
+    if pct_df.empty or not group_order:
+        print(f"[Section 8] Skipped {subject_title} (no data)")
+        return
+
+    fig, ax = plt.subplots(figsize=(16, 9), dpi=300)
+
+    x = np.arange(len(group_order))
+    w = 0.36
+    offsets = {"FALL": -w / 2, "WINTER": w / 2}
+
+    pivot = (
+        pct_df.pivot_table(
+            index=["student_group", "testwindow"],
+            columns="achievementquintile",
+            values="pct",
+            aggfunc="sum",
+        )
+        .reindex(columns=hf.NWEA_ORDER)
+        .fillna(0)
+    )
+
+    for window in ["FALL", "WINTER"]:
+        cumulative = np.zeros(len(group_order))
+        for cat in hf.NWEA_ORDER:
+            vals = []
+            for g in group_order:
+                try:
+                    vals.append(float(pivot.loc[(g, window), cat]))
+                except Exception:
+                    vals.append(0.0)
+            vals = np.array(vals, dtype=float)
+
+            bars = ax.bar(
+                x + offsets[window],
+                vals,
+                bottom=cumulative,
+                width=w,
+                color=hf.NWEA_COLORS[cat],
+                edgecolor="white",
+                linewidth=1.0,
+                alpha=0.6 if window == "FALL" else 1.0,
+            )
+
+            for i_bar, rect in enumerate(bars):
+                h = float(vals[i_bar])
+                if h >= LABEL_MIN_PCT:
+                    bottom_before = float(cumulative[i_bar])
+                    if cat in ("High", "HiAvg"):
+                        label_color = "white"
+                    elif cat in ("Avg", "LoAvg"):
+                        label_color = "#434343"
+                    elif cat == "Low":
+                        label_color = "white"
+                    else:
+                        label_color = "#434343"
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        bottom_before + h / 2,
+                        f"{h:.1f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        fontweight="bold",
+                        color=label_color,
+                    )
+
+            cumulative += vals
+
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("% of Students")
+    ax.grid(axis="y", alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    # Student group labels at group centers (with n-counts per window)
+    n_map = (
+        pct_df.groupby(["student_group", "testwindow"])["N_total"]
+        .max()
+        .dropna()
+        .astype(int)
+        .to_dict()
+    )
+
+    x_labels = []
+    for g in group_order:
+        nf = int(n_map.get((g, "FALL"), 0) or 0)
+        nw = int(n_map.get((g, "WINTER"), 0) or 0)
+        x_labels.append(f"{g}\n(F n={nf} | W n={nw})")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(x_labels, rotation=35, ha="right")
+
+    trans = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+    for xi in x:
+        ax.text(
+            xi + offsets["FALL"],
+            1.02,
+            "Fall",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="#434343",
+            transform=trans,
+        )
+        ax.text(
+            xi + offsets["WINTER"],
+            1.02,
+            "Winter",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="#434343",
+            transform=trans,
+        )
+
+    legend_handles = [
+        Patch(facecolor=hf.NWEA_COLORS[q], edgecolor="none", label=q)
+        for q in hf.NWEA_ORDER
+    ]
+    ax.legend(
+        handles=legend_handles,
+        labels=hf.NWEA_ORDER,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.08),
+        ncol=len(hf.NWEA_ORDER),
+        frameon=False,
+        fontsize=9,
+        handlelength=1.5,
+        handletextpad=0.4,
+        columnspacing=1.0,
+    )
+
+    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    ax.set_title(
+        f"{district_name_cfg} • Fall vs Winter by Student Group \n {subject_title} Winter {target_year}",
+        fontsize=18,
+        fontweight="bold",
+        pad=22,
+        y=1.05,
+    )
+
+    charts_dir = Path("../charts")
+    out_dir = charts_dir / "_district"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_subj = subject_title.replace(" ", "_").replace("/", "_")
+    out_path = (
+        out_dir
+        / f"{district_name_cfg.replace(' ', '_')}_section8_fall_winter_by_group_{safe_subj}.png"
+    )
+
+    hf._save_and_render(fig, out_path)
+    print(f"Saved Section 8 ({subject_title}): {out_path}")
+
+    if preview:
+        plt.show()
+    plt.close(fig)
+
+
+# ---- RUN SECTION 8 (district only) ----
+try:
+    pct_ela_grp, year_ela_grp, groups_ela = _prep_section8_fall_winter_by_student_group(
+        nwea_base.copy(),
+        subject_str="Reading",
+    )
+    _plot_section8_fall_winter_by_student_group(
+        pct_ela_grp,
+        subject_title="Reading",
+        target_year=year_ela_grp,
+        group_order=groups_ela,
+        preview=False,
+    )
+
+    pct_math_grp, year_math_grp, groups_math = (
+        _prep_section8_fall_winter_by_student_group(
+            nwea_base.copy(),
+            subject_str="Math",
+        )
+    )
+    _plot_section8_fall_winter_by_student_group(
+        pct_math_grp,
+        subject_title="Math",
+        target_year=year_math_grp,
+        group_order=groups_math,
+        preview=False,
+    )
+except Exception as e:
+    print(f"[Section 8] ERROR: {e}")
+
+
+# %%
+# SECTION 9–11 — District Growth (NWEA)
+#
+# Mirrors the i-Ready Sections 9–11 structure, aligned to NWEA growth.
+# Produces 4 charts per scope:
+#   - Reading: Median CGP (percentile), Mean CGI (index)
+#   - Math:    Median CGP (percentile), Mean CGI (index)
+#
+# Growth window can be switched between:
+#   - Fall→Winter (default)
+#   - Winter→Winter
+# by setting cfg["nwea_growth_window"] to "Fall→Winter" or "Winter→Winter".
+#
+#########################################################################
+
+# ----------------------------
+# Growth windows (Sections 9–11 always output BOTH)
+# ----------------------------
+GROWTH_WINDOWS = [
+    {
+        "key": "fall_to_winter",
+        "label": "Fall→Winter",
+        "cgp_col": "falltowinterconditionalgrowthpercentile",
+        "cgi_col": "falltowinterconditionalgrowthindex",
+    },
+    {
+        "key": "winter_to_winter",
+        "label": "Winter→Winter",
+        "cgp_col": "wintertowinterconditionalgrowthpercentile",
+        "cgi_col": "wintertowinterconditionalgrowthindex",
+    },
+]
+
+
+def _latest_year_num(df_in: pd.DataFrame) -> int | None:
+    if "year" not in df_in.columns:
+        return None
+    y = pd.to_numeric(df_in["year"].astype(str).str[:4], errors="coerce")
+    if y.notna().any():
+        return int(y.max())
+    return None
+
+
+def _filter_winter_latest_year(df_in: pd.DataFrame) -> tuple[pd.DataFrame, int | None]:
+    d = df_in.copy()
+
+    # Winter only (growth metrics are anchored on Winter test rows)
+    if "testwindow" in d.columns:
+        d["testwindow"] = d["testwindow"].astype(str)
+        d = d[d["testwindow"].str.upper() == "WINTER"].copy()
+
+    # Latest year only
+    yr = _latest_year_num(d)
+    if yr is not None:
+        d["year_num"] = pd.to_numeric(d["year"].astype(str).str[:4], errors="coerce")
+        d = d[d["year_num"] == yr].copy()
+
+    return d, yr
+
+
+def _filter_subject_nwea(df_in: pd.DataFrame, subject_title: str) -> pd.DataFrame:
+    d = df_in.copy()
+    subj_norm = subject_title.strip().casefold()
+
+    if "course" not in d.columns:
+        return d.iloc[0:0].copy()
+
+    if "math" in subj_norm:
+        d = d[d["course"].astype(str).str.contains("math", case=False, na=False)].copy()
+    else:
+        d = d[
+            d["course"].astype(str).str.contains("reading", case=False, na=False)
+        ].copy()
+
+    return d
+
+
+def _dedupe_latest_attempt(df_in: pd.DataFrame, by_cols: list[str]) -> pd.DataFrame:
+    d = df_in.copy()
+
+    id_col = (
+        "uniqueidentifier"
+        if "uniqueidentifier" in d.columns
+        else ("studentid" if "studentid" in d.columns else None)
+    )
+    if id_col is None:
+        id_col = "__row_id__"
+        d[id_col] = np.arange(len(d))
+
+    if "teststartdate" in d.columns:
+        d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
+    else:
+        d["teststartdate"] = pd.NaT
+
+    sort_cols = by_cols + [id_col, "teststartdate"]
+    sort_cols = [c for c in sort_cols if c in d.columns]
+
+    d = d.sort_values(sort_cols)
+
+    group_cols = [c for c in (by_cols + [id_col]) if c in d.columns]
+    if not group_cols:
+        return d
+
+    # Keep latest attempt per student within each scope
+    d = d.groupby(group_cols, as_index=False).tail(1)
+    return d
+
+
+def _agg_growth_by_scope(
+    df_in: pd.DataFrame,
+    scope_col: str,
+    cgp_col: str,
+    cgi_col: str,
+) -> pd.DataFrame:
+    d, _ = _filter_winter_latest_year(df_in)
+
+    # Require metrics
+    need = [scope_col, cgp_col, cgi_col]
+    for col in need:
+        if col not in d.columns:
+            return pd.DataFrame(columns=[scope_col, "median_cgp", "mean_cgi", "n"])
+
+    # Dedupe within scope
+    d = _dedupe_latest_attempt(d, by_cols=[scope_col])
+
+    # Require non-null values for each metric
+    d_cgp = d.dropna(subset=[cgp_col]).copy()
+    d_cgi = d.dropna(subset=[cgi_col]).copy()
+
+    # n is count of unique students with metric present (per metric)
+    id_col = (
+        "uniqueidentifier"
+        if "uniqueidentifier" in d.columns
+        else ("studentid" if "studentid" in d.columns else None)
+    )
+
+    def _nunique(x):
+        if id_col is None:
+            return int(x.shape[0])
+        return int(x[id_col].nunique())
+
+    cgp_out = (
+        d_cgp.groupby(scope_col, dropna=False)
+        .apply(
+            lambda x: pd.Series(
+                {
+                    "median_cgp": float(np.nanmedian(x[cgp_col])),
+                    "n_cgp": _nunique(x),
+                }
+            )
+        )
+        .reset_index()
+    )
+    cgi_out = (
+        d_cgi.groupby(scope_col, dropna=False)
+        .apply(
+            lambda x: pd.Series(
+                {
+                    "mean_cgi": float(np.nanmean(x[cgi_col])),
+                    "n_cgi": _nunique(x),
+                }
+            )
+        )
+        .reset_index()
+    )
+
+    out = cgp_out.merge(cgi_out, on=scope_col, how="outer")
+    out["n"] = out[["n_cgp", "n_cgi"]].max(axis=1)
+    out.drop(columns=[c for c in ["n_cgp", "n_cgi"] if c in out.columns], inplace=True)
+
+    return out
+
+
+def _save_growth_chart(fig, section_num: int, suffix: str):
+    charts_dir = Path("../charts")
+    out_dir = charts_dir / "_district"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    safe_d = district_name_cfg.replace(" ", "_")
+    out_path = out_dir / f"{safe_d}_section{section_num}_{suffix}.png"
+    hf._save_and_render(fig, out_path)
+    print(f"Saved: {out_path}")
+
+
+def _plot_scope_growth_bar(
+    df_scope: pd.DataFrame,
+    scope_col: str,
+    scope_order: list,
+    subject_title: str,
+    metric: str,
+    growth_label: str,
+    section_num: int,
+    suffix: str,
+    y_lim: tuple[float, float] | None = None,
+):
+    if df_scope.empty:
+        print(
+            f"[Section {section_num}] Skipped {subject_title} {metric} ({scope_col}) — no data"
+        )
+        return
+
+    # order
+    if scope_order:
+        df_scope = df_scope[df_scope[scope_col].isin(scope_order)].copy()
+        df_scope[scope_col] = pd.Categorical(
+            df_scope[scope_col], categories=scope_order, ordered=True
+        )
+        df_scope = df_scope.sort_values(scope_col)
+    else:
+        df_scope = df_scope.sort_values(scope_col)
+
+    x = np.arange(len(df_scope))
+
+    if metric == "median_cgp":
+        y = df_scope["median_cgp"].to_numpy(dtype=float)
+        ylab = f"Median {growth_label} CGP"
+        title_metric = "Median CGP"
+        if y_lim is None:
+            y_lim = (0, 100)
+    else:
+        y = df_scope["mean_cgi"].to_numpy(dtype=float)
+        ylab = f"Mean {growth_label} CGI"
+        title_metric = "Mean CGI"
+        if y_lim is None:
+            y_lim = (-2.5, 2.5)
+
+    fig, ax = plt.subplots(figsize=(16, 9), dpi=300)
+
+    # CGP: reference band 42–58 (with guide lines)
+    if metric == "median_cgp":
+        ax.axhspan(42, 58, facecolor="#78daf4", alpha=0.28, zorder=0)
+        for yref in [42, 50, 58]:
+            ax.axhline(yref, linestyle="--", color="#6B7280", linewidth=1.2, zorder=0)
+
+    # CGI: add the standard yellow band around 0
+    if metric == "mean_cgi":
+        ax.axhspan(-0.2, 0.2, facecolor="#facc15", alpha=0.25, zorder=0)
+        for yref in [-0.2, 0.0, 0.2]:
+            ax.axhline(yref, linestyle="--", color="#eab308", linewidth=1.1, zorder=0)
+
+    bars = ax.bar(x, y, edgecolor="white", linewidth=1.2)
+
+    # Value labels
+    for rect, v in zip(bars, y):
+        if pd.isna(v):
+            continue
+        if metric == "median_cgp":
+            label = f"{v:.1f}"
+            y_text = (
+                rect.get_height() / 2
+                if rect.get_height() >= 0
+                else rect.get_height() / 2
+            )
+            ax.text(
+                rect.get_x() + rect.get_width() / 2,
+                y_text,
+                label,
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+                color="white" if abs(v) >= 35 else "#434343",
+            )
+        else:
+            label = f"{v:.2f}"
+            ax.text(
+                rect.get_x() + rect.get_width() / 2,
+                rect.get_height(),
+                label,
+                ha="center",
+                va="bottom" if v >= 0 else "top",
+                fontsize=8,
+                fontweight="bold",
+                color="#434343",
+            )
+
+    # X labels with n (best-effort)
+    labels = df_scope[scope_col].astype(str).tolist()
+    if "n" in df_scope.columns:
+        labels = [
+            f"{lbl}\n(n = {int(nv)})"
+            for lbl, nv in zip(labels, df_scope["n"].fillna(0))
+        ]
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        labels,
+        rotation=35 if scope_col != "grade_num" else 0,
+        ha="right" if scope_col != "grade_num" else "center",
+    )
+
+    ax.set_ylabel(ylab)
+    ax.set_ylim(y_lim[0], y_lim[1])
+    ax.grid(axis="y", alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    yr = _latest_year_num(nwea_base)
+    year_txt = f"Winter {yr}" if yr is not None else "Winter"
+
+    ax.set_title(
+        f"{district_name_cfg} • {subject_title} • {title_metric}\n{year_txt} ({growth_label})",
+        fontsize=18,
+        fontweight="bold",
+        pad=18,
+    )
+
+    _save_growth_chart(fig, section_num=section_num, suffix=suffix)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------
+# SECTION 9 — District Growth by School (Reading + Math)
+# ---------------------------------------------------------------------
+
+
+def _run_section9_growth_by_school():
+    d0, _ = _filter_winter_latest_year(nwea_base.copy())
+    if d0.empty or "schoolname" not in d0.columns:
+        print("[Section 9] No data or missing schoolname")
+        return
+
+    d0["school_display"] = d0["schoolname"].apply(
+        lambda s: hf._safe_normalize_school_name(s, cfg)
+    )
+    school_order = sorted(d0["school_display"].dropna().unique().tolist())
+
+    for subject_title in ["Reading", "Math"]:
+        ds = _filter_subject_nwea(d0, subject_title)
+        if ds.empty:
+            continue
+
+        safe_subj = "reading" if subject_title.lower().startswith("read") else "math"
+
+        for w in GROWTH_WINDOWS:
+            agg = _agg_growth_by_scope(
+                ds,
+                scope_col="school_display",
+                cgp_col=w["cgp_col"],
+                cgi_col=w["cgi_col"],
+            )
+            if agg.empty:
+                continue
+
+            # Median CGP
+            _plot_scope_growth_bar(
+                agg,
+                scope_col="school_display",
+                scope_order=school_order,
+                subject_title=subject_title,
+                metric="median_cgp",
+                growth_label=w["label"],
+                section_num=9,
+                suffix=f"growth_by_school_{safe_subj}_{w['key']}_median_cgp",
+                y_lim=(0, 100),
+            )
+
+            # Mean CGI
+            _plot_scope_growth_bar(
+                agg,
+                scope_col="school_display",
+                scope_order=school_order,
+                subject_title=subject_title,
+                metric="mean_cgi",
+                growth_label=w["label"],
+                section_num=9,
+                suffix=f"growth_by_school_{safe_subj}_{w['key']}_mean_cgi",
+                y_lim=(-2.5, 2.5),
+            )
+
+
+# ---------------------------------------------------------------------
+# SECTION 10 — District Growth by Grade (Reading + Math)
+# ---------------------------------------------------------------------
+
+
+def _run_section10_growth_by_grade():
+    d0, _ = _filter_winter_latest_year(nwea_base.copy())
+    if d0.empty:
+        print("[Section 10] No Winter data")
+        return
+
+    if "grade" not in d0.columns and "student_grade" not in d0.columns:
+        print("[Section 10] Missing grade column")
+        return
+
+    grade_col = "grade" if "grade" in d0.columns else "student_grade"
+    d0["grade_num"] = pd.to_numeric(d0[grade_col], errors="coerce")
+    d0 = d0[d0["grade_num"].notna()].copy()
+    if d0.empty:
+        print("[Section 10] No valid grades")
+        return
+
+    d0["grade_num"] = d0["grade_num"].astype(int)
+
+    # Order K(0) to 12
+    grade_order = sorted(d0["grade_num"].dropna().unique().tolist())
+
+    def _glabel(g):
+        return "K" if int(g) == 0 else str(int(g))
+
+    for subject_title in ["Reading", "Math"]:
+        ds = _filter_subject_nwea(d0, subject_title)
+        if ds.empty:
+            continue
+
+        for w in GROWTH_WINDOWS:
+            agg = _agg_growth_by_scope(
+                ds,
+                scope_col="grade_num",
+                cgp_col=w["cgp_col"],
+                cgi_col=w["cgi_col"],
+            )
+            if agg.empty:
+                continue
+
+            # Replace numeric grade with label for plotting
+            agg = agg.copy()
+            agg["grade_label"] = agg["grade_num"].apply(_glabel)
+            label_order = [_glabel(g) for g in grade_order]
+            agg = agg.rename(columns={"grade_label": "grade_display"})
+
+            safe_subj = (
+                "reading" if subject_title.lower().startswith("read") else "math"
+            )
+
+            # Median CGP
+            _plot_scope_growth_bar(
+                agg,
+                scope_col="grade_display",
+                scope_order=label_order,
+                subject_title=subject_title,
+                metric="median_cgp",
+                growth_label=w["label"],
+                section_num=10,
+                suffix=f"growth_by_grade_{safe_subj}_{w['key']}_median_cgp",
+                y_lim=(0, 100),
+            )
+
+            # Mean CGI
+            _plot_scope_growth_bar(
+                agg,
+                scope_col="grade_display",
+                scope_order=label_order,
+                subject_title=subject_title,
+                metric="mean_cgi",
+                growth_label=w["label"],
+                section_num=10,
+                suffix=f"growth_by_grade_{safe_subj}_{w['key']}_mean_cgi",
+                y_lim=(-2.5, 2.5),
+            )
+
+
+# ---------------------------------------------------------------------
+# SECTION 11 — District Growth by Student Group (Reading + Math)
+# ---------------------------------------------------------------------
+
+
+def _run_section11_growth_by_student_group():
+    d0, _ = _filter_winter_latest_year(nwea_base.copy())
+    if d0.empty:
+        print("[Section 11] No Winter data")
+        return
+
+    # Defaults (matches i-Ready defaults)
+    DEFAULT_GROUPS = [
+        "All Students",
+        "Students with Disabilities",
+        "Socioeconomically Disadvantaged",
+        "English Learners",
+        "Hispanic",
+        "White",
+    ]
+
+    # Build a working set of rows for the enabled groups
+    student_groups_cfg = cfg.get("student_groups", {})
+    group_order_map = cfg.get("student_group_order", {})
+
+    enabled_set = set(DEFAULT_GROUPS)
+
+    frames = []
+
+    # All Students
+    if "All Students" in enabled_set:
+        all_mask = _apply_student_group_mask(d0, "All Students", {"type": "all"})
+        if all_mask is not None:
+            d_all = d0[all_mask].copy()
+            if not d_all.empty:
+                frames.append(d_all.assign(student_group="All Students"))
+
+    # Configured groups
+    for group_name, group_def in student_groups_cfg.items():
+        if group_def.get("type") == "all":
+            continue
+        if group_name not in enabled_set:
+            continue
+        try:
+            mask = _apply_student_group_mask(d0, group_name, group_def)
+        except Exception:
+            continue
+        dg = d0[mask].copy()
+        if dg.empty:
+            continue
+        frames.append(dg.assign(student_group=group_name))
+
+    if not frames:
+        print("[Section 11] No eligible student-group rows")
+        return
+
+    d2 = pd.concat(frames, ignore_index=True)
+
+    # Order
+    def _gkey(g: str):
+        if g == "All Students":
+            return (-1, g)
+        return (int(group_order_map.get(g, 99)), g)
+
+    group_names = [g for g in DEFAULT_GROUPS if g in set(d2["student_group"].unique())]
+    group_order = sorted(group_names, key=_gkey)
+
+    for subject_title in ["Reading", "Math"]:
+        ds = _filter_subject_nwea(d2, subject_title)
+        if ds.empty:
+            continue
+
+        safe_subj = "reading" if subject_title.lower().startswith("read") else "math"
+
+        for w in GROWTH_WINDOWS:
+            agg = _agg_growth_by_scope(
+                ds,
+                scope_col="student_group",
+                cgp_col=w["cgp_col"],
+                cgi_col=w["cgi_col"],
+            )
+            if agg.empty:
+                continue
+
+            # Median CGP
+            _plot_scope_growth_bar(
+                agg,
+                scope_col="student_group",
+                scope_order=group_order,
+                subject_title=subject_title,
+                metric="median_cgp",
+                growth_label=w["label"],
+                section_num=11,
+                suffix=f"growth_by_group_{safe_subj}_{w['key']}_median_cgp",
+                y_lim=(0, 100),
+            )
+
+            # Mean CGI
+            _plot_scope_growth_bar(
+                agg,
+                scope_col="student_group",
+                scope_order=group_order,
+                subject_title=subject_title,
+                metric="mean_cgi",
+                growth_label=w["label"],
+                section_num=11,
+                suffix=f"growth_by_group_{safe_subj}_{w['key']}_mean_cgi",
+                y_lim=(-2.5, 2.5),
+            )
+
+
+# ---------------------------------------------------------------------
+# RUN Sections 9–11 (district only)
+# ---------------------------------------------------------------------
+try:
+    _run_section9_growth_by_school()
+    _run_section10_growth_by_grade()
+    _run_section11_growth_by_student_group()
+except Exception as e:
+    print(f"[Sections 9–11] ERROR: {e}")
+#########################################################################
+#

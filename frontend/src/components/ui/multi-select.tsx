@@ -14,6 +14,8 @@ interface MultiSelectProps {
     disabled?: boolean
     getDisplayLabel?: (option: string) => string
     getOptionSubLabel?: (option: string) => string | undefined
+    maxSelected?: number
+    onMaxSelected?: (max: number) => void
 }
 
 export function MultiSelect({
@@ -24,7 +26,9 @@ export function MultiSelect({
     className,
     disabled = false,
     getDisplayLabel,
-    getOptionSubLabel
+    getOptionSubLabel,
+    maxSelected,
+    onMaxSelected
 }: MultiSelectProps) {
     const displayLabel = getDisplayLabel || ((option: string) => option)
     const [isOpen, setIsOpen] = React.useState(false)
@@ -47,6 +51,10 @@ export function MultiSelect({
         if (selected.includes(option)) {
             onChange(selected.filter((item) => item !== option))
         } else {
+            if (typeof maxSelected === 'number' && maxSelected > 0 && selected.length >= maxSelected) {
+                onMaxSelected?.(maxSelected)
+                return
+            }
             onChange([...selected, option])
         }
     }
@@ -56,8 +64,14 @@ export function MultiSelect({
             // Deselect all
             onChange([])
         } else {
-            // Select all
-            onChange([...options])
+            // Select all (respect maxSelected if provided)
+            if (typeof maxSelected === 'number' && maxSelected > 0) {
+                const next = options.slice(0, maxSelected)
+                if (options.length > maxSelected) onMaxSelected?.(maxSelected)
+                onChange(next)
+            } else {
+                onChange([...options])
+            }
         }
     }
 

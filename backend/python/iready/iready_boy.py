@@ -9,6 +9,7 @@
 import matplotlib
 matplotlib.use("Agg")
 
+import re
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -153,7 +154,18 @@ iready_base.columns = iready_base.columns.str.strip().str.lower()
 print(
     f"IREADY data loaded: {iready_base.shape[0]:,} rows, {iready_base.shape[1]} columns"
 )
-print(iready_base["year"].value_counts().sort_index())
+# Some exports use `academicyear` instead of `year`. For debug output, prefer `year` if present,
+# otherwise fall back to `academicyear`. Also create a `year` alias for downstream code paths.
+_year_col = "year" if "year" in iready_base.columns else ("academicyear" if "academicyear" in iready_base.columns else None)
+if _year_col is not None:
+    try:
+        print(iready_base[_year_col].value_counts().sort_index())
+    except Exception:
+        pass
+    if "year" not in iready_base.columns and _year_col == "academicyear":
+        iready_base["year"] = iready_base["academicyear"]
+else:
+    print("[WARN] No `year` or `academicyear` column found; skipping year distribution print.")
 print(iready_base.columns.tolist())
 
 # Normalize district name for fallback in the title
@@ -182,7 +194,8 @@ def _cfg_first(cfg_obj: dict, key: str, default: str) -> str:
     return str(v)
 
 
-district_label = _cfg_first(cfg, "district_name", "District")
+district_label = _cfg_first(cfg, "district_display_name", _cfg_first(cfg, "district_name", "District"))
+district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label} (All Students)")
 
 # Base charts directory (overrideable by runner)
 CHARTS_DIR = Path(os.getenv("IREADY_BOY_CHARTS_DIR") or "../charts")
@@ -655,7 +668,7 @@ def _prep_iready_for_charts(
     d = df.copy()
 
     # --- Normalize i-Ready placement labels ---
-    if hasattr(hf, "IREADY_LABEL_MAP"):
+    if "relative_placement" in d.columns and hasattr(hf, "IREADY_LABEL_MAP"):
         d["relative_placement"] = d["relative_placement"].replace(hf.IREADY_LABEL_MAP)
 
     # --- Verify expected columns ---
@@ -673,6 +686,14 @@ def _prep_iready_for_charts(
     missing = [c for c in expected_cols if c not in d.columns]
     if missing:
         print(f"[WARN] Missing expected columns in i-Ready data: {missing}")
+
+    # Hard-stop if we are missing critical columns that would otherwise crash.
+    required_cols = ["uniqueidentifier", "academicyear", "subject", "testwindow", "domain", "enrolled", "relative_placement"]
+    missing_required = [c for c in required_cols if c not in d.columns]
+    if missing_required:
+        print(f"[SKIP] _prep_iready_for_charts: missing required columns: {missing_required}")
+        empty_metrics = {k: None for k in ["t_prev","t_curr","hi_now","hi_delta","lo_now","lo_delta","score_now","score_delta","high_now","high_delta"]}
+        return pd.DataFrame(), pd.DataFrame(), empty_metrics, []
 
     # --- Ensure academic year numeric ---
     d["year"] = pd.to_numeric(d["academicyear"], errors="coerce")
@@ -1112,6 +1133,20 @@ def _apply_student_group_mask(
     allowed_vals = group_def["in"]
 
     # normalize both sides as lowercase strings
+    if col not in df_in.columns:
+        # Try a forgiving match: ignore case and non-alphanumeric chars (underscores/spaces).
+        def _norm(s: str) -> str:
+            return re.sub(r"[^a-z0-9]+", "", str(s).strip().lower())
+
+        target = _norm(col)
+        norm_map = { _norm(c): c for c in df_in.columns }
+        matched = norm_map.get(target)
+        if matched:
+            col = matched
+        else:
+            print(f"[group {group_name}] Skipping group: column '{col}' not found in dataset.")
+            return pd.Series(False, index=df_in.index)
+
     vals = df_in[col].astype(str).str.strip().str.lower()
     allowed_norm = {str(v).strip().lower() for v in allowed_vals}
     return vals.isin(allowed_norm)
@@ -1142,11 +1177,7 @@ def plot_iready_subject_dashboard_by_group(
     school_display = (
         hf._safe_normalize_school_name(school_raw, cfg) if school_raw else None
     )
-    title_label = (
-        _cfg_first(cfg, "district_name", "District (All Students)")
-        if not school_display
-        else school_display
-    )
+    title_label = (district_all_students_label if not school_display else school_display)
 
     subjects = ["ELA", "Math"]
     subject_titles = ["ELA", "Math"]
@@ -2215,7 +2246,6 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
 print("Running Section 4 — Spring Mid/Above → CERS Met/Exceeded")
 
 scope_df = iready_base.copy()
-district_label = _cfg_first(cfg, "district_name", "Districtwide")
 _plot_mid_above_to_cers_faceted(scope_df, district_label, folder_name="_district")
 
 school_col = "school" if "school" in iready_base.columns else "schoolname"
@@ -2452,7 +2482,6 @@ def _plot_mid_flag_stacked(
 # ---------------------------------------------------------------------
 print("Running Fall 2026 Mid+ Progression Flags Section")
 
-district_label = _cfg_first(cfg, "district_name", "Districtwide")
 for subj in ["ELA", "Math"]:
     dsub = df[df["subject"].astype(str).str.lower() == subj.lower()].copy()
     if not dsub.empty:
@@ -2480,4 +2509,1168 @@ if _include_school_charts():
                     folder_name=folder,
                     school_raw=raw_school,
                 )
+
+# %% SECTION 6 — Fall only by School (District Only) [TEMP for BOY testing]
+# ---------------------------------------------------------------------
+# District-only ELA + Math chart.
+# X-axis = school
+# For each school: one 100% stacked bar (Fall) using i-Ready relative_placement.
+# ---------------------------------------------------------------------
+
+
+def _prep_iready_fall_winter_by_dimension(
+    df: pd.DataFrame,
+    subject_str: str,
+    dim_col: str,
+    min_n: int = 1,
+):
+    d = df.copy()
+
+    # If caller asks for "school", prefer learning_center when present, otherwise fall back.
+    if dim_col == "school":
+        for candidate in ["learning_center", "school", "schoolname", "school_name"]:
+            if candidate in d.columns:
+                try:
+                    if d[candidate].dropna().astype(str).str.strip().ne("").any():
+                        dim_col = candidate
+                        break
+                except Exception:
+                    dim_col = candidate
+                    break
+
+    # Normalize i-Ready placement labels for consistency
+    if "relative_placement" in d.columns and hasattr(hf, "IREADY_LABEL_MAP"):
+        d["relative_placement"] = d["relative_placement"].replace(hf.IREADY_LABEL_MAP)
+
+    # Required columns for this section; skip gracefully if missing.
+    required_cols = ["academicyear", "testwindow", "subject", "domain", "enrolled", "relative_placement", dim_col]
+    missing_required = [c for c in required_cols if c not in d.columns]
+    if missing_required:
+        print(f"[Section 6–8] Skipped (missing columns): {missing_required}")
+        return None
+
+    # Current year only
+    d["academicyear"] = pd.to_numeric(d.get("academicyear"), errors="coerce")
+    year = int(d["academicyear"].max())
+
+    subj = str(subject_str).strip().upper()
+
+    # Core filters (match Section 0.1; TEMP: Fall-only so this can run without Winter)
+    d = d[
+        (d["academicyear"] == year)
+        & (d["testwindow"].astype(str).str.upper().isin(["FALL"]))
+        & (d["subject"].astype(str).str.upper() == subj)
+        & (d["domain"].astype(str) == "Overall")
+        & (d["enrolled"].astype(str) == "Enrolled")
+        & (d["relative_placement"].notna())
+    ].copy()
+
+    if d.empty:
+        return None
+
+    # Dimension handling (do NOT dedupe; Section 0.1 does not dedupe)
+    # Keep totals aligned with Section 0.1 where possible.
+    if dim_col in ["learning_center", "school", "schoolname", "school_name"]:
+        d[dim_col] = d[dim_col].fillna("(No School)")
+        # Respect selected-schools scope if provided by the runner/frontend.
+        if _selected_schools:
+            d = d[d[dim_col].apply(lambda s: _school_selected(s))].copy()
+    elif dim_col == "student_grade":
+        d[dim_col] = pd.to_numeric(d[dim_col], errors="coerce")
+        d = d[d[dim_col].notna()].copy()
+    else:
+        # For non-numeric dims (e.g., student_group), keep only labeled rows
+        d = d[d[dim_col].notna()].copy()
+
+    if d.empty:
+        return None
+
+    # Normalize window labels for plotting
+    d["testwindow"] = d["testwindow"].astype(str).str.title()
+
+    # Counts per (dimension, window)
+    counts = (
+        d.groupby([dim_col, "testwindow", "relative_placement"])
+        .size()
+        .rename("n")
+        .reset_index()
+    )
+    totals = d.groupby([dim_col, "testwindow"]).size().rename("N_total").reset_index()
+    pct = counts.merge(totals, on=[dim_col, "testwindow"], how="left")
+    pct["pct"] = 100 * pct["n"] / pct["N_total"]
+
+    # Ensure full placement set exists for stacking (TEMP: Fall-only)
+    win_order = ["Fall"]
+    dim_order = sorted(pct[dim_col].dropna().unique().tolist())
+    all_idx = pd.MultiIndex.from_product(
+        [dim_order, win_order, hf.IREADY_ORDER],
+        names=[dim_col, "testwindow", "relative_placement"],
+    )
+    pct = (
+        pct.set_index([dim_col, "testwindow", "relative_placement"])
+        .reindex(all_idx)
+        .reset_index()
+    )
+    pct["pct"] = pct["pct"].fillna(0)
+    pct["n"] = pct["n"].fillna(0)
+
+    # Rebuild N_total after reindex
+    n_map = totals.copy()
+    n_map["testwindow"] = n_map["testwindow"].astype(str).str.title()
+    pct = pct.merge(n_map, on=[dim_col, "testwindow"], how="left", suffixes=("", "_y"))
+    if "N_total_y" in pct.columns:
+        pct["N_total"] = pct["N_total"].fillna(pct["N_total_y"])
+        pct.drop(columns=["N_total_y"], inplace=True)
+    pct["N_total"] = pct.groupby([dim_col, "testwindow"])["N_total"].transform(
+        lambda s: s.ffill().bfill()
+    )
+
+    # Keep columns tidy
+    pct["testwindow"] = pct["testwindow"].astype(str).str.title()
+    pct = pct[
+        [dim_col, "testwindow", "relative_placement", "n", "N_total", "pct"]
+    ].copy()
+
+    # Apply min_n filter based on latest window (TEMP: Fall-only)
+    latest_window = win_order[-1] if win_order else "Fall"
+    latest_n = (
+        pct[pct["testwindow"] == latest_window]
+        .groupby(dim_col)["N_total"]
+        .max()
+        .fillna(0)
+        .astype(float)
+    )
+    keep_dims = latest_n[latest_n >= min_n].index.tolist()
+    pct = pct[pct[dim_col].isin(keep_dims)].copy()
+
+    if pct.empty:
+        return None
+
+    return {
+        "year": year,
+        "pct": pct,
+        "dim_order": sorted(keep_dims),
+        "win_order": win_order,
+    }
+
+
+def _plot_fall_winter_grouped_stacked(
+    prep: dict,
+    scope_label: str,
+    title_suffix: str,
+    subject_label: str,
+    dim_labeler=None,
+    out_name: str = "section6_fall_winter_by_school.png",
+    preview: bool = False,
+):
+    # One subject per chart (NOT faceted)
+    pct = prep["pct"].copy()
+    dim_col = [
+        c
+        for c in pct.columns
+        if c
+        not in {"testwindow", "relative_placement", "n", "N_total", "pct", "subject"}
+    ][0]
+
+    dim_order = prep["dim_order"]
+    win_order = prep["win_order"]
+
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    ax = fig.add_subplot(111)
+    fig.subplots_adjust(top=0.86, bottom=0.26)
+
+    # Legend once
+    legend_handles = [
+        Patch(facecolor=hf.IREADY_COLORS[q], edgecolor="none", label=q)
+        for q in hf.IREADY_ORDER
+    ]
+    fig.legend(
+        handles=legend_handles,
+        labels=hf.IREADY_ORDER,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.94),
+        ncol=len(hf.IREADY_ORDER),
+        frameon=False,
+        fontsize=9,
+    )
+
+    # Filter to this subject (if present)
+    if "subject" in pct.columns:
+        pdf = pct[
+            pct["subject"].astype(str).str.upper() == subject_label.upper()
+        ].copy()
+    else:
+        pdf = pct.copy()
+
+    if pdf.empty:
+        print(f"[Skip] No data for {subject_label} ({scope_label})")
+        plt.close(fig)
+        return
+
+    # Build x positions (support 1-window "Fall-only" and 2-window Fall/Winter)
+    base_x = np.arange(len(dim_order))
+    is_single_window = len(win_order) == 1
+    gap = 0.22
+    x_fall = base_x if is_single_window else (base_x - gap)
+    x_winter = base_x + gap
+
+    # --- n-counts for Fall/Winter bars (subject-filtered) ---
+    n_lookup = (
+        pdf[[dim_col, "testwindow", "N_total"]]
+        .dropna(subset=[dim_col, "testwindow"])
+        .drop_duplicates(subset=[dim_col, "testwindow"])
+    )
+
+    def _n_for(dim_val, win):
+        try:
+            v = (
+                n_lookup.loc[
+                    (n_lookup[dim_col] == dim_val)
+                    & (n_lookup["testwindow"].astype(str).str.title() == win),
+                    "N_total",
+                ]
+                .astype(float)
+                .max()
+            )
+            return int(v) if pd.notna(v) else 0
+        except Exception:
+            return 0
+
+    # STAR-style x tick labels: category + (n=) or (F n= | W n=) on a second line
+    xlabels = []
+    for v in dim_order:
+        disp = dim_labeler(v) if callable(dim_labeler) else str(v)
+        n_f = _n_for(v, "Fall")
+        n_w = _n_for(v, "Winter")
+        xlabels.append(f"{disp}\n(n={n_f:,})" if is_single_window else f"{disp}\n(F n={n_f:,} | W n={n_w:,})")
+
+    window_to_x = {"Fall": x_fall, "Winter": x_winter}
+    window_to_alpha = {"Fall": (0.9 if is_single_window else 0.35), "Winter": 0.90}
+    window_to_label = {"Fall": "F", "Winter": "W"}
+    bar_width = 0.55 if is_single_window else 0.38
+
+    for win in win_order:
+        sub = pdf[pdf["testwindow"] == win].copy()
+        piv = (
+            sub.pivot(index=dim_col, columns="relative_placement", values="pct")
+            .reindex(index=dim_order)
+            .reindex(columns=hf.IREADY_ORDER)
+            .fillna(0)
+        )
+        bottom = np.zeros(len(dim_order))
+        for cat in hf.IREADY_ORDER:
+            vals = piv[cat].to_numpy()
+            bars = ax.bar(
+                window_to_x[win],
+                vals,
+                bottom=bottom,
+                width=bar_width,
+                color=hf.IREADY_COLORS[cat],
+                edgecolor="white",
+                linewidth=1.0,
+                alpha=window_to_alpha[win],
+            )
+            for j, v in enumerate(vals):
+                if v >= LABEL_MIN_PCT:
+                    ax.text(
+                        window_to_x[win][j],
+                        bottom[j] + v / 2,
+                        f"{v:.0f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        fontweight="bold",
+                        color=(
+                            "white"
+                            if cat in ["3+ Below", "Mid/Above", "Early On"]
+                            else "#333"
+                        ),
+                    )
+            bottom += vals
+
+        # Window label ABOVE bars (only when comparing 2 windows)
+        if not is_single_window:
+            for j in range(len(dim_order)):
+                ax.text(
+                    window_to_x[win][j],
+                    101,
+                    window_to_label.get(win, win),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                    color="#333",
+                )
+
+    ax.set_ylim(0, 100)
+    ax.set_yticks(range(0, 101, 20))
+    ax.set_yticklabels([f"{v}%" for v in range(0, 101, 20)])
+    ax.set_xticks(base_x)
+    ax.set_xticklabels(xlabels)
+
+    # STAR-style rotation: rotate only school-ish + student_group
+    if dim_col in ["learning_center", "school", "schoolname", "school_name", "student_grade", "student_group"]:
+        for t in ax.get_xticklabels():
+            t.set_rotation(35)
+            t.set_ha("right")
+
+    ax.grid(axis="y", alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    window_label = "Fall" if is_single_window else "Fall vs Winter"
+    fig.suptitle(
+        f"{scope_label} i-Ready {window_label} {prep['year']} \n {subject_label} {title_suffix}",
+        fontsize=20,
+        fontweight="bold",
+        y=1.02,
+    )
+
+    out_dir = CHARTS_DIR / "_district"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = re.sub(r"[^A-Za-z0-9_]+", "_", scope_label.replace(" ", "_"))
+    out_file = f"{safe_scope}_{subject_label}_{out_name}"
+    out_path = out_dir / out_file
+    hf._save_and_render(fig, out_path)
+    print(f"[SAVE] {out_path}")
+
+    if preview:
+        plt.show()
+    plt.close(fig)
+
+
+def run_section6_fall_winter_by_school(
+    df_scope, scope_label=None, preview=False
+):
+    print("\n>>> STARTING SECTION 6 <<<")
+    scope_label = scope_label or district_label
+
+    for subj in ["ELA", "Math"]:
+        prep = _prep_iready_fall_winter_by_dimension(
+            df_scope,
+            subject_str=subj,
+            dim_col="school",
+            min_n=1,
+        )
+        if prep is None:
+            print(f"[Section 6] Skipped {subj} (no data)")
+            continue
+        prep["pct"]["subject"] = subj
+
+        _plot_fall_winter_grouped_stacked(
+            prep,
+            scope_label=scope_label,
+            title_suffix="Trends by School",
+            subject_label=subj,
+            dim_labeler=lambda s: hf._safe_normalize_school_name(s, cfg),
+            out_name="section6_fall_only_by_school.png",
+            preview=preview,
+        )
+
+
+# %% SECTION 7 — Fall only by Grade (District Only) [TEMP for BOY testing]
+# ---------------------------------------------------------------------
+# District-only ELA + Math chart.
+# X-axis = grade
+# For each grade: two 100% stacked bars (Fall vs Winter).
+# ---------------------------------------------------------------------
+
+
+def run_section7_fall_winter_by_grade(
+    df_scope, scope_label=None, preview=False
+):
+    print("\n>>> STARTING SECTION 7 <<<")
+    scope_label = scope_label or district_label
+
+    def _glabel(g):
+        try:
+            return str(int(float(g)))
+        except Exception:
+            return str(g)
+
+    for subj in ["ELA", "Math"]:
+        prep = _prep_iready_fall_winter_by_dimension(
+            df_scope,
+            subject_str=subj,
+            dim_col="student_grade",
+            min_n=1,
+        )
+        if prep is None:
+            print(f"[Section 7] Skipped {subj} (no data)")
+            continue
+        prep["pct"]["subject"] = subj
+
+        _plot_fall_winter_grouped_stacked(
+            prep,
+            scope_label=scope_label,
+            title_suffix="Trends by Grade",
+            subject_label=subj,
+            dim_labeler=_glabel,
+            out_name="section7_fall_only_by_grade.png",
+            preview=preview,
+        )
+
+
+# %% SECTION 8 — Fall only by Student Group (District Only) [TEMP for BOY testing]
+# ---------------------------------------------------------------------
+# District-only ELA + Math chart.
+# X-axis = selected student groups (editable list below)
+# For each group: two 100% stacked bars (Fall vs Winter).
+# Only include groups with n >= 12 (latest window) per subject.
+# ---------------------------------------------------------------------
+
+
+def run_section8_fall_winter_by_student_group(
+    df_scope,
+    scope_label=None,
+    preview=False,
+    min_n=12,
+):
+    print("\n>>> STARTING SECTION 8 <<<")
+    scope_label = scope_label or district_label
+
+    # Editable include list (comment out to exclude)
+    # Names MUST match keys in cfg['student_groups']
+    included_groups = [
+        "All Students",
+        "English Learners",
+        "Students with Disabilities",
+        "Socioeconomically Disadvantaged",
+        "Hispanic or Latino",
+        "White",
+        # "Foster",
+        # "Homeless",
+        # "Black or African American",
+        # "Asian",
+        # "Filipino",
+        # "American Indian or Alaska Native",
+        # "Native Hawaiian or Pacific Islander",
+        # "Two or More Races",
+        # "Not Stated",
+    ]
+
+    student_groups_cfg = cfg.get("student_groups", {})
+
+    group_order_map = cfg.get("student_group_order", {})
+
+    def _group_sort_key(g: str):
+        # Default to 99 if not specified
+        return (int(group_order_map.get(g, 99)), g)
+
+    # Only keep groups that exist in config
+    included_groups = [g for g in included_groups if g in student_groups_cfg]
+    included_groups = sorted(included_groups, key=_group_sort_key)
+    if not included_groups:
+        print("[Section 8] No included groups found in cfg['student_groups']")
+        return
+
+    def _build_group_labeled_df(dfin: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+        for gname in included_groups:
+            gdef = student_groups_cfg[gname]
+            mask = _apply_student_group_mask(dfin, gname, gdef)
+            tmp = dfin[mask].copy()
+            if tmp.empty:
+                continue
+            tmp["student_group"] = gname
+            rows.append(tmp)
+        if not rows:
+            return pd.DataFrame()
+        return pd.concat(rows, ignore_index=True)
+
+    d0 = df_scope.copy()
+    d0 = _build_group_labeled_df(d0)
+    if d0.empty:
+        print("[Section 8] Skipped (no rows after group masks)")
+        return
+
+    for subj in ["ELA", "Math"]:
+        prep = _prep_iready_fall_winter_by_dimension(
+            d0[d0["student_group"].notna()].copy(),
+            subject_str=subj,
+            dim_col="student_group",
+            min_n=min_n,
+        )
+        if prep is None:
+            print(f"[Section 8] Skipped {subj} (no data)")
+            continue
+        # Enforce YAML-defined plotting order (not alphabetical) and respect min_n survivors
+        survivors = set(prep.get("dim_order", []))
+        ordered = [g for g in included_groups if g in survivors]
+        prep["dim_order"] = ordered if ordered else prep.get("dim_order", [])
+        prep["pct"]["subject"] = subj
+
+        _plot_fall_winter_grouped_stacked(
+            prep,
+            scope_label=scope_label,
+            title_suffix="Trends by Student Group",
+            subject_label=subj,
+            dim_labeler=lambda s: str(s),
+            out_name="section8_fall_only_by_student_group.png",
+            preview=preview,
+        )
+
+
+# ---------------------------------------------------------------------
+# DRIVER — RUN SECTIONS 6–8 (District Only)
+# ---------------------------------------------------------------------
+print("Running Sections 6–8 (district-level only)...")
+
+_scope_df = iready_base.copy()
+_scope_label = district_label
+
+run_section6_fall_winter_by_school(_scope_df, scope_label=_scope_label, preview=False)
+run_section7_fall_winter_by_grade(_scope_df, scope_label=_scope_label, preview=False)
+run_section8_fall_winter_by_student_group(
+    _scope_df, scope_label=_scope_label, preview=False, min_n=12
+)
+
+print("Sections 6–8 complete.")
+
+
+# %%
+# %% SECTION 9/10/11 — Median % Progress to Annual Growth (District-level) [TEMP: Fall-only]
+# ---------------------------------------------------------------------
+# Section 9: By School (Fall only)
+# Section 10: By Grade (Fall only)
+# Section 11: By Student Group (Fall only)
+# Each: District-level only, ELA and Math, ONE figure per subject.
+# Each figure: grouped bars per scope (Typical vs Stretch).
+# Filters aligned to Section 0.1 context, but Fall + most_recent_diagnostic == 'Yes'.
+# ---------------------------------------------------------------------
+
+
+def _prep_progress_base(
+    df: pd.DataFrame,
+    subject_str: str,
+    cfg: dict,
+) -> tuple[pd.DataFrame, int, str, str]:
+    """Base filter for Sections 9–11.
+
+    Filters (aligned to Section 0.1 context, but Fall + most_recent_diagnostic == 'Yes'):
+      - academicyear == max
+      - testwindow == FALL
+      - subject == ELA or Math (i-Ready stable)
+      - domain == Overall
+      - enrolled == Enrolled
+      - most_recent_diagnostic == Yes
+
+    Returns: (filtered_df, year, subject_label, id_col)
+    """
+    d = df.copy()
+
+    required_cols = ["academicyear", "testwindow", "subject", "domain", "enrolled", "student_grade"]
+    missing_required = [c for c in required_cols if c not in d.columns]
+    if missing_required:
+        print(f"[Sections 9–11] Skipped (missing columns): {missing_required}")
+        return pd.DataFrame(), np.nan, str(subject_str), "student_id"
+
+    # Current year only
+    d["academicyear"] = pd.to_numeric(d.get("academicyear"), errors="coerce")
+    year = int(d["academicyear"].max()) if d["academicyear"].notna().any() else np.nan
+
+    # Subject filtering (i-Ready is strictly ELA or Math)
+    subj = str(subject_str).strip().upper()
+    if subj == "ELA":
+        subj_label = "ELA"
+        subj_mask = d["subject"].astype(str).str.upper().eq("ELA")
+    else:
+        subj_label = "Math"
+        subj_mask = d["subject"].astype(str).str.upper().eq("MATH")
+
+    # Safe most_recent_diagnostic mask
+    if "most_recent_diagnostic" in d.columns:
+        mrd_mask = (
+            d["most_recent_diagnostic"].astype(str).str.strip().str.lower().eq("yes")
+        )
+    else:
+        # If the column is missing, nothing qualifies (keeps behavior explicit)
+        mrd_mask = pd.Series(False, index=d.index)
+
+    # Core filters
+    d = d[
+        (d["academicyear"] == year)
+        & (d["testwindow"].astype(str).str.strip().str.upper() == "FALL")
+        & subj_mask
+        & (d["domain"].astype(str).str.strip() == "Overall")
+        & (d["enrolled"].astype(str).str.strip() == "Enrolled")
+        & (d["student_grade"] < 9)
+        & mrd_mask
+    ].copy()
+
+    # Choose ID column and normalize type
+    id_col = "student_id" if "student_id" in d.columns else "uniqueidentifier"
+
+    if d.empty:
+        return pd.DataFrame(), year, subj_label, id_col
+
+    d[id_col] = d[id_col].astype(str).str.strip()
+    d.loc[d[id_col].isin(["nan", "None", "<NA>"]), id_col] = np.nan
+
+    # Normalize + coerce progress columns (exports may have extra underscores / casing differences)
+    def _norm_col(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(s).strip().lower())
+
+    def _find_col_like(canonical: str) -> str | None:
+        target = _norm_col(canonical)
+        for c in d.columns:
+            if _norm_col(c) == target:
+                return c
+        return None
+
+    def _is_all_zero_or_nan(series: pd.Series) -> bool:
+        try:
+            s = pd.to_numeric(series, errors="coerce")
+            return bool(((s.fillna(0) == 0).all()))
+        except Exception:
+            return True
+
+    def _pick_progress_source(candidates: list[str]) -> str | None:
+        """
+        Pick the best matching source column among candidates.
+        Preference order:
+        - first candidate with data (non-null and not all zeros)
+        - otherwise first candidate that exists at all
+        """
+        found_existing: list[str] = []
+        for cand in candidates:
+            src = _find_col_like(cand)
+            if not src:
+                continue
+            found_existing.append(src)
+            if src in d.columns and not _is_all_zero_or_nan(d[src]):
+                return src
+        return found_existing[0] if found_existing else None
+
+    rename_map = {}
+    # Some exports provide annual progress columns; others provide non-annual variants.
+    _typ_src = _pick_progress_source(
+        [
+            "percent_progress_to_annual_typical_growth",
+            "percent_progress_to_typical_growth",
+            "percent_progress_to_typical",
+        ]
+    )
+    _str_src = _pick_progress_source(
+        [
+            "percent_progress_to_annual_stretch_growth",
+            "percent_progress_to_stretch_growth",
+            "percent_progress_to_stretch",
+        ]
+    )
+    if _typ_src and _typ_src != "percent_progress_to_annual_typical_growth":
+        rename_map[_typ_src] = "percent_progress_to_annual_typical_growth"
+    if _str_src and _str_src != "percent_progress_to_annual_stretch_growth":
+        rename_map[_str_src] = "percent_progress_to_annual_stretch_growth"
+    if rename_map:
+        d = d.rename(columns=rename_map)
+
+    for c in [
+        "percent_progress_to_annual_typical_growth",
+        "percent_progress_to_annual_stretch_growth",
+    ]:
+        if c in d.columns:
+            d[c] = pd.to_numeric(d[c], errors="coerce")
+        else:
+            d[c] = np.nan
+
+    # School display helper (district charts still need normalized school names)
+    school_col = None
+    for col_name in ["learning_center", "school", "schoolname", "school_name"]:
+        if col_name in d.columns:
+            school_col = col_name
+            break
+    # Respect selected-schools scope if provided by the runner/frontend.
+    if _selected_schools and school_col is not None:
+        d = d[d[school_col].apply(lambda s: _school_selected(s))].copy()
+    if school_col is None:
+        d["school_display"] = "Unknown"
+    else:
+        d["school_display"] = d[school_col].apply(
+            lambda s: (
+                hf._safe_normalize_school_name(s, cfg) if pd.notna(s) else "Unknown"
+            )
+        )
+
+    return d, year, subj_label, id_col
+
+
+# ----------- CAP PERCENT AXIS HELPER -----------
+PROGRESS_CAP_PCT = 120
+
+
+def _apply_capped_percent_axis(ax, cap: float = PROGRESS_CAP_PCT, step: int = 20):
+    """Cap axis at `cap` and label the top tick as ≥cap."""
+    ax.set_ylim(0, cap)
+    yticks = np.arange(0, cap + 1, step)
+    ylabels = [f"{int(t)}%" for t in yticks]
+    if len(ylabels) > 0:
+        ylabels[-1] = f"\u2265{int(cap)}%"  # ≥120%
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(ylabels)
+
+
+def _dedupe_latest_per_scope(
+    d: pd.DataFrame, id_col: str, scope_cols: list[str]
+) -> pd.DataFrame:
+    """Deduplicate to latest record per student within each scope for Winter."""
+    if d.empty:
+        return d
+
+    sort_col = None
+    if "completion_date" in d.columns:
+        d["completion_date"] = pd.to_datetime(d["completion_date"], errors="coerce")
+        sort_col = "completion_date"
+    elif "teststartdate" in d.columns:
+        d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
+        sort_col = "teststartdate"
+
+    keys = [id_col] + scope_cols
+    if sort_col is None:
+        d = d.sort_values(keys)
+        return d.groupby(keys, as_index=False).tail(1)
+
+    d = d.sort_values(keys + [sort_col])
+    return d.groupby(keys, as_index=False).tail(1)
+
+
+# --- District-wide median progress helper ---
+def _districtwide_medians(d: pd.DataFrame, id_col: str) -> tuple[float, float]:
+    """Compute district-wide medians (Typical, Stretch) from the filtered Winter dataset.
+
+    Uses latest Winter record per student (no additional scope grouping).
+    """
+    if d is None or d.empty:
+        return (np.nan, np.nan)
+
+    dd = _dedupe_latest_per_scope(d.copy(), id_col=id_col, scope_cols=[])
+
+    typ = (
+        pd.to_numeric(
+            dd.get("percent_progress_to_annual_typical_growth"), errors="coerce"
+        )
+        if "percent_progress_to_annual_typical_growth" in dd.columns
+        else pd.Series(dtype=float)
+    )
+    st = (
+        pd.to_numeric(
+            dd.get("percent_progress_to_annual_stretch_growth"), errors="coerce"
+        )
+        if "percent_progress_to_annual_stretch_growth" in dd.columns
+        else pd.Series(dtype=float)
+    )
+
+    return (float(np.nanmedian(typ.to_numpy())), float(np.nanmedian(st.to_numpy())))
+
+
+def _plot_grouped_typ_stretch(
+    grp: pd.DataFrame,
+    scope_col: str,
+    scope_order: list,
+    title: str,
+    out_path: Path,
+    ref_typical: float | None = None,
+    ref_stretch: float | None = None,
+    preview: bool = False,
+    rotate: int = 45,
+):
+    """Single-axis grouped bars per scope: Typical vs Stretch."""
+    if grp.empty:
+        print(f"[Skip] Empty grouped data for {title}")
+        return
+
+    # Ensure ordering
+    grp = grp.copy()
+    grp[scope_col] = pd.Categorical(
+        grp[scope_col], categories=scope_order, ordered=True
+    )
+    grp = grp.sort_values(scope_col)
+
+    # --- n-counts for x-axis labels ---
+    n_map = {}
+    if "n_students" in grp.columns:
+        try:
+            n_map = (
+                grp[[scope_col, "n_students"]]
+                .dropna(subset=[scope_col])
+                .drop_duplicates(subset=[scope_col])
+                .set_index(scope_col)["n_students"]
+                .to_dict()
+            )
+        except Exception:
+            n_map = {}
+
+    x_labels = [f"{str(v)}\n(n={int(n_map.get(v, 0)):,})" for v in scope_order]
+    x = np.arange(len(scope_order))
+    width = 0.38
+
+    c_typ = hf.default_quartile_colors[3]
+    c_str = hf.default_quartile_colors[2]
+
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    ax = fig.add_subplot(111)
+    fig.subplots_adjust(top=0.88, bottom=0.20)
+
+    typ = grp.set_index(scope_col)["median_typical"].reindex(scope_order).to_numpy()
+    st = grp.set_index(scope_col)["median_stretch"].reindex(scope_order).to_numpy()
+
+    # Cap displayed bars so outliers (e.g., 200%+) don't blow up the axis
+    typ_true = typ
+    st_true = st
+    typ_disp = np.array(
+        [np.nan if pd.isna(v) else min(float(v), PROGRESS_CAP_PCT) for v in typ_true],
+        dtype=float,
+    )
+    st_disp = np.array(
+        [np.nan if pd.isna(v) else min(float(v), PROGRESS_CAP_PCT) for v in st_true],
+        dtype=float,
+    )
+
+    ax.bar(
+        x - width / 2,
+        typ_disp,
+        width=width,
+        color=c_typ,
+        edgecolor="white",
+        label="Typical",
+    )
+    ax.bar(
+        x + width / 2,
+        st_disp,
+        width=width,
+        color=c_str,
+        edgecolor="white",
+        label="Stretch",
+    )
+
+    # --- District-wide reference lines (Typical / Stretch) ---
+    if ref_typical is not None and pd.notna(ref_typical):
+        y_ref = min(float(ref_typical), PROGRESS_CAP_PCT)
+        ax.axhline(y_ref, linestyle=":", linewidth=1.6, color=c_typ, alpha=0.95)
+
+    if ref_stretch is not None and pd.notna(ref_stretch):
+        y_ref = min(float(ref_stretch), PROGRESS_CAP_PCT)
+        ax.axhline(y_ref, linestyle="--", linewidth=1.6, color=c_str, alpha=0.95)
+
+    # Labels: show TRUE values (even if capped for display)
+    for i, (tv_true, sv_true, tv_disp, sv_disp) in enumerate(
+        zip(typ_true, st_true, typ_disp, st_disp)
+    ):
+        if pd.notna(tv_true):
+            y = (tv_disp if pd.notna(tv_disp) else 0) + 1
+            ax.text(
+                i - width / 2,
+                y,
+                f"{float(tv_true):.0f}%",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+                color="#333",
+            )
+        if pd.notna(sv_true):
+            y = (sv_disp if pd.notna(sv_disp) else 0) + 1
+            ax.text(
+                i + width / 2,
+                y,
+                f"{float(sv_true):.0f}%",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+                color="#333",
+            )
+
+    _apply_capped_percent_axis(ax)
+    ax.set_ylabel("Median % Progress")
+    ax.set_xticks(x)
+    ax.set_xticklabels(x_labels, rotation=rotate, ha="right" if rotate else "center")
+    ax.grid(axis="y", alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    # --- Legend with explicit handles including reference lines ---
+    from matplotlib.lines import Line2D
+
+    legend_handles = [
+        Line2D([0], [0], color=c_typ, lw=10, label="Median % Typical"),
+        Line2D([0], [0], color=c_str, lw=10, label="Median % Stretch"),
+    ]
+    if ref_typical is not None and pd.notna(ref_typical):
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=c_typ,
+                lw=1.6,
+                linestyle=":",
+                label="District Median Typical",
+            )
+        )
+    if ref_stretch is not None and pd.notna(ref_stretch):
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=c_str,
+                lw=1.6,
+                linestyle="--",
+                label="District Median Stretch",
+            )
+        )
+    ax.legend(handles=legend_handles, loc="upper left", frameon=False)
+
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=15)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    hf._save_and_render(fig, out_path)
+    print(f"[SAVE] {out_path}")
+
+    if preview:
+        plt.show()
+    plt.close(fig)
+
+
+# SECTION 9 — Median Progress by School (Fall only) [TEMP]
+def plot_section9_median_progress_by_school(
+    df, subject_str, district_label, preview=False
+):
+    d, year, subj_label, id_col = _prep_progress_base(df, subject_str, cfg)
+    if d.empty:
+        print(
+            f"[Section 9] Skipped {subj_label} (no data after Fall+MostRecent filters)"
+        )
+        return
+
+    # Compute district-wide medians for reference lines
+    ref_typ, ref_str = _districtwide_medians(d, id_col=id_col)
+
+    # Deduplicate latest per student per school (Fall)
+    d = _dedupe_latest_per_scope(d, id_col=id_col, scope_cols=["school_display"])
+
+    grp = (
+        d.groupby("school_display")
+        .agg(
+            median_typical=("percent_progress_to_annual_typical_growth", "median"),
+            median_stretch=("percent_progress_to_annual_stretch_growth", "median"),
+            n_students=(id_col, "nunique"),
+        )
+        .reset_index()
+    )
+
+    school_order = sorted(grp["school_display"].dropna().unique().tolist())
+    title = (
+        f"{district_label} • {year} • {subj_label} • Fall Median % Progress by School"
+    )
+
+    out_dir = CHARTS_DIR / "_district"
+    out_path = (
+        out_dir
+        / f"{district_label.replace(' ', '_')}_section9_{subj_label}_fall_median_progress_by_school.png"
+    )
+
+    _plot_grouped_typ_stretch(
+        grp,
+        scope_col="school_display",
+        scope_order=school_order,
+        title=title,
+        out_path=out_path,
+        ref_typical=ref_typ,
+        ref_stretch=ref_str,
+        preview=preview,
+        rotate=45,
+    )
+
+
+# SECTION 10 — Median Progress by Grade (Fall only) [TEMP]
+def plot_section10_median_progress_by_grade(
+    df, subject_str, district_label, preview=False
+):
+    d, year, subj_label, id_col = _prep_progress_base(df, subject_str, cfg)
+    if d.empty:
+        print(
+            f"[Section 10] Skipped {subj_label} (no data after Fall+MostRecent filters)"
+        )
+        return
+
+    # Compute district-wide medians for reference lines
+    ref_typ, ref_str = _districtwide_medians(d, id_col=id_col)
+
+    d["student_grade"] = pd.to_numeric(d.get("student_grade"), errors="coerce")
+    d = d[d["student_grade"] < 9].copy()
+    if d.empty:
+        print(f"[Section 10] Skipped {subj_label} (no valid grades)")
+        return
+
+    # Deduplicate latest per student per grade (Fall)
+    d = _dedupe_latest_per_scope(d, id_col=id_col, scope_cols=["student_grade"])
+
+    grp = (
+        d.groupby("student_grade")
+        .agg(
+            median_typical=("percent_progress_to_annual_typical_growth", "median"),
+            median_stretch=("percent_progress_to_annual_stretch_growth", "median"),
+            n_students=(id_col, "nunique"),
+        )
+        .reset_index()
+    )
+
+    grade_order_num = sorted(grp["student_grade"].dropna().unique().tolist())
+    grade_order = ["K" if int(g) == 0 else str(int(g)) for g in grade_order_num]
+
+    # Map numeric grades to labels
+    grp["grade_label"] = grp["student_grade"].apply(
+        lambda g: "K" if int(g) == 0 else str(int(g))
+    )
+
+    title = (
+        f"{district_label} • {year} • {subj_label} • Fall Median % Progress by Grade"
+    )
+
+    out_dir = CHARTS_DIR / "_district"
+    out_path = (
+        out_dir
+        / f"{district_label.replace(' ', '_')}_section10_{subj_label}_fall_median_progress_by_grade.png"
+    )
+
+    _plot_grouped_typ_stretch(
+        grp,
+        scope_col="grade_label",
+        scope_order=grade_order,
+        title=title,
+        out_path=out_path,
+        ref_typical=ref_typ,
+        ref_stretch=ref_str,
+        preview=preview,
+        rotate=0,
+    )
+
+
+# SECTION 11 — Median Progress by Student Group (Fall only) [TEMP]
+def plot_section11_median_progress_by_group(
+    df,
+    subject_str,
+    district_label,
+    cfg,
+    preview=False,
+    min_n: int = 12,
+):
+    d, year, subj_label, id_col = _prep_progress_base(df, subject_str, cfg)
+    if d.empty:
+        print(
+            f"[Section 11] Skipped {subj_label} (no data after Fall+MostRecent filters)"
+        )
+        return
+
+    # Compute district-wide medians for reference lines
+    ref_typ, ref_str = _districtwide_medians(d, id_col=id_col)
+
+    group_defs = cfg.get("student_groups", {})
+    group_order_map = cfg.get("student_group_order", {})
+
+    # Editable include list (comment out to exclude)
+    # Names MUST match keys in cfg['student_groups']
+    # Default set matches Section 8 conventions
+    included_groups = [
+        "All Students",
+        "English Learners",
+        "Students with Disabilities",
+        "Socioeconomically Disadvantaged",
+        "Hispanic or Latino",
+        "White",
+        # "Black or African American",
+        # "Asian",
+        # "Filipino",
+        # "American Indian or Alaska Native",
+        # "Native Hawaiian or Pacific Islander",
+        # "Two or More Races",
+        # "Not Stated",
+        # "Foster",
+        # "Homeless",
+    ]
+
+    # Only keep groups that exist in config
+    included_groups = [g for g in included_groups if g in group_defs]
+    if not included_groups:
+        print("[Section 11] No included groups found in cfg['student_groups']")
+        return
+
+    # Enforce YAML-defined plotting order (not alphabetical)
+    included_groups = sorted(
+        included_groups, key=lambda k: int(group_order_map.get(k, 99))
+    )
+
+    records = []
+    for group_name in included_groups:
+        group_def = group_defs[group_name]
+        mask = _apply_student_group_mask(d, group_name, group_def)
+        sub = d[mask].copy()
+        if sub.empty:
+            continue
+
+        # Deduplicate latest per student within group (Fall)
+        sub = _dedupe_latest_per_scope(sub, id_col=id_col, scope_cols=[])
+
+        n_students = int(sub[id_col].nunique())
+        if n_students < min_n:
+            continue
+
+        records.append(
+            {
+                "student_group": group_name,
+                "median_typical": sub[
+                    "percent_progress_to_annual_typical_growth"
+                ].median(),
+                "median_stretch": sub[
+                    "percent_progress_to_annual_stretch_growth"
+                ].median(),
+                "n_students": n_students,
+            }
+        )
+
+    if not records:
+        print(f"[Section 11] No qualifying groups for {subj_label} (min_n={min_n})")
+        return
+
+    grp = pd.DataFrame.from_records(records)
+
+    # Plot only included groups that survived min_n, still in YAML order
+    survivors = set(grp["student_group"].unique().tolist())
+    plot_groups = [g for g in included_groups if g in survivors]
+
+    title = f"{district_label} • {year} • {subj_label} • Fall Median % Progress by Student Group"
+
+    out_dir = CHARTS_DIR / "_district"
+    out_path = (
+        out_dir
+        / f"{district_label.replace(' ', '_')}_section11_{subj_label}_fall_median_progress_by_group.png"
+    )
+
+    _plot_grouped_typ_stretch(
+        grp,
+        scope_col="student_group",
+        scope_order=plot_groups,
+        title=title,
+        out_path=out_path,
+        ref_typical=ref_typ,
+        ref_stretch=ref_str,
+        preview=preview,
+        rotate=30,
+    )
+
+
+# --- DRIVER for Sections 9, 10, 11 (district-level only) ---
+print("Running Sections 9, 10, 11 (district-level fall median progress)...")
+scope_df = iready_base.copy()
+for subj in ["ELA", "Math"]:
+    plot_section9_median_progress_by_school(
+        scope_df, subj, district_label, preview=False
+    )
+    plot_section10_median_progress_by_grade(
+        scope_df, subj, district_label, preview=False
+    )
+    plot_section11_median_progress_by_group(
+        scope_df, subj, district_label, cfg, preview=False, min_n=12
+    )
+print("Sections 9, 10, 11 batch complete.")
 # %%

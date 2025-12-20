@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 
-def generate_iready_winter_charts(
+def generate_iready_eoy_charts(
     partner_name: str,
     output_dir: str,
     config: dict = None,
@@ -18,15 +18,15 @@ def generate_iready_winter_charts(
     iready_data: Optional[List[Dict[str, Any]]] = None,
 ) -> list:
     """
-    Runs legacy script-style `iready_moy.py` as a subprocess, using temp files for config + data.
+    Runs legacy script-style `iready_eoy.py` as a subprocess, using temp files for config + data.
 
-    Why: `iready_moy.py` executes code at import-time and expects on-disk `settings.yaml`,
+    Why: `iready_eoy.py` executes code at import-time and expects on-disk `settings.yaml`,
     `config_files/{partner}.yaml`, and `../data/iready_data.csv`.
     """
     if not iready_data:
         return []
 
-    run_root = Path(tempfile.mkdtemp(prefix="parsec_iready_moy_"))
+    run_root = Path(tempfile.mkdtemp(prefix="parsec_iready_eoy_"))
     run_data_dir = run_root / "data"
     run_charts_dir = run_root / "charts"
     run_logs_dir = run_root / "logs"
@@ -64,17 +64,17 @@ def generate_iready_winter_charts(
     # Write iReady CSV
     pd.DataFrame(iready_data).to_csv(csv_path, index=False)
 
-    script_path = Path(__file__).resolve().parent / "iready_moy.py"
+    script_path = Path(__file__).resolve().parent / "iready_eoy.py"
     run_cwd = str(Path(__file__).resolve().parent)
 
     env = os.environ.copy()
     env.update(
         {
-            "IREADY_MOY_SETTINGS_PATH": str(settings_path),
-            "IREADY_MOY_CONFIG_PATH": str(config_path),
-            "IREADY_MOY_DATA_DIR": str(run_data_dir),
-            "IREADY_MOY_CHARTS_DIR": str(run_charts_dir),
-            "IREADY_MOY_LOG_DIR": str(run_logs_dir),
+            "IREADY_EOY_SETTINGS_PATH": str(settings_path),
+            "IREADY_EOY_CONFIG_PATH": str(config_path),
+            "IREADY_EOY_DATA_DIR": str(run_data_dir),
+            "IREADY_EOY_CHARTS_DIR": str(run_charts_dir),
+            "IREADY_EOY_LOG_DIR": str(run_logs_dir),
             "MPLCONFIGDIR": str(run_mpl_dir),
             "PREVIEW": "false",
         }
@@ -83,7 +83,7 @@ def generate_iready_winter_charts(
     try:
         grades = (chart_filters or {}).get("grades") or []
         if isinstance(grades, list) and grades:
-            env["IREADY_MOY_GRADES"] = ",".join(str(g) for g in grades)
+            env["IREADY_EOY_GRADES"] = ",".join(str(g) for g in grades)
     except Exception:
         pass
 
@@ -110,9 +110,23 @@ def generate_iready_winter_charts(
                     selected.append(s)
 
         if selected:
-            env["IREADY_MOY_STUDENT_GROUPS"] = ",".join(selected)
+            env["IREADY_EOY_STUDENT_GROUPS"] = ",".join(selected)
     except Exception:
         pass
+
+    # Within-year compare windows for EOY charts:
+    # - Default: Winter + Spring
+    # - If Fall is also selected: Fall + Winter + Spring
+    try:
+        quarters = (chart_filters or {}).get("quarters") or []
+        if isinstance(quarters, str):
+            quarters = [quarters]
+        norm = [str(q).strip().lower() for q in (quarters if isinstance(quarters, list) else [])]
+        include_fall = "fall" in norm
+        # EOY comparisons always include Spring; include Winter if present, otherwise still default to Winter+Spring.
+        env["IREADY_EOY_COMPARE_WINDOWS"] = "Fall,Winter,Spring" if include_fall else "Winter,Spring"
+    except Exception:
+        env["IREADY_EOY_COMPARE_WINDOWS"] = "Winter,Spring"
 
     # Scope selection (district vs schools)
     # Supported chart_filters options:
@@ -121,12 +135,12 @@ def generate_iready_winter_charts(
     try:
         cf = chart_filters or {}
         if bool(cf.get("district_only")) is True:
-            env["IREADY_MOY_SCOPE_MODE"] = "district_only"
+            env["IREADY_EOY_SCOPE_MODE"] = "district_only"
         schools = cf.get("schools") or []
         if isinstance(schools, list) and len(schools) > 0:
-            env["IREADY_MOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
-            if env.get("IREADY_MOY_SCOPE_MODE") != "district_only":
-                env["IREADY_MOY_SCOPE_MODE"] = "selected_schools"
+            env["IREADY_EOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
+            if env.get("IREADY_EOY_SCOPE_MODE") != "district_only":
+                env["IREADY_EOY_SCOPE_MODE"] = "selected_schools"
     except Exception:
         pass
 
@@ -141,8 +155,8 @@ def generate_iready_winter_charts(
 
     # Persist stdout/stderr for debugging
     try:
-        (run_logs_dir / "iready_moy_stdout.txt").write_text(proc.stdout or "", encoding="utf-8")
-        (run_logs_dir / "iready_moy_stderr.txt").write_text(proc.stderr or "", encoding="utf-8")
+        (run_logs_dir / "iready_eoy_stdout.txt").write_text(proc.stdout or "", encoding="utf-8")
+        (run_logs_dir / "iready_eoy_stderr.txt").write_text(proc.stderr or "", encoding="utf-8")
     except Exception:
         pass
 
@@ -150,7 +164,7 @@ def generate_iready_winter_charts(
         stderr_tail = (proc.stderr or "")[-4000:]
         stdout_tail = (proc.stdout or "")[-4000:]
         raise RuntimeError(
-            "iready_moy.py failed.\n"
+            "iready_eoy.py failed.\n"
             f"returncode={proc.returncode}\n"
             f"stdout_tail:\n{stdout_tail}\n"
             f"stderr_tail:\n{stderr_tail}\n"
@@ -181,5 +195,10 @@ def generate_iready_winter_charts(
     shutil.rmtree(run_root, ignore_errors=True)
 
     return copied
+
+
+# Backward-compatible alias (older imports may still use this name)
+def generate_iready_winter_charts(*args, **kwargs) -> list:
+    return generate_iready_eoy_charts(*args, **kwargs)
 
 

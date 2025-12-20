@@ -53,6 +53,7 @@ export default function CreateSlide() {
         partnerName: '',
         projectId: 'parsecgo',
         location: 'US',
+        districtDisplayName: '',
         selectedDataSources: [] as string[],
         customDataSources: {} as Record<string, string>,
         // Slide Configuration
@@ -79,6 +80,12 @@ export default function CreateSlide() {
         enableAIInsights: true, // Toggle for AI analytics/insights
         themeColor: '#0094bd' // Default Parsec blue color
     })
+
+    // For MOY/EOY Insights, allow emphasizing within-year performance and avoid year-over-year comparisons.
+    // In that mode, allow selecting a single year (within-year emphasis) OR multiple years (year-over-year).
+    const requiresSingleYearForInsights =
+        !!formData.enableAIInsights &&
+        (String(formData.quarters || '').toLowerCase() === 'winter' || String(formData.quarters || '').toLowerCase() === 'spring')
 
     // Custom hooks for data fetching
     const { assessments: ASSESSMENT_SOURCES, isLoading: isLoadingAssessments } = useAvailableAssessments()
@@ -243,6 +250,8 @@ export default function CreateSlide() {
         setOverLimitYears(bad)
     }, [formData.years, yearTotalsByYear])
 
+    // Note: we do NOT auto-trim years in MOY/EOY Insights mode; users can choose 1 or many years.
+
     // Toast immediately when a newly-selected year exceeds the safety threshold (avoid spam).
     useEffect(() => {
         const current = new Set(overLimitYears)
@@ -271,6 +280,8 @@ export default function CreateSlide() {
     const isLoadingChoices =
         isLoadingFilters || isLoadingAssessmentTables || isLoadingDatasets || isLoadingFormOptions || isLoadingRace || isLoadingStudentGroups
 
+    // (Slide count estimator temporarily removed)
+
     // Note: District/school selection is now done per-assessment
     // See AssessmentScopeSelector component below
 
@@ -290,7 +301,7 @@ export default function CreateSlide() {
                         districts: [],
                         schools: [],
                         includeDistrictwide: true,
-                        includeSchools: true
+                        includeSchools: false
                     }
                 } else {
                     // Remove scope for deselected assessment
@@ -421,7 +432,7 @@ export default function CreateSlide() {
             const includeSchools = scope.includeSchools !== false
             // Must include districtwide and/or at least one school
             if (!includeDistrictwide && (!includeSchools || scope.schools.length === 0)) {
-                toast.error(`Please enable Districtwide and/or select at least one school for ${assessmentId}`)
+                toast.error(`Please enable the aggregate and/or select at least one school for ${assessmentId}`)
                 return
             }
         }
@@ -431,8 +442,8 @@ export default function CreateSlide() {
             return
         }
 
-        if (formData.years.length < 2) {
-            toast.error('Please select at least 2 years (2023-2026)')
+        if (formData.years.length < 1) {
+            toast.error('Please select at least 1 year')
             return
         }
 
@@ -510,6 +521,10 @@ export default function CreateSlide() {
                 partner_name: formData.partnerName || 'demodashboard',
                 // Some partners (esp. charter-style datasets) don't have a district field; use Districtwide.
                 district_name: districtList.length > 0 ? districtList : ['Districtwide'],
+                // Optional display-only override for chart titles/labels. Does NOT affect querying/filtering.
+                ...(formData.districtDisplayName && formData.districtDisplayName.trim()
+                    ? { district_display_name: [formData.districtDisplayName.trim()] }
+                    : {}),
                 school_name_map: {
                     'Parsec Academy': 'Parsec Academy',
                     '': 'No assigned program'
@@ -705,6 +720,20 @@ export default function CreateSlide() {
                                             disabled={isLoadingDatasets}
                                         />
                                         {isLoadingDatasets && <p className="text-muted-foreground text-xs">Fetching datasets from BigQuery...</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="districtDisplayName">
+                                            District/Charter Display Name <span className="text-muted-foreground">(Optional)</span>
+                                        </Label>
+                                        <Input
+                                            id="districtDisplayName"
+                                            value={formData.districtDisplayName}
+                                            onChange={(e) => setFormData((prev) => ({ ...prev, districtDisplayName: e.target.value }))}
+                                            placeholder="e.g., Strathmore"
+                                        />
+                                        <p className="text-muted-foreground text-xs">
+                                            Used only for chart titles/labels. Filters still use the dataset’s original district/school names.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -910,7 +939,13 @@ export default function CreateSlide() {
                                                 options={YEARS}
                                                 selected={formData.years}
                                                 onChange={(selected) => setFormData((prev) => ({ ...prev, years: selected }))}
-                                                placeholder={isLoadingChoices ? 'Loading years...' : 'Select at least 2 year(s)...'}
+                                                placeholder={
+                                                    isLoadingChoices
+                                                        ? 'Loading years...'
+                                                        : requiresSingleYearForInsights
+                                                          ? 'Select 1+ year(s)...'
+                                                          : 'Select 1+ year(s)...'
+                                                }
                                                 disabled={isLoadingChoices}
                                                 getOptionSubLabel={(y) => {
                                                     const n = yearTotalsByYear?.[y]
@@ -918,9 +953,14 @@ export default function CreateSlide() {
                                                     return formatRowCount(n)
                                                 }}
                                             />
-                                            {formData.years.length > 0 && formData.years.length < 2 && (
-                                                <p className="text-destructive text-sm">Please select at least 2 years</p>
-                                            )}
+                                            {formData.years.length === 0 ? (
+                                                <p className="text-destructive text-sm">Please select at least 1 year</p>
+                                            ) : requiresSingleYearForInsights && formData.years.length === 1 ? (
+                                                <p className="text-muted-foreground text-xs">
+                                                    Tip: selecting 1 year emphasizes within-year performance. Select multiple years for year-over-year
+                                                    comparisons.
+                                                </p>
+                                            ) : null}
                                             {overLimitYears.length > 0 && (
                                                 <p className="text-sm text-amber-700">
                                                     Warning: {overLimitYears.join(', ')} exceed 1,000,000 rows
@@ -929,6 +969,7 @@ export default function CreateSlide() {
                                             )}
                                         </div>
                                     </div>
+
                                     {availableSubjects.length > 0 && (
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
