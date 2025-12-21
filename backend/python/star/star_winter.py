@@ -3540,18 +3540,19 @@ def _plot_star_perf_fall_winter_single_subject(
     )
     
     # Single column layout
-    fig_width = FIGSIZE_WIDTH // 2
+    fig_width = FIGSIZE_WIDTH
     fig, ax = plt.subplots(figsize=(fig_width, 9), dpi=300)
     
     x = np.arange(len(cats))
     
     # Adjust bar positioning based on whether we have one or two windows
+    # Let matplotlib use default bar width (0.8) instead of custom calculation
     if has_both:
-        bar_w = calculate_bar_width(2, fig_width)  # 2 bars per group
+        bar_w = 0.35  # Default width for side-by-side bars
         x_f = x - bar_w / 2
         x_w = x + bar_w / 2
     else:
-        bar_w = calculate_bar_width(1, fig_width)  # Single bar per group
+        bar_w = 0.8  # Default matplotlib bar width for single bars
         x_f = x
         x_w = x  # Won't be used
     
@@ -3729,7 +3730,7 @@ def _plot_star_perf_fall_winter_single_subject(
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")
     safe_subject = subject.lower().replace(" ", "_")
-    out_name = f"{safe_scope}_section{section_num}_{out_stub}_{safe_subject}.png"
+    out_name = f"{safe_scope}_STAR_section{section_num}_{out_stub}_{safe_subject}.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
@@ -3796,8 +3797,8 @@ def _plot_star_sgp_by_single_subject(
     x = np.arange(len(d))
     y = d["median_sgp"].to_numpy(float)
     
-    # Single column layout
-    fig_width = FIGSIZE_WIDTH // 2
+    # Single column layout - full width to match sections 6-8
+    fig_width = FIGSIZE_WIDTH
     fig, ax = plt.subplots(figsize=(fig_width, 9), dpi=300)
     
     # Reference band
@@ -3809,11 +3810,10 @@ def _plot_star_sgp_by_single_subject(
     
     sgp_color = "#0381a2"
     
-    # Dynamic bar width
+    # Let matplotlib decide bar width automatically
     n_bars = len(d)
-    bar_width = calculate_bar_width(n_bars, fig_width)
     
-    bars = ax.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+    bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
     
     for rect, val in zip(bars, y):
         ax.text(
@@ -3832,9 +3832,7 @@ def _plot_star_sgp_by_single_subject(
     for lbl, n in zip(x_labels, d["n"].fillna(0).astype(int).tolist()):
         labels.append(f"{lbl}\n(n = {n})")
     
-    # Use padding for consistent appearance
-    padding = PADDING
-    ax.set_xlim(-padding, n_bars - 1 + padding)
+    # Let matplotlib decide axis limits
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     
@@ -3863,7 +3861,7 @@ def _plot_star_sgp_by_single_subject(
     safe_subject = subject.lower().replace(" ", "_")
     safe_win = window_label.lower().replace("→", "to").replace(" ", "_")
     out_name = (
-        f"{safe_scope}_section{section_num}_{out_stub}_{safe_subject}_{safe_win}.png"
+        f"{safe_scope}_STAR_section{section_num}_{out_stub}_{safe_subject}_{safe_win}.png"
     )
     out_path = out_dir / out_name
     
