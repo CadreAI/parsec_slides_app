@@ -3495,9 +3495,9 @@ def _plot_star_perf_fall_winter_single_subject(
         (fall_label + winter_label) if (fall_label and winter_label) else time_vals
     )
     
-    if len(time_order) < 2:
-        print(f"[Section {section_num}] Skipped {subject} (need both Fall and Winter data)")
-        return None
+    # if len(time_order) < 2:
+    #     print(f"[Section {section_num}] Skipped {subject} (need both Fall and Winter data)")
+    #     return None
     
     # Keep grade as numeric to match pivot index; other categories use strings
     if by_col == "studentgrade":
