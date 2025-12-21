@@ -5,6 +5,7 @@ Based on star_winter.py structure but specifically for Spring filtering
 
 # Set matplotlib backend to non-interactive before any imports
 import matplotlib
+import matplotlib.transforms as mtransforms
 
 matplotlib.use('Agg')
 
@@ -24,7 +25,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
 from .star_chart_utils import (
+    FIGSIZE_WIDTH,
     LABEL_MIN_PCT,
+    PADDING,
+    calculate_bar_width,
     draw_insight_card,
     draw_score_bar,
     draw_stacked_bar,
@@ -1605,6 +1609,833 @@ def plot_star_growth_by_site_spring(
     return str(out_path)
 
 # ---------------------------------------------------------------------
+# SECTION 4.1 — District-Level SGP Overview Helper Functions
+# ---------------------------------------------------------------------
+
+def _prep_star_sgp_trend_district_overview(df, subject_str):
+    """
+    Prepare Spring SGP trend data aggregated across all grades for district overview.
+    Returns: (DataFrame, vector_used: str)
+    - DataFrame has columns: time_label, median_sgp, n, subject
+    - vector_used is the SGP vector string (e.g., "WINTER_SPRING") or None if no data
+    Limited to the most recent 4 time_labels.
+    Uses any available SGP data (prioritizes WINTER_SPRING if available).
+    """
+    d = df.copy()
+    
+    # Check for SGP columns
+    if "current_sgp_vector" not in d.columns:
+        print(f"[Section 4 Overview] No current_sgp_vector column found for {subject_str}")
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
+    
+    if "current_sgp" not in d.columns:
+        print(f"[Section 4 Overview] No current_sgp column found for {subject_str}")
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
+    
+    # Spring term only
+    d = d[d["testwindow"].astype(str).str.upper() == "SPRING"].copy()
+    
+    # Subject filtering using existing filter_star_subject_rows
+    d = filter_star_subject_rows(d, subject_str)
+    
+    # Check for rows with any SGP data
+    d_with_sgp = d[d["current_sgp_vector"].notna() & d["current_sgp"].notna()].copy()
+    
+    if d_with_sgp.empty:
+        print(f"[Section 4 Overview] No SGP data found for {subject_str}")
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
+    
+    # Check what SGP vectors are available
+    available_vectors = d_with_sgp["current_sgp_vector"].unique()
+    vector_used = None  # Track which vector we use
+    
+    # Prefer WINTER_SPRING, but use any available SGP data
+    if "WINTER_SPRING" in available_vectors:
+        d = d_with_sgp[d_with_sgp["current_sgp_vector"] == "WINTER_SPRING"].copy()
+        vector_used = "WINTER_SPRING"
+        print(f"[Section 4 Overview] Using WINTER_SPRING SGP data for {subject_str}")
+    else:
+        most_common_vector = d_with_sgp["current_sgp_vector"].mode().iloc[0] if not d_with_sgp["current_sgp_vector"].mode().empty else available_vectors[0]
+        d = d_with_sgp[d_with_sgp["current_sgp_vector"] == most_common_vector].copy()
+        vector_used = most_common_vector
+        print(f"[Section 4 Overview] No WINTER_SPRING data, using {most_common_vector} SGP data for {subject_str}")
+    
+    if d.empty:
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
+    
+    # Build time labels using existing _short_year function
+    d["academicyear_short"] = d["academicyear"].apply(_short_year)
+    d["time_label"] = "Spring " + d["academicyear_short"]
+    
+    # Deduplicate to latest test per student per time_label
+    if "activity_completed_date" in d.columns:
+        d["activity_completed_date"] = pd.to_datetime(d["activity_completed_date"], errors="coerce")
+        d.sort_values(["student_state_id", "time_label", "activity_completed_date"], inplace=True)
+        d = d.groupby(["student_state_id", "time_label"], as_index=False).tail(1)
+    
+    # Aggregate median SGP across ALL grades
+    out = (
+        d.groupby("time_label", dropna=False)
+        .agg(
+            median_sgp=("current_sgp", "median"),
+            n=("current_sgp", "size"),
+        )
+        .reset_index()
+    )
+    
+    if out.empty:
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
+    
+    # Keep last 4 Spring windows
+    order = sorted(out["time_label"].astype(str).unique())
+    out["time_label"] = pd.Categorical(out["time_label"], order, ordered=True)
+    out = out.sort_values("time_label").tail(4).reset_index(drop=True)
+    out["subject"] = subject_str
+    
+    return out, vector_used
+
+
+def plot_district_sgp_overview_single_subject_spring(
+    df, scope_label, folder, output_dir, subject_str, window_filter="Spring", preview=False
+):
+    """
+    District-level SGP overview: Single subject version.
+    Aggregates across all grades to show overall district growth for one subject.
+    """
+    # Determine subject title
+    if subject_str.lower() in ['math', 'mathematics']:
+        title = 'Math'
+    else:
+        title = 'Reading'
+    
+    sgp_color = "#0381a2"
+    band_color = "#eab308"
+    band_line_color = "#ffa800"
+    
+    # Prepare SGP data for this subject
+    trend_df, vector_used = _prep_star_sgp_trend_district_overview(df, subject_str=subject_str)
+    
+    # Check if we have any data
+    if trend_df.empty:
+        print(f"[Section 4 Overview] No SGP data for {scope_label} - {title}")
+        return None
+    
+    # Get the SGP vector label from the actual data used
+    sgp_vector_label = "SGP"  # Default
+    if vector_used:
+        if vector_used == "WINTER_SPRING":
+            sgp_vector_label = "Winter→Spring SGP"
+        elif vector_used == "FALL_SPRING":
+            sgp_vector_label = "Fall→Spring SGP"
+        else:
+            sgp_vector_label = f"{vector_used} SGP"
+    
+    # Create single-subject plot (single column)
+    fig_width = FIGSIZE_WIDTH // 2
+    fig, ax = plt.subplots(1, 1, figsize=(fig_width, 9), dpi=300)
+    
+    if not {"time_label", "median_sgp", "n"}.issubset(trend_df.columns):
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"No {title} data", ha="center", va="center",
+               fontsize=16, fontweight="bold", color="#434343")
+        plt.close(fig)
+        return None
+    
+    sub = trend_df.copy()
+    x = np.arange(len(sub))
+    y = sub["median_sgp"].to_numpy(float)
+    
+    # Calculate dynamic bar width for consistent appearance
+    n_bars = len(sub)
+    bar_width = calculate_bar_width(n_bars, fig_width)
+    padding = PADDING
+    
+    # Growth band (35-65 typical growth range)
+    ax.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
+    for yref in [35, 50, 65]:
+        ax.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
+    
+    # Bars with consistent width
+    bars = ax.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+    for rect, val in zip(bars, y):
+        ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
+               f"{val:.1f}", ha="center", va="center", fontsize=9,
+               fontweight="bold", color="white")
+    
+    # Add n-counts under x-axis
+    n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
+    formatted_labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" 
+                       for tl in sub["time_label"].astype(str).tolist()]
+    
+    ax.set_xlim(-padding, n_bars - 1 + padding)
+    ax.set_xticks(x)
+    ax.set_xticklabels(formatted_labels)
+    ax.set_title(title, fontweight="bold", fontsize=14, pad=10)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel(f"Median {sgp_vector_label}")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    
+    # Legend
+    fig.legend(
+        handles=[Patch(facecolor=sgp_color, label="Median SGP")],
+        loc="upper center", bbox_to_anchor=(0.5, 0.95),
+        frameon=False, fontsize=10
+    )
+    
+    # Title
+    fig.suptitle(
+        f"{scope_label} • {sgp_vector_label} Trends (All Grades) • {title}",
+        fontsize=18, fontweight="bold", y=0.98
+    )
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    
+    # Save
+    out_dir = Path(output_dir) / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = scope_label.replace(" ", "_")
+    safe_subj = subject_str.replace(" ", "_").lower()
+    out_name = f"DISTRICT_{safe_scope}_STAR_section4_sgp_overview_{safe_subj}_{window_filter.lower()}.png"
+    out_path = out_dir / out_name
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    print(f"Saved Section 4 SGP Overview ({title}): {out_path}")
+    
+    # Track chart with data
+    chart_data = {
+        "chart_type": "star_spring_section4_sgp_overview_single_subject",
+        "section": 4,
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "subject": title,
+        "sgp_data": trend_df.to_dict("records") if not trend_df.empty else []
+    }
+    track_chart(f"Section 4: District SGP Overview {title}", out_path, scope=scope_label, section=4, chart_data=chart_data)
+    plt.close(fig)
+    
+    return str(out_path)
+
+# ---------------------------------------------------------------------
+# Helper Functions for Sections 6-11
+# ---------------------------------------------------------------------
+
+def _latest_academicyear(df: pd.DataFrame) -> int | None:
+    """Get the latest academic year from dataframe"""
+    if "academicyear" not in df.columns:
+        return None
+    ay = pd.to_numeric(df["academicyear"], errors="coerce")
+    if ay.notna().any():
+        return int(ay.max())
+    return None
+
+
+def _dedupe_latest_attempt(
+    d: pd.DataFrame,
+    id_col: str,
+    keys: list[str],
+    date_col: str = "activity_completed_date",
+) -> pd.DataFrame:
+    """Keep latest attempt per (id + keys) by activity_completed_date if available."""
+    out = d.copy()
+    
+    if date_col in out.columns:
+        out[date_col] = pd.to_datetime(out[date_col], errors="coerce")
+    else:
+        out[date_col] = pd.NaT
+    
+    sort_cols = [id_col] + keys + [date_col]
+    sort_cols = [c for c in sort_cols if c in out.columns]
+    out = out.sort_values(sort_cols)
+    
+    grp_cols = [id_col] + [c for c in keys if c in out.columns]
+    out = out.groupby(grp_cols, as_index=False).tail(1)
+    return out
+
+
+def _prep_star_perf_winter_spring_by(
+    df: pd.DataFrame,
+    subject: str,
+    by_col: str,
+) -> tuple[pd.DataFrame, dict]:
+    """Prepare percent-by-band for Winter vs Spring for the latest academicyear."""
+    d = df.copy()
+    
+    # Latest year only
+    latest_ay = _latest_academicyear(d)
+    if latest_ay is None:
+        return pd.DataFrame(), {}
+    d = d[pd.to_numeric(d["academicyear"], errors="coerce") == latest_ay].copy()
+    
+    # Winter/Spring only
+    if "testwindow" not in d.columns:
+        return pd.DataFrame(), {}
+    d = d[d["testwindow"].astype(str).str.upper().isin(["WINTER", "SPRING"])].copy()
+    
+    # Subject filtering
+    d = filter_star_subject_rows(d, subject)
+    if d.empty:
+        return pd.DataFrame(), {}
+    
+    # Must have benchmark
+    if "state_benchmark_achievement" not in d.columns:
+        return pd.DataFrame(), {}
+    d = d[d["state_benchmark_achievement"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame(), {}
+    
+    # Time labels
+    yy_prev = str(int(latest_ay) - 1)[-2:]
+    yy = str(int(latest_ay))[-2:]
+    d["time_label"] = d["testwindow"].astype(str).str.title() + f" {yy_prev}-{yy}"
+    
+    # Ensure by_col exists
+    if by_col not in d.columns:
+        return pd.DataFrame(), {}
+    
+    # Dedupe to latest attempt per student + (by_col, time_label)
+    if "student_state_id" not in d.columns:
+        return pd.DataFrame(), {}
+    d = _dedupe_latest_attempt(d, "student_state_id", keys=[by_col, "time_label"])
+    
+    # Aggregate pct within each (by, time_label)
+    counts = (
+        d.groupby([by_col, "time_label", "state_benchmark_achievement"])
+        .size()
+        .rename("n")
+        .reset_index()
+    )
+    totals = d.groupby([by_col, "time_label"]).size().rename("N_total").reset_index()
+    out = counts.merge(totals, on=[by_col, "time_label"], how="left")
+    out["pct"] = 100 * out["n"] / out["N_total"]
+    
+    # Ensure full STAR_ORDER grid for each (by, time)
+    idx = pd.MultiIndex.from_product(
+        [out[by_col].dropna().unique(), out["time_label"].unique(), hf.STAR_ORDER],
+        names=[by_col, "time_label", "state_benchmark_achievement"],
+    )
+    out = (
+        out.set_index([by_col, "time_label", "state_benchmark_achievement"])
+        .reindex(idx)
+        .reset_index()
+    )
+    out["pct"] = out["pct"].fillna(0)
+    out["n"] = out["n"].fillna(0)
+    out["N_total"] = out.groupby([by_col, "time_label"])["N_total"].transform(
+        lambda s: s.ffill().bfill()
+    )
+    
+    meta = {
+        "latest_ay": latest_ay,
+        "time_order": [f"Winter {yy_prev}-{yy}", f"Spring {yy_prev}-{yy}"],
+        "yy_label": f"{yy_prev}-{yy}",
+    }
+    return out, meta
+
+
+def _prep_star_sgp_latest_by(
+    df: pd.DataFrame,
+    subject: str,
+    by_col: str,
+    sgp_vector: str = "WINTER_SPRING",
+) -> pd.DataFrame:
+    """Prepare latest-year Spring SGP by a category column."""
+    d = df.copy()
+    
+    # Latest year only
+    latest_ay = _latest_academicyear(d)
+    if latest_ay is None:
+        return pd.DataFrame()
+    d = d[pd.to_numeric(d["academicyear"], errors="coerce") == latest_ay].copy()
+    
+    # Spring only
+    if "testwindow" not in d.columns:
+        return pd.DataFrame()
+    d = d[d["testwindow"].astype(str).str.upper() == "SPRING"].copy()
+    
+    # Subject
+    d = filter_star_subject_rows(d, subject)
+    if d.empty:
+        return pd.DataFrame()
+    
+    # SGP window
+    if "current_sgp_vector" not in d.columns:
+        return pd.DataFrame()
+    d = d[d["current_sgp_vector"] == sgp_vector].copy()
+    
+    # Must have SGP values
+    if "current_sgp" not in d.columns:
+        return pd.DataFrame()
+    d = d[d["current_sgp"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+    
+    # Ensure by_col exists
+    if by_col not in d.columns:
+        return pd.DataFrame()
+    
+    # Dedupe latest attempt per student + by_col
+    if "student_state_id" not in d.columns:
+        return pd.DataFrame()
+    d = _dedupe_latest_attempt(
+        d, "student_state_id", keys=[by_col, "current_sgp_vector"]
+    )
+    
+    out = (
+        d.groupby(by_col)
+        .agg(median_sgp=("current_sgp", "median"), n=("current_sgp", "size"))
+        .reset_index()
+    )
+    
+    # Sort
+    if by_col == "studentgrade":
+        out[by_col] = pd.to_numeric(out[by_col], errors="coerce")
+        out = out.sort_values(by_col)
+    else:
+        out[by_col] = out[by_col].astype(str)
+        out = out.sort_values(by_col)
+    
+    return out
+
+
+def _resolve_group_key(desired: str, student_groups_cfg: dict) -> str | None:
+    """Resolve group key by exact match, casefold match, or common aliases."""
+    if not student_groups_cfg:
+        return None
+    
+    # Direct
+    if desired in student_groups_cfg:
+        return desired
+    
+    # Case-insensitive match
+    desired_norm = str(desired).strip().casefold()
+    for k in student_groups_cfg.keys():
+        if str(k).strip().casefold() == desired_norm:
+            return k
+    
+    # Aliases
+    alias_map = {
+        "swd": "Students with Disabilities",
+        "sed": "Socioeconomically Disadvantaged",
+        "el": "English Learners",
+    }
+    if desired_norm in alias_map:
+        return _resolve_group_key(alias_map[desired_norm], student_groups_cfg)
+    
+    return None
+
+# ---------------------------------------------------------------------
+# Plotting Functions for Sections 6-11
+# ---------------------------------------------------------------------
+
+def _plot_star_perf_winter_spring_single_subject(
+    pct_df: pd.DataFrame,
+    by_col: str,
+    subject: str,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    section_num: int,
+    out_stub: str,
+    preview: bool = False,
+) -> str | None:
+    """100% stacked bars: two bars per category (Winter vs Spring) with Spring higher opacity."""
+    if pct_df is None or pct_df.empty:
+        print(f"[Section {section_num}] Skipped {subject} (no data)")
+        return None
+    
+    # Build time order from labels found
+    time_vals = sorted(pct_df["time_label"].astype(str).unique().tolist())
+    winter_label = [t for t in time_vals if t.lower().startswith("winter")]
+    spring_label = [t for t in time_vals if t.lower().startswith("spring")]
+    time_order = (
+        (winter_label + spring_label) if (winter_label and spring_label) else time_vals
+    )
+    
+    # Keep grade as numeric to match pivot index; other categories use strings
+    if by_col == "studentgrade":
+        cats = pct_df[by_col].dropna().astype(int).unique().tolist()
+    else:
+        cats = pct_df[by_col].dropna().astype(str).unique().tolist()
+    
+    # Sort categories
+    if by_col == "studentgrade":
+        cats = sorted(cats)
+    else:
+        cats = sorted(cats)
+    
+    if len(cats) == 0:
+        print(f"[Section {section_num}] Skipped {subject} (no categories)")
+        return None
+    
+    # Create a pivot table per time
+    def _stack_for(tlabel: str) -> pd.DataFrame:
+        sub = pct_df[pct_df["time_label"].astype(str) == str(tlabel)].copy()
+        stack = (
+            sub.pivot(index=by_col, columns="state_benchmark_achievement", values="pct")
+            .reindex(index=cats, columns=hf.STAR_ORDER)
+            .fillna(0)
+        )
+        return stack
+    
+    # Handle both single and dual window scenarios
+    stack_w = _stack_for(time_order[0]) if len(time_order) > 0 else pd.DataFrame()
+    stack_s = _stack_for(time_order[1]) if len(time_order) > 1 else pd.DataFrame()
+    has_both = len(time_order) >= 2
+    
+    # n maps
+    n_map = (
+        pct_df.groupby([by_col, "time_label"])["N_total"]
+        .max()
+        .dropna()
+        .astype(int)
+        .to_dict()
+    )
+    
+    # Single column layout
+    fig_width = FIGSIZE_WIDTH
+    fig, ax = plt.subplots(figsize=(fig_width, 9), dpi=300)
+    
+    x = np.arange(len(cats))
+    
+    # Adjust bar positioning based on whether we have one or two windows
+    if has_both:
+        bar_w = 0.35  # Default width for side-by-side bars
+        x_w = x - bar_w / 2
+        x_s = x + bar_w / 2
+    else:
+        bar_w = 0.8  # Default matplotlib bar width for single bars
+        x_w = x
+        x_s = x  # Won't be used
+    
+    # Match source: Winter slightly lighter when comparing, full color when alone
+    winter_alpha = 0.60 if has_both else 1.00
+    spring_alpha = 1.00
+    
+    # Plot Winter bars (or the only window if single)
+    cum = np.zeros(len(cats))
+    for band in hf.STAR_ORDER:
+        vals = stack_w[band].to_numpy() if not stack_w.empty else np.zeros(len(cats))
+        ax.bar(
+            x_w,
+            vals,
+            width=bar_w,
+            bottom=cum,
+            color=hf.STAR_COLORS[band],
+            alpha=winter_alpha,
+            edgecolor="white",
+            linewidth=1.0,
+        )
+        # labels
+        for i, v in enumerate(vals):
+            if v >= 3:
+                label_color = (
+                    "#434343" if band == "2 - Standard Nearly Met" else "white"
+                )
+                ax.text(
+                    x_w[i],
+                    cum[i] + v / 2,
+                    f"{v:.1f}%",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    fontweight="bold",
+                    color=label_color,
+                )
+        cum += vals
+    
+    # Plot Spring bars (only if we have Spring data)
+    if has_both and not stack_s.empty:
+        cum = np.zeros(len(cats))
+        for band in hf.STAR_ORDER:
+            vals = stack_s[band].to_numpy()
+            ax.bar(
+                x_s,
+                vals,
+                width=bar_w,
+                bottom=cum,
+                color=hf.STAR_COLORS[band],
+                alpha=spring_alpha,
+                edgecolor="white",
+                linewidth=1.0,
+            )
+            # labels
+            for i, v in enumerate(vals):
+                if v >= 3:
+                    label_color = (
+                        "#434343" if band == "2 - Standard Nearly Met" else "white"
+                    )
+                    ax.text(
+                        x_s[i],
+                        cum[i] + v / 2,
+                        f"{v:.1f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        fontweight="bold",
+                        color=label_color,
+                    )
+            cum += vals
+    
+    # X labels include n sizes
+    labels = []
+    for c in cats:
+        nw = n_map.get((c, str(time_order[0])), 0)
+        
+        # Display K for grade 0
+        if by_col == "studentgrade":
+            disp = "K" if int(c) == 0 else str(int(c))
+        else:
+            disp = str(c)
+        
+        if has_both:
+            ns = n_map.get((c, str(time_order[1])), 0)
+            labels.append(f"{disp}\n(W n={nw} | S n={ns})")
+        else:
+            # Single window - just show that window's label and count
+            window_label = "W" if "winter" in str(time_order[0]).lower() else "S"
+            labels.append(f"{disp}\n({window_label} n={nw})")
+    
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("% of Students")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    
+    # Rotate school + student group labels
+    if by_col in ["school_name", "schoolname", "student_group"]:
+        for t in ax.get_xticklabels():
+            t.set_rotation(35)
+            t.set_ha("right")
+    
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    
+    # Add small "Winter" / "Spring" tags ABOVE each category group (only if both windows exist)
+    if has_both:
+        
+        trans = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+        for i in range(len(cats)):
+            ax.text(
+                x_w[i],
+                1.01,
+                "Winter",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                color="#434343",
+                transform=trans,
+                clip_on=False,
+            )
+            ax.text(
+                x_s[i],
+                1.01,
+                "Spring",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                color="#434343",
+                transform=trans,
+                clip_on=False,
+            )
+    
+    # Legend
+    legend_handles = [
+        Patch(facecolor=hf.STAR_COLORS[b], edgecolor="none", label=b)
+        for b in hf.STAR_ORDER
+    ]
+    ax.legend(
+        handles=legend_handles,
+        labels=hf.STAR_ORDER,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.08),
+        ncol=len(hf.STAR_ORDER),
+        frameon=False,
+        fontsize=9,
+        handlelength=1.5,
+        handletextpad=0.4,
+        columnspacing=1.0,
+    )
+    
+    # Title
+    title_by = {
+        "school_name": "School",
+        "studentgrade": "Grade",
+        "student_group": "Student Group",
+    }.get(by_col, by_col)
+    
+    # Adjust title based on available windows
+    if has_both:
+        title_text = f"{scope_label} • {subject}\nWinter → Spring Performance by {title_by}"
+    else:
+        window_name = time_order[0].split()[0]  # Extract "Winter" or "Spring"
+        title_text = f"{scope_label} • {subject}\n{window_name} Performance by {title_by}"
+    
+    fig.suptitle(
+        title_text,
+        fontsize=18,
+        fontweight="bold",
+        y=1.01,
+    )
+    
+    # Save
+    out_dir = Path(output_dir) / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = scope_label.replace(" ", "_")
+    safe_subject = subject.lower().replace(" ", "_")
+    out_name = f"{safe_scope}_STAR_section{section_num}_{out_stub}_{safe_subject}.png"
+    out_path = out_dir / out_name
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    
+    # Track chart
+    chart_data = {
+        "chart_type": f"star_spring_section{section_num}_{out_stub}",
+        "section": section_num,
+        "scope": scope_label,
+        "window_filter": "Winter/Spring",
+        "subject": subject,
+        "pct_data": pct_df.to_dict("records") if not pct_df.empty else [],
+        "time_orders": [str(t) for t in time_order],
+    }
+    track_chart(f"Section {section_num}: {title_by} Winter→Spring {subject}", out_path, scope=scope_label, section=section_num, chart_data=chart_data)
+    
+    print(f"[Section {section_num}] Saved: {out_path}")
+    if preview:
+        plt.show()
+    plt.close(fig)
+    
+    return str(out_path)
+
+
+def _plot_star_sgp_by_single_subject(
+    sgp_df: pd.DataFrame,
+    by_col: str,
+    subject: str,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    section_num: int,
+    out_stub: str,
+    window_label: str = "Winter→Spring",
+    preview: bool = False,
+) -> str | None:
+    """Bar chart of median SGP by category with 35–65 reference band."""
+    if sgp_df is None or sgp_df.empty:
+        print(f"[Section {section_num}] Skipped {subject} ({window_label}) (no data)")
+        return None
+    
+    d = sgp_df.copy()
+    
+    # Enforce min-n on student group charts
+    if by_col == "student_group":
+        d = d[d["n"].fillna(0).astype(int) >= 12].copy()
+        if d.empty:
+            print(
+                f"[Section {section_num}] Skipped {subject} ({window_label}) (<12 students for all groups)"
+            )
+            return None
+    
+    # X labels
+    if by_col == "studentgrade":
+        x_labels = d[by_col].fillna(-999).astype(int).apply(lambda g: "K" if g == 0 else str(g)).tolist()
+        title_by = "Grade"
+    elif by_col == "school_name":
+        x_labels = d[by_col].astype(str).tolist()
+        title_by = "School"
+    else:
+        x_labels = d[by_col].astype(str).tolist()
+        title_by = "Student Group"
+    
+    x = np.arange(len(d))
+    y = d["median_sgp"].to_numpy(float)
+    
+    # Single column layout - full width to match sections 6-8
+    fig_width = FIGSIZE_WIDTH
+    fig, ax = plt.subplots(figsize=(fig_width, 9), dpi=300)
+    
+    # Reference band
+    band_color = "#eab308"
+    band_line_color = "#ffa800"
+    ax.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
+    for yref in [35, 50, 65]:
+        ax.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
+    
+    sgp_color = "#0381a2"
+    
+    # Let matplotlib decide bar width automatically
+    n_bars = len(d)
+    
+    bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+    
+    for rect, val in zip(bars, y):
+        ax.text(
+            rect.get_x() + rect.get_width() / 2,
+            rect.get_height() / 2,
+            f"{val:.1f}",
+            ha="center",
+            va="center",
+            fontsize=9,
+            fontweight="bold",
+            color="white",
+        )
+    
+    # X tick labels with n
+    labels = []
+    for lbl, n in zip(x_labels, d["n"].fillna(0).astype(int).tolist()):
+        labels.append(f"{lbl}\n(n = {n})")
+    
+    # Let matplotlib decide axis limits
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    
+    # Rotate school + student group labels
+    if by_col in ["school_name", "schoolname", "student_group"]:
+        for t in ax.get_xticklabels():
+            t.set_rotation(35)
+            t.set_ha("right")
+    
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("Median SGP")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    
+    fig.suptitle(
+        f"{scope_label} • {subject}\n{window_label} Median SGP by {title_by}",
+        fontsize=18,
+        fontweight="bold",
+        y=1.01,
+    )
+    
+    out_dir = Path(output_dir) / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = scope_label.replace(" ", "_")
+    safe_subject = subject.lower().replace(" ", "_")
+    safe_win = window_label.lower().replace("→", "to").replace(" ", "_")
+    out_name = (
+        f"{safe_scope}_STAR_section{section_num}_{out_stub}_{safe_subject}_{safe_win}.png"
+    )
+    out_path = out_dir / out_name
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    
+    # Track chart
+    chart_data = {
+        "chart_type": f"star_spring_section{section_num}_{out_stub}",
+        "section": section_num,
+        "scope": scope_label,
+        "window_filter": window_label,
+        "subject": subject,
+        "sgp_data": sgp_df.to_dict("records") if not sgp_df.empty else [],
+    }
+    track_chart(f"Section {section_num}: {title_by} {window_label} SGP {subject}", out_path, scope=scope_label, section=section_num, chart_data=chart_data)
+    
+    print(f"[Section {section_num}] Saved: {out_path}")
+    if preview:
+        plt.show()
+    plt.close(fig)
+    
+    return str(out_path)
+
+# ---------------------------------------------------------------------
 # SECTION 5 — STAR SGP Growth: Grade Trend + Backward Cohort (Spring)
 # ---------------------------------------------------------------------
 
@@ -1817,12 +2648,17 @@ def plot_star_sgp_growth_spring(
         x = np.arange(len(x_labels))
         y = sgp_df_grade["avg_sgp"].tolist()
         
+        # Calculate bar width for 2-column layout (each subplot gets half width)
+        n_bars = len(x_labels)
+        bar_width = calculate_bar_width(n_bars, FIGSIZE_WIDTH // 2)
+        padding = PADDING
+        
         # Growth band
         ax1.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
         for yref in [35, 50, 65]:
             ax1.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
         
-        bars = ax1.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+        bars = ax1.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars, y):
             ax1.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
                     f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
@@ -1838,6 +2674,7 @@ def plot_star_sgp_growth_spring(
         else:
             ax1.set_xticklabels(x_labels)
         
+        ax1.set_xlim(-padding, n_bars - 1 + padding)
         ax1.set_xticks(x)
         ax1.set_ylabel("Median Winter→Spring SGP", fontsize=11, fontweight="bold")
         ax1.set_title("Overall Growth Trends", fontsize=14, fontweight="bold")
@@ -1856,12 +2693,17 @@ def plot_star_sgp_growth_spring(
         x_cohort = np.arange(len(x_labels_cohort))
         y_cohort = cohort_df["median_sgp"].tolist()
         
+        # Calculate bar width for 2-column layout (each subplot gets half width)
+        n_bars_cohort = len(x_labels_cohort)
+        bar_width_cohort = calculate_bar_width(n_bars_cohort, FIGSIZE_WIDTH // 2)
+        padding_cohort = PADDING
+        
         # Growth band
         ax2.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
         for yref in [35, 50, 65]:
             ax2.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
         
-        bars_cohort = ax2.bar(x_cohort, y_cohort, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+        bars_cohort = ax2.bar(x_cohort, y_cohort, width=bar_width_cohort, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars_cohort, y_cohort):
             ax2.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
                     f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
@@ -1877,6 +2719,7 @@ def plot_star_sgp_growth_spring(
         else:
             ax2.set_xticklabels(x_labels_cohort)
         
+        ax2.set_xlim(-padding_cohort, n_bars_cohort - 1 + padding_cohort)
         ax2.set_xticks(x_cohort)
         ax2.set_ylabel("Median Winter→Spring SGP", fontsize=11, fontweight="bold")
         ax2.set_title("Cohort Growth Trends", fontsize=14, fontweight="bold")
@@ -1932,6 +2775,280 @@ def plot_star_sgp_growth_spring(
     track_chart(f"Section 5: Grade {current_grade} {subject_str} SGP", out_path, scope=scope_label, section=5, chart_data=chart_data)
     
     return str(out_path)
+
+# ---------------------------------------------------------------------
+# SECTION 6 — Performance by School (Winter vs Spring)
+# ---------------------------------------------------------------------
+
+def plot_section_6_performance_by_school_spring(
+    df: pd.DataFrame,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    subject_str: str,
+    cfg: dict = None,
+    preview: bool = False,
+) -> str | None:
+    """District-level: Winter vs Spring performance by school for one subject"""
+    school_col = "school_name" if "school_name" in df.columns else "schoolname"
+    
+    pct_df, meta = _prep_star_perf_winter_spring_by(df, subject_str, by_col=school_col)
+    
+    return _plot_star_perf_winter_spring_single_subject(
+        pct_df,
+        by_col=school_col,
+        subject=subject_str,
+        scope_label=scope_label,
+        folder=folder,
+        output_dir=output_dir,
+        section_num=6,
+        out_stub="by_school_winter_spring_perf",
+        preview=preview,
+    )
+
+# ---------------------------------------------------------------------
+# SECTION 7 — Performance by Grade (Winter vs Spring)
+# ---------------------------------------------------------------------
+
+def plot_section_7_performance_by_grade_spring(
+    df: pd.DataFrame,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    subject_str: str,
+    cfg: dict = None,
+    preview: bool = False,
+) -> str | None:
+    """District-level: Winter vs Spring performance by grade for one subject"""
+    pct_df, meta = _prep_star_perf_winter_spring_by(df, subject_str, by_col="studentgrade")
+    
+    return _plot_star_perf_winter_spring_single_subject(
+        pct_df,
+        by_col="studentgrade",
+        subject=subject_str,
+        scope_label=scope_label,
+        folder=folder,
+        output_dir=output_dir,
+        section_num=7,
+        out_stub="by_grade_winter_spring_perf",
+        preview=preview,
+    )
+
+# ---------------------------------------------------------------------
+# SECTION 8 — Performance by Student Group (Winter vs Spring)
+# ---------------------------------------------------------------------
+
+def plot_section_8_performance_by_group_spring(
+    df: pd.DataFrame,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    subject_str: str,
+    cfg: dict = None,
+    preview: bool = False,
+) -> str | None:
+    """District-level: Winter vs Spring performance by student group"""
+    student_groups_cfg = cfg.get("student_groups", {}) if cfg else {}
+    
+    # Default group list
+    STAR_GROUPS_DEFAULT = [
+        "All Students",
+        "Students with Disabilities",
+        "Socioeconomically Disadvantaged",
+        "English Learners",
+        "Hispanic",
+        "White",
+    ]
+    
+    # Build working group list
+    star_group_keys = []
+    for g in STAR_GROUPS_DEFAULT:
+        k = _resolve_group_key(g, student_groups_cfg)
+        if k is not None:
+            star_group_keys.append(k)
+    
+    if not star_group_keys:
+        print(f"[Section 8] Skipped {subject_str} (student_groups not configured)")
+        return None
+    
+    # Materialize synthetic column `student_group`
+    rows = []
+    for gk in star_group_keys:
+        gdef = student_groups_cfg.get(gk, {})
+        if not gdef:
+            continue
+        mask = _apply_student_group_mask(df, gk, gdef)
+        d_g = df[mask].copy()
+        if d_g.empty:
+            continue
+        if d_g["student_state_id"].nunique() < 12:
+            continue
+        d_g["student_group"] = gk
+        rows.append(d_g)
+    
+    if not rows:
+        print(f"[Section 8] Skipped {subject_str} (no groups with n>=12)")
+        return None
+    
+    d_all = pd.concat(rows, ignore_index=True)
+    pct_df, meta = _prep_star_perf_winter_spring_by(
+        d_all, subject_str, by_col="student_group"
+    )
+    
+    return _plot_star_perf_winter_spring_single_subject(
+        pct_df,
+        by_col="student_group",
+        subject=subject_str,
+        scope_label=scope_label,
+        folder=folder,
+        output_dir=output_dir,
+        section_num=8,
+        out_stub="by_group_winter_spring_perf",
+        preview=preview,
+    )
+
+# ---------------------------------------------------------------------
+# SECTION 9 — SGP by School (Winter→Spring)
+# ---------------------------------------------------------------------
+
+def plot_section_9_sgp_by_school_spring(
+    df: pd.DataFrame,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    subject_str: str,
+    sgp_vector: str = "WINTER_SPRING",
+    cfg: dict = None,
+    preview: bool = False,
+) -> str | None:
+    """District-level: SGP by school for one subject and one vector"""
+    school_col = "school_name" if "school_name" in df.columns else "schoolname"
+    
+    sgp_df = _prep_star_sgp_latest_by(
+        df, subject_str, by_col=school_col, sgp_vector=sgp_vector
+    )
+    
+    return _plot_star_sgp_by_single_subject(
+        sgp_df,
+        by_col=school_col,
+        subject=subject_str,
+        scope_label=scope_label,
+        folder=folder,
+        output_dir=output_dir,
+        section_num=9,
+        out_stub="by_school_sgp",
+        window_label="Winter→Spring",
+        preview=preview,
+    )
+
+# ---------------------------------------------------------------------
+# SECTION 10 — SGP by Grade (Winter→Spring)
+# ---------------------------------------------------------------------
+
+def plot_section_10_sgp_by_grade_spring(
+    df: pd.DataFrame,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    subject_str: str,
+    sgp_vector: str = "WINTER_SPRING",
+    cfg: dict = None,
+    preview: bool = False,
+) -> str | None:
+    """District-level: SGP by grade for one subject and one vector"""
+    sgp_df = _prep_star_sgp_latest_by(
+        df, subject_str, by_col="studentgrade", sgp_vector=sgp_vector
+    )
+    
+    return _plot_star_sgp_by_single_subject(
+        sgp_df,
+        by_col="studentgrade",
+        subject=subject_str,
+        scope_label=scope_label,
+        folder=folder,
+        output_dir=output_dir,
+        section_num=10,
+        out_stub="by_grade_sgp",
+        window_label="Winter→Spring",
+        preview=preview,
+    )
+
+# ---------------------------------------------------------------------
+# SECTION 11 — SGP by Student Group (Winter→Spring)
+# ---------------------------------------------------------------------
+
+def plot_section_11_sgp_by_group_spring(
+    df: pd.DataFrame,
+    scope_label: str,
+    folder: str,
+    output_dir: str,
+    subject_str: str,
+    sgp_vector: str = "WINTER_SPRING",
+    cfg: dict = None,
+    preview: bool = False,
+) -> str | None:
+    """District-level: SGP by student group"""
+    student_groups_cfg = cfg.get("student_groups", {}) if cfg else {}
+    
+    # Default group list
+    STAR_GROUPS_DEFAULT = [
+        "All Students",
+        "Students with Disabilities",
+        "Socioeconomically Disadvantaged",
+        "English Learners",
+        "Hispanic",
+        "White",
+    ]
+    
+    # Build working group list
+    star_group_keys = []
+    for g in STAR_GROUPS_DEFAULT:
+        k = _resolve_group_key(g, student_groups_cfg)
+        if k is not None:
+            star_group_keys.append(k)
+    
+    if not star_group_keys:
+        print(f"[Section 11] Skipped {subject_str} (student_groups not configured)")
+        return None
+    
+    # Materialize synthetic column `student_group`
+    rows = []
+    for gk in star_group_keys:
+        gdef = student_groups_cfg.get(gk, {})
+        if not gdef:
+            continue
+        mask = _apply_student_group_mask(df, gk, gdef)
+        d_g = df[mask].copy()
+        if d_g.empty:
+            continue
+        if d_g["student_state_id"].nunique() < 12:
+            continue
+        d_g["student_group"] = gk
+        rows.append(d_g)
+    
+    if not rows:
+        print(
+            f"[Section 11] Skipped {subject_str} (Winter→Spring) (no groups with n>=12)"
+        )
+        return None
+    
+    d_all = pd.concat(rows, ignore_index=True)
+    sgp_df = _prep_star_sgp_latest_by(
+        d_all, subject_str, by_col="student_group", sgp_vector=sgp_vector
+    )
+    
+    return _plot_star_sgp_by_single_subject(
+        sgp_df,
+        by_col="student_group",
+        subject=subject_str,
+        scope_label=scope_label,
+        folder=folder,
+        output_dir=output_dir,
+        section_num=11,
+        out_stub="by_group_sgp",
+        window_label="Winter→Spring",
+        preview=preview,
+    )
 
 # ---------------------------------------------------------------------
 # Main Execution
@@ -2186,8 +3303,30 @@ def main(star_data=None):
     # Section 4: Overall Growth Trends by Site (Spring)
     print("\n[Section 4] Generating Overall Growth Trends by Site (Spring)...")
     for scope_df, scope_label, folder in scopes:
-        # Only generate for district scope (shows all schools)
         if folder == "_district":
+            # District-level SGP overview (separate charts for Reading and Math)
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_district_sgp_overview_single_subject_spring(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subj,
+                        window_filter="Spring",
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+        else:
+            # School-level growth by site (separate charts for Reading and Math)
             for subj in subjects_to_plot:
                 if not should_generate_subject(subj, chart_filters):
                     continue
@@ -2240,6 +3379,165 @@ def main(star_data=None):
                         import traceback
                         traceback.print_exc()
                     continue
+    
+    # Section 6: Performance by School (Winter vs Spring)
+    print("\n[Section 6] Generating Performance by School (Winter vs Spring)...")
+    for scope_df, scope_label, folder in scopes:
+        if folder != "_district":  # District-level only
+            continue
+        for subject in subjects_to_plot:
+            if not should_generate_subject(subject, chart_filters):
+                continue
+            try:
+                chart_path = plot_section_6_performance_by_school_spring(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    subject_str=subject,
+                    cfg=cfg,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error Section 6 {subject}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+    
+    # Section 7: Performance by Grade (Winter vs Spring)
+    print("\n[Section 7] Generating Performance by Grade (Winter vs Spring)...")
+    for scope_df, scope_label, folder in scopes:
+        if folder != "_district":  # District-level only
+            continue
+        for subject in subjects_to_plot:
+            if not should_generate_subject(subject, chart_filters):
+                continue
+            try:
+                chart_path = plot_section_7_performance_by_grade_spring(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    subject_str=subject,
+                    cfg=cfg,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error Section 7 {subject}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+    
+    # Section 8: Performance by Student Group (Winter vs Spring)
+    print("\n[Section 8] Generating Performance by Student Group (Winter vs Spring)...")
+    for scope_df, scope_label, folder in scopes:
+        if folder != "_district":  # District-level only
+            continue
+        for subject in subjects_to_plot:
+            if not should_generate_subject(subject, chart_filters):
+                continue
+            try:
+                chart_path = plot_section_8_performance_by_group_spring(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    subject_str=subject,
+                    cfg=cfg,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error Section 8 {subject}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+    
+    # Section 9: SGP by School (Winter→Spring)
+    print("\n[Section 9] Generating SGP by School (Winter→Spring)...")
+    for scope_df, scope_label, folder in scopes:
+        if folder != "_district":  # District-level only
+            continue
+        for subject in subjects_to_plot:
+            if not should_generate_subject(subject, chart_filters):
+                continue
+            try:
+                chart_path = plot_section_9_sgp_by_school_spring(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    subject_str=subject,
+                    sgp_vector="WINTER_SPRING",
+                    cfg=cfg,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error Section 9 {subject}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+    
+    # Section 10: SGP by Grade (Winter→Spring)
+    print("\n[Section 10] Generating SGP by Grade (Winter→Spring)...")
+    for scope_df, scope_label, folder in scopes:
+        if folder != "_district":  # District-level only
+            continue
+        for subject in subjects_to_plot:
+            if not should_generate_subject(subject, chart_filters):
+                continue
+            try:
+                chart_path = plot_section_10_sgp_by_grade_spring(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    subject_str=subject,
+                    sgp_vector="WINTER_SPRING",
+                    cfg=cfg,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error Section 10 {subject}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+    
+    # Section 11: SGP by Student Group (Winter→Spring)
+    print("\n[Section 11] Generating SGP by Student Group (Winter→Spring)...")
+    for scope_df, scope_label, folder in scopes:
+        if folder != "_district":  # District-level only
+            continue
+        for subject in subjects_to_plot:
+            if not should_generate_subject(subject, chart_filters):
+                continue
+            try:
+                chart_path = plot_section_11_sgp_by_group_spring(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    subject_str=subject,
+                    sgp_vector="WINTER_SPRING",
+                    cfg=cfg,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error Section 11 {subject}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
     
     return chart_paths
 

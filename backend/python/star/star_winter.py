@@ -3655,7 +3655,7 @@ def _plot_star_perf_fall_winter_single_subject(
             t.set_rotation(35)
             t.set_ha("right")
     
-    ax.grid(axis="y", alpha=0.2)
+    # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     
@@ -3844,7 +3844,7 @@ def _plot_star_sgp_by_single_subject(
     
     ax.set_ylim(0, 100)
     ax.set_ylabel("Median SGP")
-    ax.grid(axis="y", ls=":", alpha=0.6, zorder=0)
+    # ax.grid(axis="y", ls=":", alpha=0.6, zorder=0)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     
