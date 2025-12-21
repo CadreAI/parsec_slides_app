@@ -2468,20 +2468,21 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
         print(f"[Section 4 Overview] No SGP data found for {subject_str}")
         return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
     
-    # Check what SGP vectors are available
-    available_vectors = d_with_sgp["current_sgp_vector"].unique()
-    vector_used = None  # Track which vector we use
+    # Use helper to get best vector (WINTER_SPRING -> FALL_SPRING -> other)
+    vector_used = _get_best_sgp_vector(d_with_sgp, preferred="WINTER_SPRING", fallback="FALL_SPRING")
     
-    # Prefer WINTER_SPRING, but use any available SGP data
-    if "WINTER_SPRING" in available_vectors:
-        d = d_with_sgp[d_with_sgp["current_sgp_vector"] == "WINTER_SPRING"].copy()
-        vector_used = "WINTER_SPRING"
+    if vector_used is None:
+        print(f"[Section 4 Overview] No SGP data found for {subject_str}")
+        return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
+    
+    d = d_with_sgp[d_with_sgp["current_sgp_vector"] == vector_used].copy()
+    
+    if vector_used == "WINTER_SPRING":
         print(f"[Section 4 Overview] Using WINTER_SPRING SGP data for {subject_str}")
+    elif vector_used == "FALL_SPRING":
+        print(f"[Section 4 Overview] Using FALL_SPRING SGP data (fallback) for {subject_str}")
     else:
-        most_common_vector = d_with_sgp["current_sgp_vector"].mode().iloc[0] if not d_with_sgp["current_sgp_vector"].mode().empty else available_vectors[0]
-        d = d_with_sgp[d_with_sgp["current_sgp_vector"] == most_common_vector].copy()
-        vector_used = most_common_vector
-        print(f"[Section 4 Overview] No WINTER_SPRING data, using {most_common_vector} SGP data for {subject_str}")
+        print(f"[Section 4 Overview] Using {vector_used} SGP data for {subject_str}")
     
     if d.empty:
         return pd.DataFrame(columns=["time_label", "median_sgp", "n", "subject"]), None
@@ -2652,6 +2653,48 @@ def _latest_academicyear(df: pd.DataFrame) -> int | None:
     return None
 
 
+def _get_best_sgp_vector(df: pd.DataFrame, preferred: str = "WINTER_SPRING", fallback: str = "FALL_SPRING") -> str | None:
+    """
+    Determine the best SGP vector to use from available data.
+    Tries preferred vector first, then fallback, then any available vector.
+    
+    Args:
+        df: DataFrame with SGP data
+        preferred: Preferred SGP vector (default: "WINTER_SPRING")
+        fallback: Fallback SGP vector if preferred not available (default: "FALL_SPRING")
+    
+    Returns:
+        Best available SGP vector string, or None if no SGP data exists
+    """
+    if "current_sgp_vector" not in df.columns or "current_sgp" not in df.columns:
+        return None
+    
+    # Get rows with valid SGP data
+    d_with_sgp = df[df["current_sgp_vector"].notna() & df["current_sgp"].notna()].copy()
+    
+    if d_with_sgp.empty:
+        return None
+    
+    available_vectors = d_with_sgp["current_sgp_vector"].unique()
+    
+    # Try preferred first
+    if preferred in available_vectors:
+        return preferred
+    
+    # Try fallback
+    if fallback in available_vectors:
+        return fallback
+    
+    # Use most common vector as last resort
+    if len(available_vectors) > 0:
+        most_common = d_with_sgp["current_sgp_vector"].mode()
+        if not most_common.empty:
+            return most_common.iloc[0]
+        return available_vectors[0]
+    
+    return None
+
+
 def _dedupe_latest_attempt(
     d: pd.DataFrame,
     id_col: str,
@@ -2780,10 +2823,18 @@ def _prep_star_sgp_latest_by(
     if d.empty:
         return pd.DataFrame()
     
-    # SGP window
+    # SGP window - try preferred first, then fallback
     if "current_sgp_vector" not in d.columns:
         return pd.DataFrame()
-    d = d[d["current_sgp_vector"] == sgp_vector].copy()
+    
+    # Use helper to get best vector
+    fallback_vector = "FALL_SPRING" if sgp_vector == "WINTER_SPRING" else "WINTER_SPRING"
+    sgp_vector_used = _get_best_sgp_vector(d, preferred=sgp_vector, fallback=fallback_vector)
+    
+    if sgp_vector_used is None:
+        return pd.DataFrame()
+    
+    d = d[d["current_sgp_vector"] == sgp_vector_used].copy()
     
     # Must have SGP values
     if "current_sgp" not in d.columns:
@@ -3263,7 +3314,9 @@ def _plot_star_sgp_by_single_subject(
 # ---------------------------------------------------------------------
 
 def _prep_star_sgp_data_spring(df, subject_str, current_grade, window_filter):
-    """Prepare SGP (Student Growth Percentile) data for Section 5 - Spring version"""
+    """Prepare SGP (Student Growth Percentile) data for Section 5 - Spring version
+    Returns: (sgp_df, empty_df, metrics, time_order, sgp_vector_used)
+    """
     d = df.copy()
     
     # Try different grade column names
@@ -3274,7 +3327,7 @@ def _prep_star_sgp_data_spring(df, subject_str, current_grade, window_filter):
             break
     
     if grade_col is None:
-        return pd.DataFrame(), pd.DataFrame(), {}, []
+        return pd.DataFrame(), pd.DataFrame(), {}, [], None
     
     d[grade_col] = pd.to_numeric(d[grade_col], errors="coerce")
     d = d[d[grade_col] == current_grade]
@@ -3282,9 +3335,12 @@ def _prep_star_sgp_data_spring(df, subject_str, current_grade, window_filter):
     
     d = filter_star_subject_rows(d, subject_str)
     
-    # Check for SGP columns - Spring uses Winter→Spring SGP vector
+    # Check for SGP columns - try WINTER_SPRING first, fallback to FALL_SPRING
+    sgp_vector_used = None
     if "current_sgp_vector" in d.columns:
-        d = d[d["current_sgp_vector"] == "WINTER_SPRING"].copy()
+        sgp_vector_used = _get_best_sgp_vector(d, preferred="WINTER_SPRING", fallback="FALL_SPRING")
+        if sgp_vector_used:
+            d = d[d["current_sgp_vector"] == sgp_vector_used].copy()
     
     sgp_col = None
     for col in ["current_sgp", "sgp", "student_growth_percentile"]:
@@ -3294,12 +3350,12 @@ def _prep_star_sgp_data_spring(df, subject_str, current_grade, window_filter):
     
     if sgp_col is None:
         print(f"[Section 5] No SGP column found - Grade {current_grade} - {subject_str}")
-        return pd.DataFrame(), pd.DataFrame(), {}, []
+        return pd.DataFrame(), pd.DataFrame(), {}, [], None
     
     d = d[d[sgp_col].notna()]
     
     if d.empty:
-        return pd.DataFrame(), pd.DataFrame(), {}, []
+        return pd.DataFrame(), pd.DataFrame(), {}, [], sgp_vector_used
     
     # Build time label
     d["academicyear_short"] = d["academicyear"].apply(_short_year)
@@ -3351,7 +3407,7 @@ def _prep_star_sgp_data_spring(df, subject_str, current_grade, window_filter):
     else:
         metrics = {k: None for k in ["t_prev", "t_curr", "sgp_now", "sgp_delta"]}
     
-    return sgp_df, pd.DataFrame(), metrics, time_order
+    return sgp_df, pd.DataFrame(), metrics, time_order, sgp_vector_used
 
 
 def _prep_star_sgp_cohort_spring(df, subject_str, current_grade, window_filter):
@@ -3383,8 +3439,17 @@ def _prep_star_sgp_cohort_spring(df, subject_str, current_grade, window_filter):
             (d["academicyear"] == yr)
             & (d["studentgrade"] == gr)
             & (d["testwindow"].astype(str).str.upper() == window_filter.upper())
-            & (d["current_sgp_vector"] == "WINTER_SPRING")
         ].copy()
+        
+        # Try to find best SGP vector for this cohort
+        if "current_sgp_vector" in d.columns and "current_sgp" in d.columns:
+            sgp_vector_used = _get_best_sgp_vector(d, preferred="WINTER_SPRING", fallback="FALL_SPRING")
+            if sgp_vector_used:
+                d = d[d["current_sgp_vector"] == sgp_vector_used].copy()
+            else:
+                continue  # Skip if no SGP data available
+        else:
+            continue
         
         d = filter_star_subject_rows(d, subject_str)
         
@@ -3444,7 +3509,7 @@ def plot_star_sgp_growth_spring(
 ):
     """Show SGP growth trends by grade and backward cohort - Spring version"""
     # Grade trend (current grade over time)
-    sgp_df_grade, _, metrics_grade, time_order = _prep_star_sgp_data_spring(
+    sgp_df_grade, _, metrics_grade, time_order, sgp_vector_used = _prep_star_sgp_data_spring(
         df, subject_str, current_grade, window_filter
     )
     
@@ -3454,6 +3519,16 @@ def plot_star_sgp_growth_spring(
     if sgp_df_grade.empty and cohort_df.empty:
         print(f"[Section 5] No SGP data for {scope_label} - Grade {current_grade} - {subject_str}")
         return None
+    
+    # Determine SGP vector label for display
+    if sgp_vector_used == "WINTER_SPRING":
+        sgp_label = "Winter→Spring"
+    elif sgp_vector_used == "FALL_SPRING":
+        sgp_label = "Fall→Spring"
+    elif sgp_vector_used:
+        sgp_label = sgp_vector_used.replace("_", "→")
+    else:
+        sgp_label = "Winter→Spring"  # Default fallback
     
     # Create figure
     fig = plt.figure(figsize=(16, 9), dpi=300)
@@ -3499,7 +3574,7 @@ def plot_star_sgp_growth_spring(
         
         ax1.set_xlim(-padding, n_bars - 1 + padding)
         ax1.set_xticks(x)
-        ax1.set_ylabel("Median Winter→Spring SGP", fontsize=11, fontweight="bold")
+        ax1.set_ylabel(f"Median {sgp_label} SGP", fontsize=11, fontweight="bold")
         ax1.set_title("Overall Growth Trends", fontsize=14, fontweight="bold")
         ax1.set_ylim(0, 100)
         # ax1.grid(False)  # Gridlines disabled globally
@@ -3544,7 +3619,7 @@ def plot_star_sgp_growth_spring(
         
         ax2.set_xlim(-padding_cohort, n_bars_cohort - 1 + padding_cohort)
         ax2.set_xticks(x_cohort)
-        ax2.set_ylabel("Median Winter→Spring SGP", fontsize=11, fontweight="bold")
+        ax2.set_ylabel(f"Median {sgp_label} SGP", fontsize=11, fontweight="bold")
         ax2.set_title("Cohort Growth Trends", fontsize=14, fontweight="bold")
         ax2.set_ylim(0, 100)
         # ax2.grid(False)  # Gridlines disabled globally
@@ -3565,7 +3640,7 @@ def plot_star_sgp_growth_spring(
     
     # Main title
     fig.suptitle(
-        f"{scope_label} • {subject_str} • Grade {current_grade} • Winter→Spring SGP",
+        f"{scope_label} • {subject_str} • Grade {current_grade} • {sgp_label} SGP",
         fontsize=20,
         fontweight="bold",
         y=1.02,
@@ -3751,6 +3826,14 @@ def plot_section_9_sgp_by_school_spring(
         df, subject_str, by_col=school_col, sgp_vector=sgp_vector
     )
     
+    # Determine window label based on vector
+    if sgp_vector == "WINTER_SPRING":
+        window_label = "Winter→Spring"
+    elif sgp_vector == "FALL_SPRING":
+        window_label = "Fall→Spring"
+    else:
+        window_label = sgp_vector.replace("_", "→")
+    
     return _plot_star_sgp_by_single_subject(
         sgp_df,
         by_col=school_col,
@@ -3760,7 +3843,7 @@ def plot_section_9_sgp_by_school_spring(
         output_dir=output_dir,
         section_num=9,
         out_stub="by_school_sgp",
-        window_label="Winter→Spring",
+        window_label=window_label,
         preview=preview,
     )
 
@@ -3783,6 +3866,14 @@ def plot_section_10_sgp_by_grade_spring(
         df, subject_str, by_col="studentgrade", sgp_vector=sgp_vector
     )
     
+    # Determine window label based on vector
+    if sgp_vector == "WINTER_SPRING":
+        window_label = "Winter→Spring"
+    elif sgp_vector == "FALL_SPRING":
+        window_label = "Fall→Spring"
+    else:
+        window_label = sgp_vector.replace("_", "→")
+    
     return _plot_star_sgp_by_single_subject(
         sgp_df,
         by_col="studentgrade",
@@ -3792,7 +3883,7 @@ def plot_section_10_sgp_by_grade_spring(
         output_dir=output_dir,
         section_num=10,
         out_stub="by_grade_sgp",
-        window_label="Winter→Spring",
+        window_label=window_label,
         preview=preview,
     )
 
@@ -3851,7 +3942,7 @@ def plot_section_11_sgp_by_group_spring(
     
     if not rows:
         print(
-            f"[Section 11] Skipped {subject_str} (Winter→Spring) (no groups with n>=12)"
+            f"[Section 11] Skipped {subject_str} (no groups with n>=12)"
         )
         return None
     
@@ -3859,6 +3950,14 @@ def plot_section_11_sgp_by_group_spring(
     sgp_df = _prep_star_sgp_latest_by(
         d_all, subject_str, by_col="student_group", sgp_vector=sgp_vector
     )
+    
+    # Determine window label based on vector
+    if sgp_vector == "WINTER_SPRING":
+        window_label = "Winter→Spring"
+    elif sgp_vector == "FALL_SPRING":
+        window_label = "Fall→Spring"
+    else:
+        window_label = sgp_vector.replace("_", "→")
     
     return _plot_star_sgp_by_single_subject(
         sgp_df,
@@ -3869,7 +3968,7 @@ def plot_section_11_sgp_by_group_spring(
         output_dir=output_dir,
         section_num=11,
         out_stub="by_group_sgp",
-        window_label="Winter→Spring",
+        window_label=window_label,
         preview=preview,
     )
 
@@ -4325,13 +4424,19 @@ def main(star_data=None):
             if not should_generate_subject(subject, chart_filters):
                 continue
             try:
+                # Determine best SGP vector to use
+                sgp_vector_used = _get_best_sgp_vector(scope_df, preferred="WINTER_SPRING", fallback="FALL_SPRING")
+                if sgp_vector_used is None:
+                    print(f"[Section 9] No SGP data available for {subject}")
+                    continue
+                
                 chart_path = plot_section_9_sgp_by_school_spring(
                     scope_df.copy(),
                     scope_label,
                     folder,
                     args.output_dir,
                     subject_str=subject,
-                    sgp_vector="WINTER_SPRING",
+                    sgp_vector=sgp_vector_used,
                     cfg=cfg,
                     preview=hf.DEV_MODE
                 )
@@ -4352,13 +4457,19 @@ def main(star_data=None):
             if not should_generate_subject(subject, chart_filters):
                 continue
             try:
+                # Determine best SGP vector to use
+                sgp_vector_used = _get_best_sgp_vector(scope_df, preferred="WINTER_SPRING", fallback="FALL_SPRING")
+                if sgp_vector_used is None:
+                    print(f"[Section 10] No SGP data available for {subject}")
+                    continue
+                
                 chart_path = plot_section_10_sgp_by_grade_spring(
                     scope_df.copy(),
                     scope_label,
                     folder,
                     args.output_dir,
                     subject_str=subject,
-                    sgp_vector="WINTER_SPRING",
+                    sgp_vector=sgp_vector_used,
                     cfg=cfg,
                     preview=hf.DEV_MODE
                 )
@@ -4379,13 +4490,19 @@ def main(star_data=None):
             if not should_generate_subject(subject, chart_filters):
                 continue
             try:
+                # Determine best SGP vector to use
+                sgp_vector_used = _get_best_sgp_vector(scope_df, preferred="WINTER_SPRING", fallback="FALL_SPRING")
+                if sgp_vector_used is None:
+                    print(f"[Section 11] No SGP data available for {subject}")
+                    continue
+                
                 chart_path = plot_section_11_sgp_by_group_spring(
                     scope_df.copy(),
                     scope_label,
                     folder,
                     args.output_dir,
                     subject_str=subject,
-                    sgp_vector="WINTER_SPRING",
+                    sgp_vector=sgp_vector_used,
                     cfg=cfg,
                     preview=hf.DEV_MODE
                 )
