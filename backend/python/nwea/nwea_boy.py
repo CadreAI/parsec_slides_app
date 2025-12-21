@@ -742,7 +742,9 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
 
     out_dir = CHARTS_DIR / folder
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_name = f"{scope_label}-section0_pred_vs_actual_{folder}.png"
+    # Keep naming consistent across scripts for chart split + analyzer.
+    safe_scope = scope_label.replace(" ", "_")
+    out_name = f"{safe_scope}_section0_pred_vs_actual.png"
     out_path = out_dir / out_name
     logger.info(f"[CHART] Generating chart: {out_path}")
     hf._save_and_render(fig, out_path)
@@ -3777,7 +3779,8 @@ def _plot_pred_vs_actual(scope_label, folder_name, results, preview=False):
 
     out_dir = CHARTS_DIR / folder_name
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6A_2025_pred_vs_actual_{folder_name}.png"
+    safe_scope = scope_label.replace(" ", "_")
+    out_path = out_dir / f"{safe_scope}_section6a_pred_vs_actual.png"
     logger.info(f"[CHART] Generating chart: {out_path}")
     hf._save_and_render(fig, out_path)
     logger.info(f"[CHART] Saved: {out_path}")
@@ -3861,7 +3864,8 @@ def _plot_projection_2026(scope_label, folder_name, results, preview=False):
 
     out_dir = CHARTS_DIR / folder_name
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6B_2026_projection_{folder_name}.png"
+    safe_scope = scope_label.replace(" ", "_")
+    out_path = out_dir / f"{safe_scope}_section6b_projection.png"
     logger.info(f"[CHART] Generating chart: {out_path}")
     hf._save_and_render(fig, out_path)
     logger.info(f"[CHART] Saved: {out_path}")

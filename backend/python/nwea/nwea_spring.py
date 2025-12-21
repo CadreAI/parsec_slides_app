@@ -539,6 +539,22 @@ def _prep_cgp_trend(df: pd.DataFrame, subject_str: str, cfg: dict) -> pd.DataFra
     """Return tidy frame with columns: scope_label, time_label, median_cgp, mean_cgi"""
     d = df.copy()
     d = d[d["testwindow"].astype(str).str.upper() == "SPRING"].copy()
+
+    def _pick_cond_growth_cols(local_df: pd.DataFrame) -> tuple[str | None, str | None, str]:
+        col_map: dict[str, str] = {}
+        for c in local_df.columns:
+            key = str(c).strip().lower()
+            col_map.setdefault(key, c)
+        cols = set(col_map.keys())
+        candidates = [
+            ("wintertospringconditionalgrowthpercentile", "wintertospringconditionalgrowthindex", "Winter→Spring"),
+            ("falltospringconditionalgrowthpercentile", "falltospringconditionalgrowthindex", "Fall→Spring"),
+            ("falltowinterconditionalgrowthpercentile", "falltowinterconditionalgrowthindex", "Fall→Winter"),
+        ]
+        for cgp, cgi, label in candidates:
+            if cgp in cols:
+                return col_map[cgp], (col_map.get(cgi) if cgi in cols else None), label
+        return None, None, "Conditional Growth"
     
     subj_norm = subject_str.strip().casefold()
     if "math" in subj_norm:
@@ -546,10 +562,11 @@ def _prep_cgp_trend(df: pd.DataFrame, subject_str: str, cfg: dict) -> pd.DataFra
     elif "reading" in subj_norm:
         d = d[d["course"].astype(str).str.contains("reading", case=False, na=False)].copy()
     
-    if "falltowinterconditionalgrowthpercentile" not in d.columns:
+    cgp_col, cgi_col, _growth_label = _pick_cond_growth_cols(d)
+    if not cgp_col:
         return pd.DataFrame(columns=["scope_label", "time_label", "median_cgp", "mean_cgi"])
     
-    d = d[d["falltowinterconditionalgrowthpercentile"].notna()].copy()
+    d = d[d[cgp_col].notna()].copy()
     if d.empty:
         return pd.DataFrame(columns=["scope_label", "time_label", "median_cgp", "mean_cgi"])
     
@@ -566,17 +583,17 @@ def _prep_cgp_trend(df: pd.DataFrame, subject_str: str, cfg: dict) -> pd.DataFra
     dist_rows["site_display"] = cfg.get("district_name", ["District (All Students)"])[0]
     
     both = pd.concat([d, dist_rows], ignore_index=True)
-    has_cgi = "falltowinterconditionalgrowthindex" in both.columns
+    has_cgi = bool(cgi_col and cgi_col in both.columns)
     grp_cols = ["site_display", "time_label"]
     
     if has_cgi:
         out = both.groupby(grp_cols, dropna=False).agg(
-            median_cgp=("falltowinterconditionalgrowthpercentile", "median"),
-            mean_cgi=("falltowinterconditionalgrowthindex", "mean"),
+            median_cgp=(cgp_col, "median"),
+            mean_cgi=(cgi_col, "mean"),
         ).reset_index()
     else:
         out = both.groupby(grp_cols, dropna=False).agg(
-            median_cgp=("falltowinterconditionalgrowthpercentile", "median")
+            median_cgp=(cgp_col, "median")
         ).reset_index()
         out["mean_cgi"] = np.nan
     
@@ -766,6 +783,28 @@ def _run_section4_spring(nwea_base, cfg, output_dir, scopes):
 # Section 5: CGP/CGI Growth: Grade Trend + Backward Cohort - Fall→Winter
 # ---------------------------------------------------------------------
 
+def _pick_cond_growth_cols_for_section5(df: pd.DataFrame) -> tuple[str | None, str | None]:
+    """
+    Section 5 depends on Conditional Growth fields; different partners/tables
+    may have different window-pair columns. Prefer Spring-ended growth, but
+    fall back to Fall→Winter when that's all that's available.
+    """
+    col_map: dict[str, str] = {}
+    for c in df.columns:
+        key = str(c).strip().lower()
+        col_map.setdefault(key, c)
+    cols = set(col_map.keys())
+    candidates = [
+        ("wintertospringconditionalgrowthpercentile", "wintertospringconditionalgrowthindex"),
+        ("falltospringconditionalgrowthpercentile", "falltospringconditionalgrowthindex"),
+        ("falltowinterconditionalgrowthpercentile", "falltowinterconditionalgrowthindex"),
+    ]
+    for cgp, cgi in candidates:
+        if cgp in cols:
+            return col_map[cgp], (col_map.get(cgi) if cgi in cols else None)
+    return None, None
+
+
 def _prep_cgp_by_grade(df, subject, grade):
     d = df.copy()
     d["testwindow"] = d["testwindow"].astype(str)
@@ -784,7 +823,11 @@ def _prep_cgp_by_grade(df, subject, grade):
     d = d.dropna(subset=["teststartdate"])
     d = d.sort_values("teststartdate").drop_duplicates("uniqueidentifier", keep="last")
     
-    d = d.dropna(subset=["falltowinterconditionalgrowthpercentile", "falltowinterconditionalgrowthindex"])
+    cgp_col, cgi_col = _pick_cond_growth_cols_for_section5(d)
+    if not cgp_col:
+        return pd.DataFrame(columns=["time_label", "median_cgp", "mean_cgi"])
+    subset_cols = [cgp_col] + ([cgi_col] if cgi_col else [])
+    d = d.dropna(subset=subset_cols)
     
     if d.empty:
         return pd.DataFrame(columns=["time_label", "median_cgp", "mean_cgi"])
@@ -792,10 +835,16 @@ def _prep_cgp_by_grade(df, subject, grade):
     d["year_short"] = d["year"].apply(_short_year)
     d["time_label"] = "Gr " + d["grade"].astype(int).astype(str) + " • Winter " + d["year_short"]
     
-    out = d.groupby("time_label").agg(
-        median_cgp=("falltowinterconditionalgrowthpercentile", "median"),
-        mean_cgi=("falltowinterconditionalgrowthindex", "mean"),
-    ).reset_index()
+    if cgi_col:
+        out = d.groupby("time_label").agg(
+            median_cgp=(cgp_col, "median"),
+            mean_cgi=(cgi_col, "mean"),
+        ).reset_index()
+    else:
+        out = d.groupby("time_label").agg(
+            median_cgp=(cgp_col, "median"),
+        ).reset_index()
+        out["mean_cgi"] = np.nan
     
     def _extract_year_short(label):
         try:
@@ -1038,14 +1087,18 @@ def _run_section5_spring(nwea_base, cfg, output_dir, scopes):
                     d = d[d["course"] == "Math K-12"]
                 else:
                     d = d[d["course"].str.contains("read", case=False, na=False)]
-                d = d.dropna(subset=["falltowinterconditionalgrowthpercentile", "falltowinterconditionalgrowthindex"])
+                cgp_col, cgi_col = _pick_cond_growth_cols_for_section5(d)
+                if not cgp_col:
+                    continue
+                subset_cols = [cgp_col] + ([cgi_col] if cgi_col else [])
+                d = d.dropna(subset=subset_cols)
                 if d.empty:
                     continue
                 cohort_rows.append({
                     "gr": gr, "yr": yr,
                     "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
-                    "median_cgp": d["falltowinterconditionalgrowthpercentile"].median(),
-                    "mean_cgi": d["falltowinterconditionalgrowthindex"].mean(),
+                    "median_cgp": d[cgp_col].median(),
+                    "mean_cgi": (d[cgi_col].mean() if cgi_col else np.nan),
                 })
             if not cohort_rows:
                 continue
@@ -1089,14 +1142,18 @@ def _run_section5_spring(nwea_base, cfg, output_dir, scopes):
                         d = d[d["course"] == "Math K-12"]
                     else:
                         d = d[d["course"].str.contains("read", case=False, na=False)]
-                    d = d.dropna(subset=["falltowinterconditionalgrowthpercentile", "falltowinterconditionalgrowthindex"])
+                    cgp_col, cgi_col = _pick_cond_growth_cols_for_section5(d)
+                    if not cgp_col:
+                        continue
+                    subset_cols = [cgp_col] + ([cgi_col] if cgi_col else [])
+                    d = d.dropna(subset=subset_cols)
                     if d.empty:
                         continue
                     cohort_rows.append({
                         "gr": gr, "yr": yr,
                         "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
-                        "median_cgp": d["falltowinterconditionalgrowthpercentile"].median(),
-                        "mean_cgi": d["falltowinterconditionalgrowthindex"].mean(),
+                        "median_cgp": d[cgp_col].median(),
+                        "mean_cgi": (d[cgi_col].mean() if cgi_col else np.nan),
                     })
                 if not cohort_rows:
                     continue

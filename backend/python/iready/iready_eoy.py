@@ -2927,7 +2927,18 @@ def run_section5_growth_progress_eoy(
             how="left",
         )
 
-        # progress percents (0–100 ints) — exports vary (extra underscores/casing).
+        # ----------------------------
+        # Progress % toward annual targets
+        #
+        # Many i-Ready exports populate Spring "percent_progress_to_annual_*" as 100 for most rows,
+        # which makes EOY charts uninformative. Prefer computing progress from Fall baseline:
+        #   observed_growth = SpringScale - FallScale
+        #   pct_typ = observed_growth / annual_typical_growth_measure * 100
+        #   pct_str = observed_growth / annual_stretch_growth_measure * 100
+        # Fall measures are BOY-anchored and vary by student/grade.
+        # ----------------------------
+
+        # progress percents (exports vary in naming / casing / underscores).
         def _norm_col_s5(s: str) -> str:
             return re.sub(r"[^a-z0-9]+", "", str(s).strip().lower())
 
@@ -2938,10 +2949,39 @@ def run_section5_growth_progress_eoy(
                     return c
             return None
 
+        # Compute from Fall baseline when possible
+        fall_scale = pd.to_numeric(fall.get("scale_score"), errors="coerce")
+        fall_typ = pd.to_numeric(fall.get("annual_typical_growth_measure"), errors="coerce")
+        fall_strg = pd.to_numeric(fall.get("annual_stretch_growth_measure"), errors="coerce")
+        fall_base = pd.DataFrame(
+            {
+                id_col: fall[id_col],
+                "_fall_scale": fall_scale,
+                "_fall_typ": fall_typ,
+                "_fall_str": fall_strg,
+            }
+        ).drop_duplicates(subset=[id_col])
+
+        spring = spring.merge(fall_base, on=id_col, how="left")
+
+        spring_scale = pd.to_numeric(spring.get("scale_score"), errors="coerce")
+        observed = spring_scale - pd.to_numeric(spring.get("_fall_scale"), errors="coerce")
+
+        pct_typ_calc = (observed / pd.to_numeric(spring.get("_fall_typ"), errors="coerce")) * 100
+        pct_str_calc = (observed / pd.to_numeric(spring.get("_fall_str"), errors="coerce")) * 100
+
+        # Fall back to export-provided % columns if we can't compute (missing measures)
         typ_src = _find_col_like_s5(spring, "percent_progress_to_annual_typical_growth")
         str_src = _find_col_like_s5(spring, "percent_progress_to_annual_stretch_growth")
-        spring["pct_typ"] = pd.to_numeric(spring[typ_src], errors="coerce") if typ_src else np.nan
-        spring["pct_str"] = pd.to_numeric(spring[str_src], errors="coerce") if str_src else np.nan
+        pct_typ_fallback = pd.to_numeric(spring[typ_src], errors="coerce") if typ_src else pd.Series(dtype=float)
+        pct_str_fallback = pd.to_numeric(spring[str_src], errors="coerce") if str_src else pd.Series(dtype=float)
+
+        spring["pct_typ"] = pct_typ_calc.where(pct_typ_calc.notna(), pct_typ_fallback)
+        spring["pct_str"] = pct_str_calc.where(pct_str_calc.notna(), pct_str_fallback)
+
+        # Cap negatives at 0; allow >100 (students can exceed annual targets)
+        spring["pct_typ"] = spring["pct_typ"].clip(lower=0)
+        spring["pct_str"] = spring["pct_str"].clip(lower=0)
 
         # ----------------------------
         # Metrics for chart panels
@@ -3063,7 +3103,9 @@ def run_section5_growth_progress_eoy(
                     )
             # Add 50% reference line (lighter)
             ax_top.axhline(50, linestyle="--", linewidth=1.0, color="#999", alpha=0.6)
-            ax_top.set_ylim(0, 100)
+            # Allow >100 when students exceed annual targets, but keep a sensible cap for readability.
+            _top_cap = float(np.nanmax(np.array(vals, dtype=float))) if any(pd.notna(v) for v in vals) else 100.0
+            ax_top.set_ylim(0, max(100.0, min(200.0, _top_cap + 10.0)))
             ax_top.set_yticks(range(0, 101, 20))
             ax_top.set_yticklabels([f"{t}%" for t in range(0, 101, 20)])
             ax_top.set_xticks(x)
@@ -3101,7 +3143,8 @@ def run_section5_growth_progress_eoy(
                         color="#333",
                     )
             ax_mid.axhline(50, linestyle="--", linewidth=1.0, color="#666", alpha=0.8)
-            ax_mid.set_ylim(0, 100)
+            _mid_cap = float(np.nanmax(np.array(vals2, dtype=float))) if any(pd.notna(v) for v in vals2) else 100.0
+            ax_mid.set_ylim(0, max(100.0, min(100.0, _mid_cap + 10.0)))
             ax_mid.set_yticks(range(0, 101, 20))
             ax_mid.set_yticklabels([f"{t}%" for t in range(0, 101, 20)])
             ax_mid.set_xticks(x2)
