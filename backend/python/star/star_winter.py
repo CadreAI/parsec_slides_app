@@ -4205,311 +4205,311 @@ def main(star_data=None):
     
     chart_paths = []
     
-    # # Section 0: Predicted vs Actual CAASPP (Winter)
-    # print("\n[Section 0] Generating Winter Predicted vs Actual CAASPP...")
-    # for scope_df, scope_label, folder in scopes:
-    #     for subj in ["Reading", "Mathematics"]:
-    #         if not should_generate_subject(subj, chart_filters):
-    #             continue
-    #         try:
-    #             proj, act, metrics, year = _prep_section0_star_winter(scope_df, subj)
-    #             if proj is None:
-    #                 continue
-    #             chart_path = _plot_section0_star_single_subject_winter(
-    #                 scope_label, folder, subj, proj, act, metrics,
-    #                 args.output_dir, preview=hf.DEV_MODE
-    #             )
-    #             if chart_path:
-    #                 chart_paths.append(chart_path)
-    #         except Exception as e:
-    #             print(f"Error generating Section 0 {subj} chart for {scope_label}: {e}")
-    #         if hf.DEV_MODE:
-    #             import traceback
-    #             traceback.print_exc()
-    #         continue
+    # Section 0: Predicted vs Actual CAASPP (Winter)
+    print("\n[Section 0] Generating Winter Predicted vs Actual CAASPP...")
+    for scope_df, scope_label, folder in scopes:
+        for subj in ["Reading", "Mathematics"]:
+            if not should_generate_subject(subj, chart_filters):
+                continue
+            try:
+                proj, act, metrics, year = _prep_section0_star_winter(scope_df, subj)
+                if proj is None:
+                    continue
+                chart_path = _plot_section0_star_single_subject_winter(
+                    scope_label, folder, subj, proj, act, metrics,
+                    args.output_dir, preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error generating Section 0 {subj} chart for {scope_label}: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            continue
     
-    # # Section 1: Winter Performance Trends
-    # print("\n[Section 1] Generating Winter Performance Trends...")
-    # for quarter in selected_quarters:
-    #     for scope_df, scope_label, folder in scopes:
-    #         # Generate separate charts for Reading and Math
-    #         for subject in ["Reading", "Mathematics"]:
-    #             if not should_generate_subject(subject, chart_filters):
-    #                 continue
-    #             try:
-    #                 chart_path = plot_star_single_subject_dashboard_winter(
-    #                     scope_df,
-    #                     scope_label,
-    #                     folder,
-    #                     args.output_dir,
-    #                     subject_str=subject,
-    #                     window_filter=quarter,
-    #                     preview=hf.DEV_MODE
-    #                 )
-    #                 if chart_path:
-    #                     chart_paths.append(chart_path)
-    #             except Exception as e:
-    #                 print(f"Error generating {subject} chart for {scope_label} ({quarter}): {e}")
-    #                 if hf.DEV_MODE:
-    #                     import traceback
-    #                     traceback.print_exc()
-    #                 continue
+    # Section 1: Winter Performance Trends
+    print("\n[Section 1] Generating Winter Performance Trends...")
+    for quarter in selected_quarters:
+        for scope_df, scope_label, folder in scopes:
+            # Generate separate charts for Reading and Math
+            for subject in ["Reading", "Mathematics"]:
+                if not should_generate_subject(subject, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_star_single_subject_dashboard_winter(
+                        scope_df,
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subject,
+                        window_filter=quarter,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating {subject} chart for {scope_label} ({quarter}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
     
-    # # Section 1.1: Fall → Winter Performance Progression
-    # print("\n[Section 1.1] Generating Fall → Winter Performance Progression...")
-    # for scope_df, scope_label, folder in scopes:
-    #     # Generate separate charts for Reading and Math
-    #     for subject in ["Reading", "Mathematics"]:
-    #         if not should_generate_subject(subject, chart_filters):
-    #             continue
-    #         try:
-    #             chart_path = plot_section_1_1_single_subject(
-    #                 scope_df,
-    #                 scope_label,
-    #                 folder,
-    #                 args.output_dir,
-    #                 subject_str=subject,
-    #                 school_raw=None if folder == "_district" else scope_label,
-    #                 preview=hf.DEV_MODE
-    #             )
-    #             if chart_path:
-    #                 chart_paths.append(chart_path)
-    #         except Exception as e:
-    #             print(f"Error generating Section 1.1 {subject} chart for {scope_label}: {e}")
-    #             if hf.DEV_MODE:
-    #                 import traceback
-    #                 traceback.print_exc()
-    #             continue
+    # Section 1.1: Fall → Winter Performance Progression
+    print("\n[Section 1.1] Generating Fall → Winter Performance Progression...")
+    for scope_df, scope_label, folder in scopes:
+        # Generate separate charts for Reading and Math
+        for subject in ["Reading", "Mathematics"]:
+            if not should_generate_subject(subject, chart_filters):
+                continue
+            try:
+                chart_path = plot_section_1_1_single_subject(
+                    scope_df,
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    subject_str=subject,
+                    school_raw=None if folder == "_district" else scope_label,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error generating Section 1.1 {subject} chart for {scope_label}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+                continue
     
-    # # Section 1.2: Fall → Winter Performance Progression by Grade
-    # print("\n[Section 1.2] Generating Fall → Winter Performance Progression by Grade...")
-    # for scope_df, scope_label, folder in scopes:
-    #     try:
-    #         grade_paths = plot_section_1_2(
-    #             scope_df,
-    #             scope_label,
-    #             folder,
-    #             args.output_dir,
-    #             chart_filters=chart_filters,
-    #             school_raw=None if folder == "_district" else scope_label,
-    #             preview=hf.DEV_MODE
-    #         )
-    #         chart_paths.extend(grade_paths)
-    #     except Exception as e:
-    #         print(f"Error generating Section 1.2 charts for {scope_label}: {e}")
-    #         if hf.DEV_MODE:
-    #             import traceback
-    #             traceback.print_exc()
-    #         continue
+    # Section 1.2: Fall → Winter Performance Progression by Grade
+    print("\n[Section 1.2] Generating Fall → Winter Performance Progression by Grade...")
+    for scope_df, scope_label, folder in scopes:
+        try:
+            grade_paths = plot_section_1_2(
+                scope_df,
+                scope_label,
+                folder,
+                args.output_dir,
+                chart_filters=chart_filters,
+                school_raw=None if folder == "_district" else scope_label,
+                preview=hf.DEV_MODE
+            )
+            chart_paths.extend(grade_paths)
+        except Exception as e:
+            print(f"Error generating Section 1.2 charts for {scope_label}: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            continue
     
-    # # Section 1.3: Fall → Winter Performance Progression by Student Group
-    # print("\n[Section 1.3] Generating Fall → Winter Performance Progression by Student Group...")
-    # student_groups_cfg = cfg.get("student_groups", {})
-    # group_order = cfg.get("student_group_order", {})
+    # Section 1.3: Fall → Winter Performance Progression by Student Group
+    print("\n[Section 1.3] Generating Fall → Winter Performance Progression by Student Group...")
+    student_groups_cfg = cfg.get("student_groups", {})
+    group_order = cfg.get("student_group_order", {})
     
-    # # Limit number of groups if max_student_groups filter is set
-    # max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
-    # sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 999))
-    # groups_to_plot = sorted_groups[:max_groups]
+    # Limit number of groups if max_student_groups filter is set
+    max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
+    sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 999))
+    groups_to_plot = sorted_groups[:max_groups]
     
-    # for scope_df, scope_label, folder in scopes:
-    #     for group_name, group_def in groups_to_plot:
-    #         if group_def.get("type") == "all":
-    #             continue
-    #         # Check if this student group should be generated based on filters
-    #         if not should_generate_student_group(group_name, chart_filters):
-    #             continue
-    #         # Generate separate charts for Reading and Math
-    #         for subject in ["Reading", "Mathematics"]:
-    #             if not should_generate_subject(subject, chart_filters):
-    #                 continue
-    #             try:
-    #                 chart_path = plot_section_1_3_for_group_single_subject(
-    #                     scope_df,
-    #                     scope_label,
-    #                     folder,
-    #                     args.output_dir,
-    #                     group_name,
-    #                     group_def,
-    #                     subject_str=subject,
-    #                     school_raw=None if folder == "_district" else scope_label,
-    #                     preview=hf.DEV_MODE
-    #                 )
-    #                 if chart_path:
-    #                     chart_paths.append(chart_path)
-    #             except Exception as e:
-    #                 print(f"Error generating Section 1.3 {subject} chart for {scope_label} ({group_name}): {e}")
-    #                 if hf.DEV_MODE:
-    #                     import traceback
-    #                     traceback.print_exc()
-    #                 continue
+    for scope_df, scope_label, folder in scopes:
+        for group_name, group_def in groups_to_plot:
+            if group_def.get("type") == "all":
+                continue
+            # Check if this student group should be generated based on filters
+            if not should_generate_student_group(group_name, chart_filters):
+                continue
+            # Generate separate charts for Reading and Math
+            for subject in ["Reading", "Mathematics"]:
+                if not should_generate_subject(subject, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_section_1_3_for_group_single_subject(
+                        scope_df,
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        group_name,
+                        group_def,
+                        subject_str=subject,
+                        school_raw=None if folder == "_district" else scope_label,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 1.3 {subject} chart for {scope_label} ({group_name}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
     
-    # # Section 2: Student Group Performance Trends (Winter)
-    # print("\n[Section 2] Generating Student Group Performance Trends (Winter)...")
+    # Section 2: Student Group Performance Trends (Winter)
+    print("\n[Section 2] Generating Student Group Performance Trends (Winter)...")
     
-    # # Limit number of groups if max_student_groups filter is set
-    # max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
-    # sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99))
-    # groups_to_plot = sorted_groups[:max_groups]
+    # Limit number of groups if max_student_groups filter is set
+    max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
+    sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99))
+    groups_to_plot = sorted_groups[:max_groups]
     
-    # for scope_df, scope_label, folder in scopes:
-    #     for group_name, group_def in groups_to_plot:
-    #         if group_def.get("type") == "all":
-    #             continue
-    #         # Check if this student group should be generated based on filters
-    #         if not should_generate_student_group(group_name, chart_filters):
-    #             continue
-    #         # Generate separate charts for Reading and Math
-    #         for subject in ["Reading", "Mathematics"]:
-    #             if not should_generate_subject(subject, chart_filters):
-    #                 continue
-    #             try:
-    #                 chart_path = plot_star_single_subject_dashboard_by_group_winter(
-    #                     scope_df,
-    #                     scope_label,
-    #                     folder,
-    #                     args.output_dir,
-    #                     subject_str=subject,
-    #                     window_filter="Winter",
-    #                     group_name=group_name,
-    #                     group_def=group_def,
-    #                     cfg=cfg,
-    #                     preview=hf.DEV_MODE
-    #                 )
-    #                 if chart_path:
-    #                     chart_paths.append(chart_path)
-    #             except Exception as e:
-    #                 print(f"Error generating Section 2 {subject} chart for {scope_label} ({group_name}): {e}")
-    #             if hf.DEV_MODE:
-    #                 import traceback
-    #                 traceback.print_exc()
-    #             continue
+    for scope_df, scope_label, folder in scopes:
+        for group_name, group_def in groups_to_plot:
+            if group_def.get("type") == "all":
+                continue
+            # Check if this student group should be generated based on filters
+            if not should_generate_student_group(group_name, chart_filters):
+                continue
+            # Generate separate charts for Reading and Math
+            for subject in ["Reading", "Mathematics"]:
+                if not should_generate_subject(subject, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_star_single_subject_dashboard_by_group_winter(
+                        scope_df,
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subject,
+                        window_filter="Winter",
+                        group_name=group_name,
+                        group_def=group_def,
+                        cfg=cfg,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 2 {subject} chart for {scope_label} ({group_name}): {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+                continue
     
-    # # Section 3: Overall + Cohort Trends (Winter)
-    # print("\n[Section 3] Generating Overall + Cohort Trends (Winter)...")
-    # selected_grades = chart_filters.get("grades", [])
-    # if not selected_grades:
-    #     # Query all available grades from data (no hardcoded limit)
-    #     grade_col = "grade" if "grade" in star_base.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in star_base.columns else "studentgrade")
-    #     if grade_col in star_base.columns:
-    #         star_base["__grade_int"] = pd.to_numeric(star_base[grade_col], errors="coerce")
-    #         available_grades = sorted([int(g) for g in star_base["__grade_int"].dropna().unique() if not pd.isna(g)])
-    #         selected_grades = available_grades
-    #         star_base = star_base.drop(columns=["__grade_int"], errors="ignore")
-    #     else:
-    #         # Fallback: use all grades from Pre-K to 12
-    #         selected_grades = list(range(-1, 13))
+    # Section 3: Overall + Cohort Trends (Winter)
+    print("\n[Section 3] Generating Overall + Cohort Trends (Winter)...")
+    selected_grades = chart_filters.get("grades", [])
+    if not selected_grades:
+        # Query all available grades from data (no hardcoded limit)
+        grade_col = "grade" if "grade" in star_base.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in star_base.columns else "studentgrade")
+        if grade_col in star_base.columns:
+            star_base["__grade_int"] = pd.to_numeric(star_base[grade_col], errors="coerce")
+            available_grades = sorted([int(g) for g in star_base["__grade_int"].dropna().unique() if not pd.isna(g)])
+            selected_grades = available_grades
+            star_base = star_base.drop(columns=["__grade_int"], errors="ignore")
+        else:
+            # Fallback: use all grades from Pre-K to 12
+            selected_grades = list(range(-1, 13))
     
-    # anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
+    anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
     
     subjects_to_plot = _requested_star_subjects(chart_filters)
-    # for scope_df, scope_label, folder in scopes:
-    #     for subj in subjects_to_plot:
-    #         if not should_generate_subject(subj, chart_filters):
-    #             continue
-    #         for grade in selected_grades:
-    #             if not should_generate_grade(grade, chart_filters):
-    #                 continue
-    #             try:
-    #                 chart_path = plot_star_blended_dashboard_winter(
-    #                     scope_df.copy(),
-    #                     scope_label,
-    #                     folder,
-    #                     args.output_dir,
-    #                     subject_str=subj,
-    #                     current_grade=grade,
-    #                     window_filter="Winter",
-    #                     cohort_year=anchor_year,
-    #                     cfg=cfg,
-    #                     preview=hf.DEV_MODE
-    #                 )
-    #                 if chart_path:
-    #                     chart_paths.append(chart_path)
-    #             except Exception as e:
-    #                 print(f"Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj}: {e}")
-    #                 if hf.DEV_MODE:
-    #                     import traceback
-    #                     traceback.print_exc()
-    #                 continue
+    for scope_df, scope_label, folder in scopes:
+        for subj in subjects_to_plot:
+            if not should_generate_subject(subj, chart_filters):
+                continue
+            for grade in selected_grades:
+                if not should_generate_grade(grade, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_star_blended_dashboard_winter(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subj,
+                        current_grade=grade,
+                        window_filter="Winter",
+                        cohort_year=anchor_year,
+                        cfg=cfg,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
     
-    # # Section 4: Overall Growth Trends by Site (Winter)
-    # print("\n[Section 4] Generating Overall Growth Trends by Site (Winter)...")
-    # for scope_df, scope_label, folder in scopes:
-    #     if folder == "_district":
-    #         # District-level SGP overview (separate charts for Reading and Math)
-    #         for subj in subjects_to_plot:
-    #             if not should_generate_subject(subj, chart_filters):
-    #                 continue
-    #             try:
-    #                 chart_path = plot_district_sgp_overview_single_subject_winter(
-    #                     scope_df.copy(),
-    #                     scope_label,
-    #                     folder,
-    #                     args.output_dir,
-    #                     subject_str=subj,
-    #                     window_filter="Winter",
-    #                     preview=hf.DEV_MODE
-    #                 )
-    #                 if chart_path:
-    #                     chart_paths.append(chart_path)
-    #             except Exception as e:
-    #                 print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
-    #                 if hf.DEV_MODE:
-    #                     import traceback
-    #                     traceback.print_exc()
-    #     else:
-    #         # School-level SGP overview (separate charts for Reading and Math)
-    #         for subj in subjects_to_plot:
-    #             if not should_generate_subject(subj, chart_filters):
-    #                 continue
-    #             try:
-    #                 chart_path = plot_district_sgp_overview_single_subject_winter(
-    #                     scope_df.copy(),
-    #                     scope_label,
-    #                     folder,
-    #                     args.output_dir,
-    #                     subject_str=subj,
-    #                     window_filter="Winter",
-    #                     preview=hf.DEV_MODE
-    #                 )
-    #                 if chart_path:
-    #                     chart_paths.append(chart_path)
-    #             except Exception as e:
-    #                 print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
-    #                 if hf.DEV_MODE:
-    #                     import traceback
-    #                     traceback.print_exc()
-    #                 continue
+    # Section 4: Overall Growth Trends by Site (Winter)
+    print("\n[Section 4] Generating Overall Growth Trends by Site (Winter)...")
+    for scope_df, scope_label, folder in scopes:
+        if folder == "_district":
+            # District-level SGP overview (separate charts for Reading and Math)
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_district_sgp_overview_single_subject_winter(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subj,
+                        window_filter="Winter",
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+        else:
+            # School-level SGP overview (separate charts for Reading and Math)
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_district_sgp_overview_single_subject_winter(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subj,
+                        window_filter="Winter",
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
     
-    # # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort (Winter)
-    # print("\n[Section 5] Generating STAR SGP Growth (Winter)...")
-    # for scope_df, scope_label, folder in scopes:
-    #     for subj in subjects_to_plot:
-    #         if not should_generate_subject(subj, chart_filters):
-    #             continue
-    #         for grade in selected_grades:
-    #             if not should_generate_grade(grade, chart_filters):
-    #                 continue
-    #             try:
-    #                 chart_path = plot_star_sgp_growth_winter(
-    #                     scope_df.copy(),
-    #                     scope_label,
-    #                     folder,
-    #                     args.output_dir,
-    #                     subject_str=subj,
-    #                     current_grade=grade,
-    #                     window_filter="Winter",
-    #                     cfg=cfg,
-    #                     preview=hf.DEV_MODE
-    #                 )
-    #                 if chart_path:
-    #                     chart_paths.append(chart_path)
-    #             except Exception as e:
-    #                 print(f"Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj}: {e}")
-    #                 if hf.DEV_MODE:
-    #                     import traceback
-    #                     traceback.print_exc()
-    #                 continue
+    # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort (Winter)
+    print("\n[Section 5] Generating STAR SGP Growth (Winter)...")
+    for scope_df, scope_label, folder in scopes:
+        for subj in subjects_to_plot:
+            if not should_generate_subject(subj, chart_filters):
+                continue
+            for grade in selected_grades:
+                if not should_generate_grade(grade, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_star_sgp_growth_winter(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subj,
+                        current_grade=grade,
+                        window_filter="Winter",
+                        cfg=cfg,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
     
     # Section 6: Performance by School (Fall vs Winter)
     print("\n[Section 6] Generating Performance by School (Fall vs Winter)...")
