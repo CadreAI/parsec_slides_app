@@ -25,6 +25,7 @@ import helper_functions as hf
 
 from .star_chart_utils import (
     BAR_WIDTH,
+    FIGSIZE_WIDTH,
     LABEL_MIN_PCT,
     draw_insight_card,
     draw_score_bar,
@@ -132,7 +133,7 @@ def track_chart(chart_name, file_path, scope="district", section=None, chart_dat
 
 def _plot_section0_star_single_subject_winter(scope_label, folder, subject, proj_pct, act_pct, metrics, output_dir, preview=False):
     """Render Section 0 chart for single subject: STAR predicted vs actual CAASPP - Winter version"""
-    fig = plt.figure(figsize=(8, 9), dpi=300)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.35)
     
@@ -574,9 +575,9 @@ def plot_star_single_subject_dashboard_winter(
         activity_type_filter = 'reading'
         title = 'Reading'
     
-    fig = plt.figure(figsize=(8, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
     
     legend_handles = [
         Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q)
@@ -618,7 +619,7 @@ def plot_star_single_subject_dashboard_winter(
         ax2.axis("off")
     ax2.set_title("Avg Unified Scale Score", fontsize=8, fontweight="bold", pad=10)
     
-    ax3 = fig.add_subplot(gs[2, 0])
+    ax3 = fig.add_subplot(gs[:, 1])
     draw_insight_card(ax3, metrics, title)
     
     fig.legend(
@@ -866,9 +867,9 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
         subj = 'reading'
         title = 'Reading'
     
-    fig = plt.figure(figsize=(8, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -888,11 +889,13 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
     )
     x = np.arange(len(stack_df))
     
-    # Fixed bar width with adaptive padding
+    # Fixed bar width with consistent visual proportion
     bar_width = BAR_WIDTH
     n_bars = len(stack_df)
-    # Dynamic padding: inversely proportional to number of bars, minimum 0.5
-    padding = max(0.5, 2.0 / n_bars)
+    # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+    target_ratio = 0.65  # Bars take up 65% of axis
+    padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+    padding = max(0.2, padding)  # Minimum padding for aesthetics
     
     cumulative = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -934,7 +937,7 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
     ax2.spines["right"].set_visible(False)
     
     # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[2, 0])
+    ax3 = fig.add_subplot(gs[:, 1])
     ax3.axis("off")
     if metrics.get("t_prev"):
         t_curr = metrics.get("t_curr", "Current")
@@ -1169,9 +1172,9 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
         subj = 'reading'
         title = 'Reading'
     
-    fig = plt.figure(figsize=(8, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -1193,7 +1196,10 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
     
     bar_width = BAR_WIDTH
     n_bars = len(stack_df)
-    padding = max(0.5, 2.0 / n_bars)
+    # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+    target_ratio = 0.65  # Bars take up 65% of axis
+    padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+    padding = max(0.2, padding)  # Minimum padding for aesthetics
     
     cum = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -1235,7 +1241,7 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
     ax2.spines["right"].set_visible(False)
     
     # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[2, 0])
+    ax3 = fig.add_subplot(gs[:, 1])
     ax3.axis("off")
     if metrics.get("t_prev"):
         t_curr = metrics.get("t_curr", "Current")
@@ -1527,9 +1533,9 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         print(f"[1.3][{group_name}] No {title} data")
         return None
     
-    fig = plt.figure(figsize=(8, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -1544,7 +1550,10 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
     
     bar_width = BAR_WIDTH
     n_bars = len(stack_df)
-    padding = max(0.5, 2.0 / n_bars)
+    # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+    target_ratio = 0.65  # Bars take up 65% of axis
+    padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+    padding = max(0.2, padding)  # Minimum padding for aesthetics
     
     cumulative = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -1591,7 +1600,7 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         ax2.axis("off")
     
     # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[2, 0])
+    ax3 = fig.add_subplot(gs[:, 1])
     ax3.axis("off")
     if metrics.get("t_prev"):
         t_curr = metrics.get("t_curr", "Current")
@@ -1900,14 +1909,14 @@ def plot_star_single_subject_dashboard_by_group_winter(
         print(f"[group {group_name}] skipped (no data) in {scope_label}")
         return None
     
-    # Create figure with single column layout
-    fig = plt.figure(figsize=(8, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    # Create figure with 2-column layout (charts left, insights right)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
     
     ax_perf = fig.add_subplot(gs[0, 0])
     ax_score = fig.add_subplot(gs[1, 0])
-    ax_insight = fig.add_subplot(gs[2, 0])
+    ax_insight = fig.add_subplot(gs[:, 1])
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -1920,11 +1929,20 @@ def plot_star_single_subject_dashboard_by_group_winter(
         )
         x_labels = stack_df.index.tolist()
         x = np.arange(len(x_labels))
+        
+        # Fixed bar width with consistent visual proportion
+        bar_width = BAR_WIDTH
+        n_bars = len(x_labels)
+        # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+        target_ratio = 0.65  # Bars take up 65% of axis
+        padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+        padding = max(0.2, padding)  # Minimum padding for aesthetics
+        
         cumulative = np.zeros(len(stack_df))
         
         for cat in hf.STAR_ORDER:
             vals = stack_df[cat].to_numpy()
-            bars = ax_perf.bar(x, vals, bottom=cumulative, color=hf.STAR_COLORS[cat],
+            bars = ax_perf.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat],
                                  edgecolor="white", linewidth=1.2)
             for idx, rect in enumerate(bars):
                 h = vals[idx]
@@ -1936,6 +1954,7 @@ def plot_star_single_subject_dashboard_by_group_winter(
             cumulative += vals
         
         ax_perf.set_ylim(0, 100)
+        ax_perf.set_xlim(-padding, n_bars - 1 + padding)
         ax_perf.set_ylabel("% of Students")
         ax_perf.set_xticks(x)
         ax_perf.set_xticklabels(x_labels)
@@ -2445,13 +2464,24 @@ def plot_star_blended_dashboard_winter(
         print(f"[Section 3] No data for {scope_label} - Grade {current_grade} - {subject_str}")
         return None
     
-    # Create figure with 2 columns (Overall left, Cohort right)
-    fig = plt.figure(figsize=(16, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3, wspace=0.25)
+    # Create figure with 4 columns (Overall left with insights, Cohort right with insights)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=2, ncols=4, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1, 2.5, 1])
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
     
-    axes_left = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[2, 0])]
-    axes_right = [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 1]), fig.add_subplot(gs[2, 1])]
+    # Left side: Overall trends
+    axes_left = [
+        fig.add_subplot(gs[0, 0]),  # Stacked bars (top left)
+        fig.add_subplot(gs[1, 0]),  # Score bars (bottom left)
+        fig.add_subplot(gs[:, 1])   # Insights (right side of left column, spans both rows)
+    ]
+    
+    # Right side: Cohort trends
+    axes_right = [
+        fig.add_subplot(gs[0, 2]),  # Stacked bars (top right)
+        fig.add_subplot(gs[1, 2]),  # Score bars (bottom right)
+        fig.add_subplot(gs[:, 3])   # Insights (right side of right column, spans both rows)
+    ]
     
     # Left side: Overall trends
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
@@ -2583,7 +2613,7 @@ def plot_star_growth_by_site_winter(
     
     # Create figure - one row per school
     n_schools = len(school_data)
-    fig = plt.figure(figsize=(16, 4 * n_schools), dpi=300)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 4 * n_schools), dpi=300)
     gs = fig.add_gridspec(nrows=n_schools, ncols=2, height_ratios=[1] * n_schools)
     fig.subplots_adjust(hspace=0.4, wspace=0.3)
     
@@ -2732,35 +2762,33 @@ def _prep_star_sgp_trend_district_overview(df, subject_str):
     return out, vector_used
 
 
-def plot_district_sgp_overview_winter(
-    df, scope_label, folder, output_dir, window_filter="Winter", preview=False
+def plot_district_sgp_overview_single_subject_winter(
+    df, scope_label, folder, output_dir, subject_str, window_filter="Winter", preview=False
 ):
     """
-    District-level SGP overview: Reading and Math side-by-side.
-    Aggregates across all grades to show overall district growth.
+    District-level SGP overview: Single subject version.
+    Aggregates across all grades to show overall district growth for one subject.
     """
-    subjects = ["Reading", "Mathematics"]
-    subject_titles = ["Reading", "Math"]
+    # Determine subject title
+    if subject_str.lower() in ['math', 'mathematics']:
+        title = 'Math'
+    else:
+        title = 'Reading'
+    
     sgp_color = "#0381a2"
     band_color = "#eab308"
     band_line_color = "#ffa800"
     
-    # Prepare SGP data for both subjects
-    trend_data = []  # Store (dataframe, vector) tuples
-    for subj in subjects:
-        tdf, vector_used = _prep_star_sgp_trend_district_overview(df, subject_str=subj)
-        trend_data.append((tdf, vector_used))
-    
-    trend_dfs = [td[0] for td in trend_data]  # Extract just dataframes
+    # Prepare SGP data for this subject
+    trend_df, vector_used = _prep_star_sgp_trend_district_overview(df, subject_str=subject_str)
     
     # Check if we have any data
-    if all(tdf.empty for tdf in trend_dfs):
-        print(f"[Section 4 Overview] No SGP data for {scope_label}")
+    if trend_df.empty:
+        print(f"[Section 4 Overview] No SGP data for {scope_label} - {title}")
         return None
     
-    # Get the SGP vector label from the actual data used (not by re-detecting)
+    # Get the SGP vector label from the actual data used
     sgp_vector_label = "SGP"  # Default
-    vector_used = next((v for _, v in trend_data if v is not None), None)
     if vector_used:
         if vector_used == "FALL_WINTER":
             sgp_vector_label = "Fall→Winter SGP"
@@ -2769,47 +2797,44 @@ def plot_district_sgp_overview_winter(
         else:
             sgp_vector_label = f"{vector_used} SGP"
     
-    # Create faceted plot
-    fig, axes = plt.subplots(1, 2, figsize=(16, 9), dpi=300, sharey=True)
+    # Create single-subject plot
+    fig, ax = plt.subplots(1, 1, figsize=(FIGSIZE_WIDTH, 9), dpi=300)
     
-    for idx, (ax, subj, title, trend_df) in enumerate(
-        zip(axes, subjects, subject_titles, trend_dfs)
-    ):
-        if trend_df.empty or not {"time_label", "median_sgp", "n"}.issubset(trend_df.columns):
-            ax.axis("off")
-            ax.text(0.5, 0.5, f"No {title} data", ha="center", va="center",
-                   fontsize=16, fontweight="bold", color="#434343")
-            continue
-        
-        sub = trend_df.copy()
-        x = np.arange(len(sub))
-        y = sub["median_sgp"].to_numpy(float)
-        
-        # Growth band (35-65 typical growth range)
-        ax.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
-        for yref in [35, 50, 65]:
-            ax.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
-        
-        # Bars
-        bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
-        for rect, val in zip(bars, y):
-            ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
-                   f"{val:.1f}", ha="center", va="center", fontsize=9,
-                   fontweight="bold", color="white")
-        
-        # Add n-counts under x-axis
-        n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
-        formatted_labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" 
-                           for tl in sub["time_label"].astype(str).tolist()]
-        
-        ax.set_xticks(x)
-        ax.set_xticklabels(formatted_labels)
-        ax.set_title(title, fontweight="bold", fontsize=14, pad=10)
-        ax.set_ylim(0, 100)
-        ax.set_ylabel(f"Median {sgp_vector_label}" if idx == 0 else "")
-        # ax.grid(False)  # Gridlines disabled globally
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+    if not {"time_label", "median_sgp", "n"}.issubset(trend_df.columns):
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"No {title} data", ha="center", va="center",
+               fontsize=16, fontweight="bold", color="#434343")
+        plt.close(fig)
+        return None
+    
+    sub = trend_df.copy()
+    x = np.arange(len(sub))
+    y = sub["median_sgp"].to_numpy(float)
+    
+    # Growth band (35-65 typical growth range)
+    ax.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
+    for yref in [35, 50, 65]:
+        ax.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
+    
+    # Bars
+    bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+    for rect, val in zip(bars, y):
+        ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
+               f"{val:.1f}", ha="center", va="center", fontsize=9,
+               fontweight="bold", color="white")
+    
+    # Add n-counts under x-axis
+    n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
+    formatted_labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" 
+                       for tl in sub["time_label"].astype(str).tolist()]
+    
+    ax.set_xticks(x)
+    ax.set_xticklabels(formatted_labels)
+    ax.set_title(title, fontweight="bold", fontsize=14, pad=10)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel(f"Median {sgp_vector_label}")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
     
     # Legend
     fig.legend(
@@ -2820,8 +2845,8 @@ def plot_district_sgp_overview_winter(
     
     # Title
     fig.suptitle(
-        f"{scope_label} • {sgp_vector_label} Trends (All Grades)",
-        fontsize=20, fontweight="bold", y=1.02
+        f"{scope_label} • {sgp_vector_label} Trends (All Grades) • {title}",
+        fontsize=18, fontweight="bold", y=0.98
     )
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     
@@ -2829,25 +2854,23 @@ def plot_district_sgp_overview_winter(
     out_dir = Path(output_dir) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")
-    out_name = f"DISTRICT_{safe_scope}_STAR_section4_sgp_overview_{window_filter.lower()}.png"
+    safe_subj = subject_str.replace(" ", "_").lower()
+    out_name = f"DISTRICT_{safe_scope}_STAR_section4_sgp_overview_{safe_subj}_{window_filter.lower()}.png"
     out_path = out_dir / out_name
     
     hf._save_and_render(fig, out_path, dev_mode=preview)
-    print(f"Saved Section 4 SGP Overview: {out_path}")
+    print(f"Saved Section 4 SGP Overview ({title}): {out_path}")
     
     # Track chart with data
     chart_data = {
-        "chart_type": "star_winter_section4_sgp_overview",
+        "chart_type": "star_winter_section4_sgp_overview_single_subject",
         "section": 4,
         "scope": scope_label,
         "window_filter": window_filter,
-        "subjects": subjects,
-        "sgp_data": {
-            subj: tdf.to_dict("records") if not tdf.empty else []
-            for subj, tdf in zip(subjects, trend_dfs)
-        }
+        "subject": title,
+        "sgp_data": trend_df.to_dict("records") if not trend_df.empty else []
     }
-    track_chart(f"Section 4: District SGP Overview", out_path, scope=scope_label, section=4, chart_data=chart_data)
+    track_chart(f"Section 4: District SGP Overview {title}", out_path, scope=scope_label, section=4, chart_data=chart_data)
     plt.close(fig)
     
     return str(out_path)
@@ -3050,7 +3073,7 @@ def plot_star_sgp_growth_winter(
         return None
     
     # Create figure
-    fig = plt.figure(figsize=(16, 9), dpi=300)
+    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
     gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[2, 1])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
@@ -3065,12 +3088,20 @@ def plot_star_sgp_growth_winter(
         x = np.arange(len(x_labels))
         y = sgp_df_grade["avg_sgp"].tolist()
         
+        # Fixed bar width with consistent visual proportion
+        bar_width = BAR_WIDTH
+        n_bars = len(x_labels)
+        # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+        target_ratio = 0.65  # Bars take up 65% of axis
+        padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+        padding = max(0.2, padding)  # Minimum padding for aesthetics
+        
         # Growth band
         ax1.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
         for yref in [35, 50, 65]:
             ax1.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
         
-        bars = ax1.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+        bars = ax1.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars, y):
             ax1.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
                     f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
@@ -3086,6 +3117,7 @@ def plot_star_sgp_growth_winter(
         else:
             ax1.set_xticklabels(x_labels)
         
+        ax1.set_xlim(-padding, n_bars - 1 + padding)
         ax1.set_xticks(x)
         ax1.set_ylabel("Median Fall→Winter SGP", fontsize=11, fontweight="bold")
         ax1.set_title("Overall Growth Trends", fontsize=14, fontweight="bold")
@@ -3104,12 +3136,20 @@ def plot_star_sgp_growth_winter(
         x_cohort = np.arange(len(x_labels_cohort))
         y_cohort = cohort_df["median_sgp"].tolist()
         
+        # Fixed bar width with consistent visual proportion
+        bar_width = BAR_WIDTH
+        n_bars_cohort = len(x_labels_cohort)
+        # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+        target_ratio = 0.65  # Bars take up 65% of axis
+        padding_cohort = ((n_bars_cohort - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+        padding_cohort = max(0.2, padding_cohort)  # Minimum padding for aesthetics
+        
         # Growth band
         ax2.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
         for yref in [35, 50, 65]:
             ax2.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
         
-        bars_cohort = ax2.bar(x_cohort, y_cohort, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+        bars_cohort = ax2.bar(x_cohort, y_cohort, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars_cohort, y_cohort):
             ax2.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
                     f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
@@ -3125,6 +3165,7 @@ def plot_star_sgp_growth_winter(
         else:
             ax2.set_xticklabels(x_labels_cohort)
         
+        ax2.set_xlim(-padding_cohort, n_bars_cohort - 1 + padding_cohort)
         ax2.set_xticks(x_cohort)
         ax2.set_ylabel("Median Fall→Winter SGP", fontsize=11, fontweight="bold")
         ax2.set_title("Cohort Growth Trends", fontsize=14, fontweight="bold")
@@ -3463,23 +3504,27 @@ def main(star_data=None):
     for scope_df, scope_label, folder in scopes:
         # Only generate for district scope (shows all schools)
         if folder == "_district":
-            # NEW: Add district-level SGP overview (Reading + Math side-by-side)
-            try:
-                chart_path = plot_district_sgp_overview_winter(
-                    scope_df.copy(),
-                    scope_label,
-                    folder,
-                    args.output_dir,
-                    window_filter="Winter",
-                    preview=hf.DEV_MODE
-                )
-                if chart_path:
-                    chart_paths.append(chart_path)
-            except Exception as e:
-                print(f"Error generating Section 4 SGP Overview for {scope_label}: {e}")
-                if hf.DEV_MODE:
-                    import traceback
-                    traceback.print_exc()
+            # District-level SGP overview (separate charts for Reading and Math)
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_district_sgp_overview_single_subject_winter(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subj,
+                        window_filter="Winter",
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
             
             # Existing: Growth by Site charts (separate for Reading and Math)
             for subj in subjects_to_plot:

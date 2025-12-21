@@ -17,7 +17,10 @@ import helper_functions as hf
 LABEL_MIN_PCT = 5.0
 
 # Fixed bar width for all STAR charts
-BAR_WIDTH = 0.4
+BAR_WIDTH = 0.8
+
+# Standard figure width for consistency across all charts
+FIGSIZE_WIDTH = 18  # Width in inches for all STAR charts
 
 
 def draw_stacked_bar(ax, pct_df, score_df, labels):
@@ -53,11 +56,13 @@ def draw_stacked_bar(ax, pct_df, score_df, labels):
     
     x = np.arange(len(x_labels))
     
-    # Fixed bar width with adaptive padding based on number of bars
+    # Fixed bar width with consistent visual proportion
     bar_width = BAR_WIDTH
     n_bars = len(x_labels)
-    # Dynamic padding: inversely proportional to number of bars, minimum 0.5
-    padding = max(0.5, 2.0 / n_bars)
+    # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+    target_ratio = 0.65  # Bars take up 65% of axis
+    padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+    padding = max(0.2, padding)  # Minimum padding for aesthetics
     
     cumulative = np.zeros(len(stack_df))
     
@@ -140,11 +145,13 @@ def draw_score_bar(ax, score_df, labels, n_map=None):
             ax.axis("off")
             return
         
-        # Fixed bar width with adaptive padding based on number of bars
+        # Fixed bar width with consistent visual proportion
         bar_width = BAR_WIDTH
         n_bars = len(rit_x)
-        # Dynamic padding: inversely proportional to number of bars, minimum 0.5
-        padding = max(0.5, 2.0 / n_bars)
+        # Universal formula: maintains consistent bar-to-axis ratio (~65%)
+        target_ratio = 0.65  # Bars take up 65% of axis
+        padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
+        padding = max(0.2, padding)  # Minimum padding for aesthetics
         
         if len(hf.default_quintile_colors) < 5:
             bar_color = "#4A90E2"
