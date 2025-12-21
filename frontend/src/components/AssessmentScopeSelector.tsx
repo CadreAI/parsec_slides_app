@@ -158,7 +158,7 @@ export function AssessmentScopeSelector({
             {/* District Selection - Only show if we have actual districts */}
             {hasActualDistricts && (
                 <div className="space-y-2">
-                    <Label className="text-xs">District(s)</Label>
+                    <Label className="text-xs">District / Charter</Label>
                     <MultiSelect
                         options={districtOptions}
                         selected={scope.districts}

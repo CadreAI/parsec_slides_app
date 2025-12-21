@@ -285,6 +285,36 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
         tmp_path = p.parent / f"{p.stem}_data.json.tmp"
 
         payload = chart_data or {}
+
+        # Auto-fill section_title (used by Slides divider generation)
+        try:
+            if "section_title" not in payload:
+                sec = payload.get("section")
+                if sec is not None:
+                    try:
+                        sec_f = float(sec)
+                        sec_key = str(int(sec_f)) if sec_f.is_integer() else str(sec_f)
+                    except Exception:
+                        sec_key = str(sec)
+
+                    IREADY_TITLES = {
+                        "0": "i-Ready vs CERS (Predicted vs Actual)",
+                        "0.1": "Fall → Winter Comparison",
+                        "1": "Performance Trends",
+                        "2": "Student Group Performance Trends",
+                        "3": "Overall + Cohort Trends",
+                        "4": "Winter i-Ready Mid/Above → % CERS Met/Exceeded",
+                        "5": "Growth Progress Toward Annual Goals",
+                        "6": "Window Compare by School",
+                        "7": "Window Compare by Grade",
+                        "8": "Window Compare by Student Group",
+                        "9": "Median Progress by School",
+                        "10": "Median Progress by Grade",
+                        "11": "Median Progress by Student Group",
+                    }
+                    payload["section_title"] = IREADY_TITLES.get(sec_key, f"Section {sec_key}")
+        except Exception:
+            pass
         text = json.dumps(payload, indent=2, default=str)
 
         with open(tmp_path, "w", encoding="utf-8") as f:

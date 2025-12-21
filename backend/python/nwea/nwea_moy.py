@@ -163,6 +163,35 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
         tmp_path = p.parent / f"{p.stem}_data.json.tmp"
 
         payload = chart_data or {}
+
+        # Auto-fill section_title (used by Slides divider generation)
+        try:
+            if "section_title" not in payload:
+                sec = payload.get("section")
+                if sec is not None:
+                    try:
+                        sec_f = float(sec)
+                        sec_key = str(int(sec_f)) if sec_f.is_integer() else str(sec_f)
+                    except Exception:
+                        sec_key = str(sec)
+
+                    NWEA_TITLES = {
+                        "0": "CAASPP Predicted vs Actual",
+                        "1": "Performance Trends",
+                        "2": "Student Group Performance Trends",
+                        "3": "Overall + Cohort Trends",
+                        "4": "Overall Growth Trends by Site",
+                        "5": "CGP/CGI Growth: Grade Trend + Backward Cohort",
+                        "6": "Window Compare by School",
+                        "7": "Window Compare by Grade",
+                        "8": "Window Compare by Student Group",
+                        "9": "Growth by School",
+                        "10": "Growth by Grade",
+                        "11": "Growth by Student Group",
+                    }
+                    payload["section_title"] = NWEA_TITLES.get(sec_key, f"Section {sec_key}")
+        except Exception:
+            pass
         text = json.dumps(payload, indent=2, default=str)
 
         with open(tmp_path, "w", encoding="utf-8") as f:

@@ -163,6 +163,35 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
         tmp_path = p.parent / f"{p.stem}_data.json.tmp"
 
         payload = chart_data or {}
+
+        # Auto-fill section_title (used by Slides divider generation)
+        try:
+            if "section_title" not in payload:
+                sec = payload.get("section")
+                if sec is not None:
+                    try:
+                        sec_f = float(sec)
+                        sec_key = str(int(sec_f)) if sec_f.is_integer() else str(sec_f)
+                    except Exception:
+                        sec_key = str(sec)
+
+                    NWEA_TITLES = {
+                        "0": "CAASPP Predicted vs Actual",
+                        "1": "Performance Trends",
+                        "2": "Student Group Performance Trends",
+                        "3": "Overall + Cohort Trends",
+                        "4": "Overall Growth Trends by Site",
+                        "5": "CGP/CGI Growth: Grade Trend + Backward Cohort",
+                        "6": "Window Compare by School",
+                        "7": "Window Compare by Grade",
+                        "8": "Window Compare by Student Group",
+                        "9": "Growth by School",
+                        "10": "Growth by Grade",
+                        "11": "Growth by Student Group",
+                    }
+                    payload["section_title"] = NWEA_TITLES.get(sec_key, f"Section {sec_key}")
+        except Exception:
+            pass
         text = json.dumps(payload, indent=2, default=str)
 
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -317,6 +346,82 @@ if not csv_path.exists():
 nwea_base = pd.read_csv(csv_path)
 nwea_base.columns = nwea_base.columns.str.strip().str.lower()
 
+# ===== DIAGNOSTIC LOGGING FOR SECTIONS 4, 5, 9-11 =====
+logger.info(f"[DATA LOAD] Loaded {len(nwea_base):,} rows from CSV")
+logger.info(f"[DATA LOAD] Total columns: {len(nwea_base.columns)}")
+
+# Check for critical columns
+has_testwindow = "testwindow" in nwea_base.columns
+has_year = "year" in nwea_base.columns or "academicyear" in nwea_base.columns
+logger.info(f"[DATA LOAD] Has testwindow: {has_testwindow}, Has year: {has_year}")
+
+# Check test windows present
+if has_testwindow:
+    windows = nwea_base["testwindow"].str.upper().value_counts().to_dict()
+    logger.info(f"[DATA LOAD] Test windows present: {windows}")
+
+# Check for conditional growth columns
+cond_growth_cols = sorted([c for c in nwea_base.columns if "conditionalgrowth" in c.lower()])
+logger.info(f"[DATA LOAD] Found {len(cond_growth_cols)} conditional growth columns:")
+for col in cond_growth_cols:
+    non_null = nwea_base[col].notna().sum()
+    logger.info(f"  - {col}: {non_null:,} non-null values")
+
+# Check specifically for Spring-ended growth columns
+spring_growth = [c for c in cond_growth_cols if "spring" in c.lower() and ("percentile" in c.lower() or "index" in c.lower())]
+logger.info(f"[DATA LOAD] Spring-ended growth columns ({len(spring_growth)}): {spring_growth}")
+
+# WRITE DIAGNOSTIC FILE TO CHARTS DIR (easy to find!)
+try:
+    diagnostic_path = CHARTS_DIR / "DIAGNOSTIC_nwea_eoy_columns.txt"
+    with open(diagnostic_path, "w") as f:
+        f.write("=" * 80 + "\n")
+        f.write("NWEA EOY DATA DIAGNOSTIC\n")
+        f.write("=" * 80 + "\n\n")
+        f.write(f"Total rows: {len(nwea_base):,}\n")
+        f.write(f"Total columns: {len(nwea_base.columns)}\n\n")
+        
+        if has_testwindow:
+            f.write("Test windows:\n")
+            for window, count in sorted(windows.items()):
+                f.write(f"  {window}: {count:,} rows\n")
+            f.write("\n")
+        
+        f.write(f"Conditional growth columns found: {len(cond_growth_cols)}\n")
+        if cond_growth_cols:
+            f.write("\nAll conditional growth columns:\n")
+            for col in cond_growth_cols:
+                non_null = nwea_base[col].notna().sum()
+                pct = (non_null / len(nwea_base) * 100) if len(nwea_base) > 0 else 0
+                f.write(f"  {col}: {non_null:,} non-null ({pct:.1f}%)\n")
+        
+        f.write(f"\nSpring-ended growth columns: {len(spring_growth)}\n")
+        if spring_growth:
+            for col in spring_growth:
+                non_null = nwea_base[col].notna().sum()
+                pct = (non_null / len(nwea_base) * 100) if len(nwea_base) > 0 else 0
+                f.write(f"  {col}: {non_null:,} non-null ({pct:.1f}%)\n")
+        else:
+            f.write("  ⚠️  NO SPRING-ENDED GROWTH COLUMNS FOUND!\n")
+            f.write("  Sections 4, 5, 9-11 require these columns:\n")
+            f.write("    - wintertospringconditionalgrowthpercentile\n")
+            f.write("    - wintertospringconditionalgrowthindex\n")
+            f.write("    - springtospringconditionalgrowthpercentile\n")
+            f.write("    - springtospringconditionalgrowthindex\n")
+        
+        f.write("\n" + "=" * 80 + "\n")
+        f.write("If sections 4, 5, 9-11 are not generating:\n")
+        f.write("1. Check if Spring-ended columns exist above\n")
+        f.write("2. Check if they have non-null values\n")
+        f.write("3. Check if SPRING test window has rows\n")
+        f.write("=" * 80 + "\n")
+    
+    logger.info(f"[DIAGNOSTIC] Wrote column diagnostic to: {diagnostic_path}")
+    print(f"📊 DIAGNOSTIC FILE: {diagnostic_path}")
+except Exception as e:
+    logger.warning(f"[DIAGNOSTIC] Failed to write diagnostic file: {e}")
+# ===== END DIAGNOSTIC LOGGING =====
+
 # --- Charter datasets sometimes store school values in `learning_center` instead of `schoolname`/`school`.
 # Many downstream sections assume a `schoolname` column, so we normalize the best available school column into `schoolname`.
 def _pick_school_col(df: pd.DataFrame) -> str | None:
@@ -428,11 +533,11 @@ def _get_eoy_compare_windows() -> list[str]:
 # Scope selection (district-only vs district + schools vs selected schools)
 #
 # Env vars (set by runner / backend):
-# - NWEA_MOY_SCOPE_MODE:
+# - NWEA_EOY_SCOPE_MODE:
 #     - "district_only" (skip all school loops)
 #     - "selected_schools" (only loop selected schools; still include district)
 #     - default/other: district + all schools
-# - NWEA_MOY_SCHOOLS="School A,School B" (names can be raw or normalized)
+# - NWEA_EOY_SCHOOLS="School A,School B" (names can be raw or normalized)
 # ---------------------------------------------------------------------
 _scope_mode = str(os.getenv("NWEA_EOY_SCOPE_MODE") or "").strip().lower()
 _env_schools = os.getenv("NWEA_EOY_SCHOOLS")
@@ -468,7 +573,7 @@ def _iter_schools(df: pd.DataFrame):
         yield rs
 
 # Optional: restrict grade-level dashboards based on frontend selection.
-# The runner passes selected grades as: NWEA_MOY_GRADES="3,4,5"
+# The runner passes selected grades as: NWEA_EOY_GRADES="3,4,5"
 _env_grades = os.getenv("NWEA_EOY_GRADES")
 _selected_grades = None
 if _env_grades:
@@ -1077,7 +1182,7 @@ def _prep_nwea_window_compare_snapshot(
     return pct_df, score_df, metrics, time_order
 
 
-def plot_nwea_dual_subject_fall_winter_dashboard(
+def plot_nwea_dual_subject_window_compare_dashboard(
     df: pd.DataFrame,
     figsize: tuple[int, int] = (16, 9),
     school_raw: str | None = None,
@@ -1122,7 +1227,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         out_paths = []
         for subj, title in zip(subjects, titles):
             out_paths.extend(
-                plot_nwea_dual_subject_fall_winter_dashboard(
+                plot_nwea_dual_subject_window_compare_dashboard(
                     df,
                     figsize=figsize,
                     school_raw=school_raw,
@@ -1264,7 +1369,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
             line_rit = f"Δ Avg RIT: {_fmt_delta(score_delta)} pts"
             insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
         else:
-            insight_lines = ["Not enough data for Fall→Winter insights"]
+            insight_lines = ["Not enough data for window-to-window insights"]
 
         ax.text(
             0.5,
@@ -1418,7 +1523,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
 
 # District-level snapshot
 scope_label_01 = district_label
-plot_nwea_dual_subject_fall_winter_dashboard(
+plot_nwea_dual_subject_window_compare_dashboard(
     nwea_base.copy(),
     figsize=(16, 9),
     school_raw=None,
@@ -1432,7 +1537,7 @@ if _include_school_charts():
         school_display_01 = hf._safe_normalize_school_name(raw_school_01, cfg)
         school_df_01 = nwea_base[nwea_base["schoolname"] == raw_school_01].copy()
 
-        plot_nwea_dual_subject_fall_winter_dashboard(
+        plot_nwea_dual_subject_window_compare_dashboard(
             school_df_01,
             figsize=(16, 9),
             school_raw=raw_school_01,
@@ -1665,7 +1770,7 @@ def _prep_nwea_for_charts(
 # ---------------------------------------------------------------------
 def plot_nwea_dual_subject_dashboard(
     df,
-    window_filter="Winter",
+    window_filter="Spring",
     figsize=(16, 9),
     school_raw=None,
     scope_label=None,
@@ -2016,7 +2121,7 @@ folder = "_district"
 
 plot_nwea_dual_subject_dashboard(
     nwea_base.copy(),
-    window_filter="Winter",
+    window_filter="Spring",
     figsize=(16, 9),
     school_raw=None,
     scope_label=scope_label,  # <-- new param
@@ -2037,7 +2142,7 @@ if _include_school_charts():
 
         plot_nwea_dual_subject_dashboard(
             school_df,
-            window_filter="Winter",
+            window_filter="Spring",
             figsize=(16, 9),
             school_raw=school_display,
             scope_label=school_display,  # <-- pass same label for title + save
@@ -2385,7 +2490,7 @@ def plot_nwea_subject_dashboard_by_group(
         )
     # Main title for the whole figure
     fig.suptitle(
-        f"{title_label} • {group_name} • Winter Year-to-Year Trends",
+        f"{title_label} • {group_name} • Spring Year-to-Year Trends",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -2400,7 +2505,7 @@ def plot_nwea_subject_dashboard_by_group(
     group_order_val = order_map.get(group_name, 99)
     safe_group = group_name.replace(" ", "_").replace("/", "_")
     out_name = (
-        f"{scope_label.replace(' ', '_')}_section2_{safe_group}_Winter_trends.png"
+        f"{scope_label.replace(' ', '_')}_section2_{safe_group}_Spring_trends.png"
     )
     out_path = out_dir / out_name
 
@@ -2443,7 +2548,7 @@ student_groups_cfg = cfg.get("student_groups", {})
 group_order = cfg.get("student_group_order", {})
 
 # Optional: restrict student-group dashboards based on frontend selection.
-# The runner passes selected groups as: NWEA_MOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
+# The runner passes selected groups as: NWEA_EOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
 _env_groups = os.getenv("NWEA_EOY_STUDENT_GROUPS")
 _selected_groups = []
 if _env_groups:
@@ -2451,7 +2556,7 @@ if _env_groups:
     print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
 
 # Optional: restrict race/ethnicity dashboards based on frontend selection.
-# The runner passes selected races as: NWEA_MOY_RACE="Hispanic or Latino,White"
+# The runner passes selected races as: NWEA_EOY_RACE="Hispanic or Latino,White"
 _env_race = os.getenv("NWEA_EOY_RACE")
 _selected_races = []
 if _env_race:
@@ -2482,7 +2587,7 @@ for group_name, group_def in sorted(
     plot_nwea_subject_dashboard_by_group(
         scope_df.copy(),
         subject_str=None,
-        window_filter="Winter",
+        window_filter="Spring",
         group_name=group_name,
         group_def=group_def,
         figsize=(16, 9),
@@ -2508,7 +2613,7 @@ if _selected_races:
             plot_nwea_subject_dashboard_by_group(
                 scope_df.copy(),
                 subject_str=None,
-                window_filter="Winter",
+                window_filter="Spring",
                 group_name=race_name,
                 group_def=race_def,
                 figsize=(16, 9),
@@ -2535,7 +2640,7 @@ if _include_school_charts():
             plot_nwea_subject_dashboard_by_group(
                 scope_df.copy(),
                 subject_str=None,
-                window_filter="Winter",
+                window_filter="Spring",
                 group_name=group_name,
                 group_def=group_def,
                 figsize=(16, 9),
@@ -2564,7 +2669,7 @@ if _include_school_charts():
                     plot_nwea_subject_dashboard_by_group(
                         scope_df.copy(),
                         subject_str=None,
-                        window_filter="Winter",
+                        window_filter="Spring",
                         group_name=race_name,
                         group_def=race_def,
                         figsize=(16, 9),
@@ -2576,9 +2681,9 @@ if _include_school_charts():
 # %% SECTION 3 - Overall + Cohort Trends
 # Cohort Dashboards (current-year cohort across up to 4 years)
 # Model and styling match the main dashboard section. X-axis shows cohort labels.
-# Example labels: "Gr 3 • Winter 24-25", "Gr 4 • Winter 25-26", "Gr 5 • Winter 26-27"
+# Example labels: "Gr 3 • Spring 24-25", "Gr 4 • Spring 25-26", "Gr 5 • Spring 26-27"
 # Rules:
-#   - Window: Winter only
+#   - Window: Spring only
 #   - Subject bucketing identical to _prep_nwea_for_charts
 #   - For a given current grade G in latest available year Y that has G,
 #     define the cohort as students in (year==Y & grade==G).
@@ -2593,7 +2698,7 @@ def plot_nwea_blended_dashboard(
     df: pd.DataFrame,
     course_str: str,
     current_grade: int,
-    window_filter: str = "Winter",
+    window_filter: str = "Spring",
     cohort_year: int | None = None,
     figsize=(16, 9),
     school_raw: str | None = None,
@@ -2740,7 +2845,7 @@ def plot_nwea_blended_dashboard(
             year_str_prev = str(year - 1)[-2:]
             year_str_curr = str(year)[-2:]
             label_full = (
-                f"Gr {int(grade)} \u2022 Winter {year_str_prev}-{year_str_curr}"
+                f"Gr {int(grade)} \u2022 Spring {year_str_prev}-{year_str_curr}"
             )
             cohort_slice["cohort_label"] = label_full
             cohort_rows.append(cohort_slice)
@@ -3235,7 +3340,7 @@ def plot_nwea_blended_dashboard(
     )
     out_name = (
         f"{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_"
-        f"{course_str.lower().replace(' ', '_')}_Winter_trends.png"
+        f"{course_str.lower().replace(' ', '_')}_Spring_trends.png"
     )
     out_path = out_dir / out_name
     logger.info(f"[CHART] Generating chart: {out_path}")
@@ -3298,7 +3403,7 @@ def _run_scope(scope_df, scope_label, school_raw):
                 scope_df.copy(),
                 course_str=subject_str,
                 current_grade=g_int,
-                window_filter="Winter",
+                window_filter="Spring",
                 cohort_year=anchor_year,
                 figsize=(16, 9),
                 school_raw=school_raw,
@@ -3342,17 +3447,12 @@ def _pick_cond_growth_cols(
     end = (end_window or "").strip().upper()
 
     candidates = [
-        # Prefer Spring-ended growth when we're building EOY/Spring charts
+        # EOY always uses Spring-ended growth (no Winter fallback)
         ("wintertospringconditionalgrowthpercentile", "wintertospringconditionalgrowthindex", "Winter→Spring", "SPRING"),
+        ("springtospringconditionalgrowthpercentile", "springtospringconditionalgrowthindex", "Spring→Spring", "SPRING"),
         ("falltospringconditionalgrowthpercentile", "falltospringconditionalgrowthindex", "Fall→Spring", "SPRING"),
-        # Fallback: Winter-ended growth (common in older exports)
-        ("falltowinterconditionalgrowthpercentile", "falltowinterconditionalgrowthindex", "Fall→Winter", "WINTER"),
     ]
-
-    if end == "WINTER":
-        candidates = [candidates[-1]] + candidates[:-1]
-    elif end == "SPRING":
-        pass  # already Spring-first
+    # No dynamic reordering for EOY - always Spring-only
 
     for cgp, cgi, label, inferred_end in candidates:
         if cgp in cols:
@@ -3508,7 +3608,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
             color="white",
         )
 
-    ax.set_ylabel("Median Fall→Winter CGP")
+    ax.set_ylabel("Median Conditional Growth Percentile (CGP)")
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist())
     ax.set_ylim(0, 100)
@@ -3572,7 +3672,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
                 color="#ffa800",
             )
 
-    ax2.set_ylabel("Avg Fall→Winter CGI")
+    ax2.set_ylabel("Avg Conditional Growth Index (CGI)")
     ax2.set_yticks([-2, -1, 0, 1, 2])
     ax.set_title(f"{subject_str}", fontweight="bold", fontsize=14, pad=10)
 
@@ -3586,7 +3686,7 @@ def _save_cgp_chart(
     fig,
     scope_label,
     section_num=4,
-    suffix="cgp_fall_to_winter_dualpanel",
+    suffix="cgp_cgi_dualpanel",
     chart_data: dict | None = None,
 ):
     charts_dir = CHARTS_DIR
@@ -3748,7 +3848,7 @@ def _run_cgp_dual_trend(scope_df, scope_label):
         fig,
         scope_label,
         section_num=4,
-        suffix="cgp_fall_to_winter_dualpanel",
+        suffix="cgp_cgi_dualpanel",
         chart_data={
             "chart_type": "nwea_eoy_section4_cgp_cgi_dualpanel",
             "section": 4,
@@ -3778,11 +3878,11 @@ if _include_school_charts():
 
 # %% SECTION 5 — CGP/CGI Growth: Grade Trend + Backward Cohort (Unmatched)
 # ---------------------------------------------------------------------
-# Left facet: overall grade-level fall→Winter growth across 4 years
+# Left facet: overall grade-level conditional growth across 4 years (EOY end window)
 # Right facet: same grade, same time span, but backward cohort (unmatched)
 #   → Year = anchor_year - offset
 #   → Grade = anchor_grade - offset
-#   → Dedupe by test date, filter Winter only
+#   → Dedupe by test date, filter to end window (typically SPRING)
 #   → Median CGP + Mean CGI
 # Replicates verified Sect‑2 cohort logic (no student matching)
 # ---------------------------------------------------------------------
@@ -3794,7 +3894,9 @@ def _prep_cgp_by_grade(df, subject, grade):
     end_window = _get_eoy_compare_windows()[-1].upper()
     d = d[d["testwindow"].str.upper() == end_window]
     after_window = len(d)
-    logger.info(f"[FILTER] After Winter window filter: {after_window:,} rows (removed {initial_rows - after_window:,})")
+    logger.info(
+        f"[FILTER] After end-window filter ({end_window}): {after_window:,} rows (removed {initial_rows - after_window:,})"
+    )
     d["grade"] = pd.to_numeric(d["grade"], errors="coerce")
     before_grade = len(d)
     d = d[d["grade"] == grade]
@@ -3809,7 +3911,7 @@ def _prep_cgp_by_grade(df, subject, grade):
         d = d[d["course"].str.contains("read", case=False, na=False)]
         logger.info(f"[FILTER] After Reading course filter: {len(d):,} rows (removed {before_course - len(d):,})")
 
-    # Clean dates and deduplicate to most recent Winter test per student
+    # Clean dates and deduplicate to most recent end-window test per student
     before_dedup = len(d)
     d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
     d = d.dropna(subset=["teststartdate"])
@@ -4116,7 +4218,7 @@ def _plot_cgp_dual_facet(
     )
 
     fig.suptitle(
-        f"{scope_label} • {subject_str} • Grade {grade} • Fall→Winter Growth",
+        f"{scope_label} • {subject_str} • Grade {grade} • Conditional Growth",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -4133,7 +4235,7 @@ def _plot_cgp_dual_facet(
             "scope": scope_label,
             "subject": subject_str,
             "grade": int(grade),
-            "window_filter": "Winter",
+            "window_filter": _get_eoy_compare_windows()[-1].title(),
             "grade_data": overall_df.to_dict("records") if hasattr(overall_df, "to_dict") else [],
             "cohort_data": cohort_df.to_dict("records") if hasattr(cohort_df, "to_dict") else [],
         },
@@ -4323,7 +4425,7 @@ def _save_cgp_chart(
     fig,
     scope_label,
     section_num=4,
-    suffix="cgp_fall_to_winter_dualpanel",
+    suffix="cgp_cgi_dualpanel",
     chart_data: dict | None = None,
 ):
     charts_dir = CHARTS_DIR
@@ -4360,21 +4462,21 @@ def _save_cgp_chart(
 #########################################################################
 
 
-# %% SECTION 6 — District Fall vs Winter by School (ELA + Math)
+# %% SECTION 6 — District Window Compare by School (ELA + Math)
 # ---------------------------------------------------------------------
 # Multi-indexed version of Section 0.1:
 #   - Latest year only
 #   - X-axis = schools
-#   - For each school: Fall and Winter 100% stacked bars side-by-side
+#   - For each school: first and last selected windows 100% stacked bars side-by-side
 #   - Produce TWO full-size charts: one for Reading (ELA proxy) and one for Math
 # ---------------------------------------------------------------------
 
 
-def _prep_section6_fall_winter_by_school(
+def _prep_section6_window_compare_by_school(
     df: pd.DataFrame,
     subject_str: str,
 ) -> tuple[pd.DataFrame, int, list[str]]:
-    """Prepare percent-by-quintile for Fall vs Winter, split by school.
+    """Prepare percent-by-quintile for selected windows, split by school.
 
     Returns:
         pct_df: columns [school_display, testwindow, achievementquintile, pct, n, N_total]
@@ -4499,7 +4601,7 @@ def _prep_section6_fall_winter_by_school(
     return pct_df, target_year, school_order
 
 
-def _plot_section6_fall_winter_by_school(
+def _plot_section6_window_compare_by_school(
     pct_df: pd.DataFrame,
     subject_title: str,
     target_year: int,
@@ -4685,11 +4787,11 @@ try:
     district_label_06 = district_label
 
     # Reading / ELA
-    pct_ela, year_ela, schools_ela = _prep_section6_fall_winter_by_school(
+    pct_ela, year_ela, schools_ela = _prep_section6_window_compare_by_school(
         nwea_base.copy(),
         subject_str="Reading",
     )
-    _plot_section6_fall_winter_by_school(
+    _plot_section6_window_compare_by_school(
         pct_ela,
         subject_title="Reading",
         target_year=year_ela,
@@ -4698,11 +4800,11 @@ try:
     )
 
     # Math
-    pct_math, year_math, schools_math = _prep_section6_fall_winter_by_school(
+    pct_math, year_math, schools_math = _prep_section6_window_compare_by_school(
         nwea_base.copy(),
         subject_str="Math",
     )
-    _plot_section6_fall_winter_by_school(
+    _plot_section6_window_compare_by_school(
         pct_math,
         subject_title="Math",
         target_year=year_math,
@@ -4713,20 +4815,20 @@ except Exception as e:
     print(f"[Section 6] ERROR: {e}")
 
 
-# %% SECTION 7 — District Fall vs Winter by Grade (ELA + Math)
+# %% SECTION 7 — District Window Compare by Grade (ELA + Math)
 # ---------------------------------------------------------------------
 # Same concept as Section 6, but:
 #   - X-axis = grade levels (districtwide)
-#   - For each grade: Fall and Winter 100% stacked bars side-by-side
+#   - For each grade: first and last selected windows 100% stacked bars side-by-side
 #   - Produce TWO full-size charts: one for Reading (ELA proxy) and one for Math
 # ---------------------------------------------------------------------
 
 
-def _prep_section7_fall_winter_by_grade(
+def _prep_section7_window_compare_by_grade(
     df: pd.DataFrame,
     subject_str: str,
 ) -> tuple[pd.DataFrame, int, list[int]]:
-    """Prepare percent-by-quintile for Fall vs Winter, split by grade.
+    """Prepare percent-by-quintile for selected windows, split by grade.
 
     Returns:
         pct_df: columns [grade_num, testwindow, achievementquintile, pct, n, N_total]
@@ -4850,7 +4952,7 @@ def _prep_section7_fall_winter_by_grade(
     return pct_df, target_year, grade_order
 
 
-def _plot_section7_fall_winter_by_grade(
+def _plot_section7_window_compare_by_grade(
     pct_df: pd.DataFrame,
     subject_title: str,
     target_year: int,
@@ -5034,11 +5136,11 @@ def _plot_section7_fall_winter_by_grade(
 # ---- RUN SECTION 7 (district only) ----
 try:
     # Reading / ELA
-    pct_ela_g, year_ela_g, grades_ela = _prep_section7_fall_winter_by_grade(
+    pct_ela_g, year_ela_g, grades_ela = _prep_section7_window_compare_by_grade(
         nwea_base.copy(),
         subject_str="Reading",
     )
-    _plot_section7_fall_winter_by_grade(
+    _plot_section7_window_compare_by_grade(
         pct_ela_g,
         subject_title="Reading",
         target_year=year_ela_g,
@@ -5047,11 +5149,11 @@ try:
     )
 
     # Math
-    pct_math_g, year_math_g, grades_math = _prep_section7_fall_winter_by_grade(
+    pct_math_g, year_math_g, grades_math = _prep_section7_window_compare_by_grade(
         nwea_base.copy(),
         subject_str="Math",
     )
-    _plot_section7_fall_winter_by_grade(
+    _plot_section7_window_compare_by_grade(
         pct_math_g,
         subject_title="Math",
         target_year=year_math_g,
@@ -5061,14 +5163,14 @@ try:
 except Exception as e:
     print(f"[Section 7] ERROR: {e}")
 
-# %% SECTION 8 — District Fall vs Winter by Student Group (ELA + Math)
+# %% SECTION 8 — District Window Compare by Student Group (ELA + Math)
 # ---------------------------------------------------------------------
 # X-axis = student groups (districtwide). For each group: Fall + Winter bars.
 # Uses cfg['student_groups'] + _apply_student_group_mask for membership.
 # ---------------------------------------------------------------------
 
 
-def _prep_section8_fall_winter_by_student_group(df: pd.DataFrame, subject_str: str):
+def _prep_section8_window_compare_by_student_group(df: pd.DataFrame, subject_str: str):
     d = df.copy()
 
     win_order = _get_eoy_compare_windows()
@@ -5246,7 +5348,7 @@ def _prep_section8_fall_winter_by_student_group(df: pd.DataFrame, subject_str: s
     return pct_df, target_year, group_order
 
 
-def _plot_section8_fall_winter_by_student_group(
+def _plot_section8_window_compare_by_student_group(
     pct_df, subject_title, target_year, group_order, preview=False
 ):
     if pct_df.empty or not group_order:
@@ -5415,11 +5517,11 @@ def _plot_section8_fall_winter_by_student_group(
 
 # ---- RUN SECTION 8 (district only) ----
 try:
-    pct_ela_grp, year_ela_grp, groups_ela = _prep_section8_fall_winter_by_student_group(
+    pct_ela_grp, year_ela_grp, groups_ela = _prep_section8_window_compare_by_student_group(
         nwea_base.copy(),
         subject_str="Reading",
     )
-    _plot_section8_fall_winter_by_student_group(
+    _plot_section8_window_compare_by_student_group(
         pct_ela_grp,
         subject_title="Reading",
         target_year=year_ela_grp,
@@ -5428,12 +5530,12 @@ try:
     )
 
     pct_math_grp, year_math_grp, groups_math = (
-        _prep_section8_fall_winter_by_student_group(
+        _prep_section8_window_compare_by_student_group(
             nwea_base.copy(),
             subject_str="Math",
         )
     )
-    _plot_section8_fall_winter_by_student_group(
+    _plot_section8_window_compare_by_student_group(
         pct_math_grp,
         subject_title="Math",
         target_year=year_math_grp,
@@ -5452,10 +5554,9 @@ except Exception as e:
 #   - Reading: Median CGP (percentile), Mean CGI (index)
 #   - Math:    Median CGP (percentile), Mean CGI (index)
 #
-# Growth window can be switched between:
-#   - Fall→Winter (default)
-#   - Winter→Winter
-# by setting cfg["nwea_growth_window"] to "Fall→Winter" or "Winter→Winter".
+# Growth windows for EOY (Spring-ended):
+#   - Winter→Spring (within-year)
+#   - Spring→Spring (year-over-year, Spring-ended)
 #
 #########################################################################
 
@@ -5463,14 +5564,7 @@ except Exception as e:
 # Growth windows (Sections 9–11 always output BOTH)
 # ----------------------------
 GROWTH_WINDOWS = [
-    # EOY-friendly windows (Spring-ended)
-    {
-        "key": "winter_to_spring",
-        "label": "Winter→Spring",
-        "end_window": "SPRING",
-        "cgp_col": "wintertospringconditionalgrowthpercentile",
-        "cgi_col": "wintertospringconditionalgrowthindex",
-    },
+    # EOY windows (Spring-ended)
     {
         "key": "fall_to_spring",
         "label": "Fall→Spring",
@@ -5478,20 +5572,12 @@ GROWTH_WINDOWS = [
         "cgp_col": "falltospringconditionalgrowthpercentile",
         "cgi_col": "falltospringconditionalgrowthindex",
     },
-    # Fallback windows (Winter-ended)
     {
-        "key": "fall_to_winter",
-        "label": "Fall→Winter",
-        "end_window": "WINTER",
-        "cgp_col": "falltowinterconditionalgrowthpercentile",
-        "cgi_col": "falltowinterconditionalgrowthindex",
-    },
-    {
-        "key": "winter_to_winter",
-        "label": "Winter→Winter",
-        "end_window": "WINTER",
-        "cgp_col": "wintertowinterconditionalgrowthpercentile",
-        "cgi_col": "wintertowinterconditionalgrowthindex",
+        "key": "spring_to_spring",
+        "label": "Spring→Spring",
+        "end_window": "SPRING",
+        "cgp_col": "springtospringconditionalgrowthpercentile",
+        "cgi_col": "springtospringconditionalgrowthindex",
     },
 ]
 
@@ -5784,7 +5870,7 @@ def _plot_scope_growth_bar(
 
     district_name_cfg = district_label
     yr = _latest_year_num(nwea_base)
-    year_txt = f"Winter {yr}" if yr is not None else "Winter"
+    year_txt = f"Spring {yr}" if yr is not None else "Spring"
 
     ax.set_title(
         f"{district_name_cfg} • {subject_title} • {title_metric}\n{year_txt} ({growth_label})",
@@ -5803,16 +5889,25 @@ def _plot_scope_growth_bar(
 
 
 def _run_section9_growth_by_school():
+    # Debug: Check available columns for growth metrics
+    growth_like_cols = sorted([c for c in nwea_base.columns if "conditional" in str(c).lower()])
+    logger.info(f"[CHART] Section 9: Found {len(growth_like_cols)} conditional growth columns in nwea_base: {growth_like_cols[:12]}")
+    
     for subject_title in ["Reading", "Math"]:
         safe_subj = "reading" if subject_title.lower().startswith("read") else "math"
 
         for w in GROWTH_WINDOWS:
+            logger.info(f"[CHART] Section 9: Attempting {subject_title} / {w['label']} (end_window={w['end_window']})")
+            logger.info(f"[CHART] Section 9: Looking for columns: {w['cgp_col']}, {w['cgi_col']}")
+            
             d0, _ = _filter_window_latest_year(nwea_base.copy(), end_window=w["end_window"])
             if d0.empty:
-                logger.info(f"[CHART] Section 9: no {w['end_window']} data for {subject_title} ({w['label']})")
+                logger.warning(f"[CHART] Section 9: no {w['end_window']} data for {subject_title} ({w['label']}) — d0 empty after window filter")
                 continue
+            logger.info(f"[CHART] Section 9: After window filter: {len(d0):,} rows, {d0['teststartdate'].min()} to {d0['teststartdate'].max()}")
+            
             if "schoolname" not in d0.columns:
-                logger.info(f"[CHART] Section 9: missing schoolname column for {subject_title} ({w['label']})")
+                logger.warning(f"[CHART] Section 9: missing schoolname column for {subject_title} ({w['label']})")
                 continue
 
             d0["school_display"] = d0["schoolname"].apply(
