@@ -71,7 +71,7 @@ def sql_nwea(
     growth_column_prefixes = {
         'Fall': ['FallToFall', 'FallToWinter', 'FallToSpring'],
         'Winter': ['FallToWinter', 'WinterToWinter', 'WinterToSpring'],
-        'Spring': ['SpringToSpring']
+        'Spring': ['SpringToSpring', 'FallToSpring', 'WinterToSpring']
     }
     
     # Growth column suffixes for each type
@@ -100,7 +100,7 @@ def sql_nwea(
     typical_growth_columns = {
         'Fall': ['TypicalFallToFallGrowth', 'TypicalFallToWinterGrowth', 'TypicalFallToSpringGrowth'],
         'Winter': ['TypicalFallToWinterGrowth', 'TypicalWinterToWinterGrowth', 'TypicalWinterToSpringGrowth'],
-        'Spring': ['TypicalSpringToSpringGrowth']
+        'Spring': ['TypicalSpringToSpringGrowth', 'TypicalWinterToSpringGrowth', 'SpringToWTypicalFallToSpringGrowthinterGrowth']
     }
     
     # Collect all Typical Growth columns that should be INCLUDED (not excluded)

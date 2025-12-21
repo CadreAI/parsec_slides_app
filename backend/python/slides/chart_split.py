@@ -34,6 +34,10 @@ def create_section_divider_slide_requests(
     Returns:
         List of Google Slides API requests
     """
+    # Normalize inputs (avoid Slides API errors like "object has no text")
+    test_type_text = (str(test_type) if test_type is not None else "").strip() or "Assessment"
+    sections_text = [((str(s) if s is not None else "").strip() or "Section") for s in (sections or [])]
+
     # Use provided theme_color or default to Parsec blue
     # Handle both None and empty string cases
     final_theme_color = theme_color if theme_color and theme_color.strip() else '#0094bd'
@@ -104,7 +108,7 @@ def create_section_divider_slide_requests(
         }
     })
     requests.append({
-        'insertText': {'objectId': test_type_object_id, 'text': test_type, 'insertionIndex': 0 }
+        'insertText': {'objectId': test_type_object_id, 'text': test_type_text, 'insertionIndex': 0 }
     })
     requests.append({
         'updateTextStyle': {
@@ -135,7 +139,7 @@ def create_section_divider_slide_requests(
     })
     
     # Sections displayed vertically, directly below test type
-    num_sections = len(sections)
+    num_sections = len(sections_text)
     if num_sections > 0:
         # Start sections right below the test type with minimal gap
         section_start_y = test_type_y + test_type_height + 200000  # Small gap between title and first section
@@ -158,7 +162,7 @@ def create_section_divider_slide_requests(
             if num_sections > 1:
                 section_spacing = max(100000, (available_height - (section_height * num_sections)) / (num_sections - 1))
         
-        for i, section in enumerate(sections):
+        for i, section in enumerate(sections_text):
             section_object_id = f'{slide_object_id}_section_{i}'
             section_y = section_start_y + i * (section_height + section_spacing)
             
