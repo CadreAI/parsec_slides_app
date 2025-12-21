@@ -4652,7 +4652,7 @@ def _plot_section6_fall_winter_by_school(
         columnspacing=1.0,
     )
 
-    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    district_name_cfg = district_label
     ax.set_title(
         f"{district_name_cfg} • {window_order[0].title()} vs {window_order[-1].title()} by School \n {subject_title} {window_order[-1].title()} {target_year}",
         fontsize=18,
@@ -4682,7 +4682,7 @@ def _plot_section6_fall_winter_by_school(
 
 # ---- RUN SECTION 6 (district only) ----
 try:
-    district_label_06 = cfg.get("district_name", ["Districtwide"])[0]
+    district_label_06 = district_label
 
     # Reading / ELA
     pct_ela, year_ela, schools_ela = _prep_section6_fall_winter_by_school(
@@ -5003,7 +5003,7 @@ def _plot_section7_fall_winter_by_grade(
         columnspacing=1.0,
     )
 
-    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    district_name_cfg = district_label
     ax.set_title(
         f"{district_name_cfg} • {window_order[0].title()} vs {window_order[-1].title()} by Grade\n{subject_title} {window_order[-1].title()} {target_year}",
         fontsize=18,
@@ -5385,7 +5385,7 @@ def _plot_section8_fall_winter_by_student_group(
         columnspacing=1.0,
     )
 
-    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    district_name_cfg = district_label
     ax.set_title(
         f"{district_name_cfg} • {window_order[0].title()} vs {window_order[-1].title()} by Student Group \n {subject_title} {window_order[-1].title()} {target_year}",
         fontsize=18,
@@ -5662,7 +5662,7 @@ def _save_growth_chart(fig, section_num: int, suffix: str):
     out_dir = charts_dir / "_district"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    district_name_cfg = district_label
     safe_d = district_name_cfg.replace(" ", "_")
     out_path = out_dir / f"{safe_d}_section{section_num}_{suffix}.png"
     hf._save_and_render(fig, out_path)
@@ -5782,7 +5782,7 @@ def _plot_scope_growth_bar(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    district_name_cfg = cfg.get("district_name", ["Districtwide"])[0]
+    district_name_cfg = district_label
     yr = _latest_year_num(nwea_base)
     year_txt = f"Winter {yr}" if yr is not None else "Winter"
 
