@@ -3534,7 +3534,6 @@ def main(star_data=None):
     # Section 4: Overall Growth Trends by Site (Winter)
     print("\n[Section 4] Generating Overall Growth Trends by Site (Winter)...")
     for scope_df, scope_label, folder in scopes:
-        # Only generate for district scope (shows all schools)
         if folder == "_district":
             # District-level SGP overview (separate charts for Reading and Math)
             for subj in subjects_to_plot:
@@ -3557,26 +3556,25 @@ def main(star_data=None):
                     if hf.DEV_MODE:
                         import traceback
                         traceback.print_exc()
-            
-            # Existing: Growth by Site charts (separate for Reading and Math)
+        else:
+            # School-level SGP overview (separate charts for Reading and Math)
             for subj in subjects_to_plot:
                 if not should_generate_subject(subj, chart_filters):
                     continue
                 try:
-                    chart_path = plot_star_growth_by_site_winter(
+                    chart_path = plot_district_sgp_overview_single_subject_winter(
                         scope_df.copy(),
                         scope_label,
                         folder,
                         args.output_dir,
                         subject_str=subj,
                         window_filter="Winter",
-                        cfg=cfg,
                         preview=hf.DEV_MODE
                     )
                     if chart_path:
                         chart_paths.append(chart_path)
                 except Exception as e:
-                    print(f"Error generating Section 4 chart for {scope_label} - {subj}: {e}")
+                    print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
                     if hf.DEV_MODE:
                         import traceback
                         traceback.print_exc()
