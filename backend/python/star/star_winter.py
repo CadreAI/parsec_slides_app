@@ -24,9 +24,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
 from .star_chart_utils import (
-    BAR_WIDTH,
     FIGSIZE_WIDTH,
     LABEL_MIN_PCT,
+    PADDING,
+    calculate_bar_width,
     draw_insight_card,
     draw_score_bar,
     draw_stacked_bar,
@@ -133,9 +134,14 @@ def track_chart(chart_name, file_path, scope="district", section=None, chart_dat
 
 def _plot_section0_star_single_subject_winter(scope_label, folder, subject, proj_pct, act_pct, metrics, output_dir, preview=False):
     """Render Section 0 chart for single subject: STAR predicted vs actual CAASPP - Winter version"""
-    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    fig_width = FIGSIZE_WIDTH // 2
+    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.35)
+    
+    # Calculate bar width for 2 side-by-side bars
+    n_bars = 2
+    bar_width = calculate_bar_width(n_bars, fig_width)
     
     title = "Reading" if subject == "Reading" else "Math"
     
@@ -177,7 +183,7 @@ def _plot_section0_star_single_subject_winter(scope_label, folder, subject, proj
             -0.2,
             val,
             bottom=cumulative,
-            width=0.35,
+            width=bar_width,
             color=col,
             alpha=0.6,
             edgecolor="#434343",
@@ -203,7 +209,7 @@ def _plot_section0_star_single_subject_winter(scope_label, folder, subject, proj
         val = float(act_pct.get(level, 0))
         col = hf.CERS_LEVEL_COLORS.get(level, "#cccccc")
         bars = bar_ax.bar(
-            0.2, val, bottom=cumulative, width=0.35, color=col,
+            0.2, val, bottom=cumulative, width=bar_width, color=col,
             edgecolor="#434343", linewidth=1.2
         )
         rect = bars.patches[0]
@@ -361,6 +367,10 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.35, wspace=0.25)
     
+    # Calculate bar width for 2 side-by-side bars per column
+    n_bars = 2
+    bar_width = calculate_bar_width(n_bars, 16 / 2)  # Half width per column
+    
     subjects = [s for s in ["Reading", "Mathematics"] if s in subj_payload]
     titles = {"Reading": "Reading", "Mathematics": "Math"}
     
@@ -402,7 +412,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
                 -0.2,
                 val,
                 bottom=cumulative,
-                width=0.35,
+                width=bar_width,
                 color=col,
                 alpha=0.6,
                 edgecolor="#434343",
@@ -431,7 +441,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
                 0.2,
                 val,
                 bottom=cumulative,
-                width=0.35,
+                width=bar_width,
                 color=col,
                 edgecolor="white",
                 linewidth=1.2,
@@ -605,7 +615,7 @@ def plot_star_single_subject_dashboard_winter(
     # Plot panels
     ax1 = fig.add_subplot(gs[0, 0])
     if pct_df is not None and not pct_df.empty:
-        draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER)
+        draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER, bar_width=bar_width, fig_width=fig_width)
     else:
         ax1.text(0.5, 0.5, f"No {title} data", ha="center", va="center", fontsize=12)
         ax1.axis("off")
@@ -613,7 +623,7 @@ def plot_star_single_subject_dashboard_winter(
     
     ax2 = fig.add_subplot(gs[1, 0])
     if score_df is not None and not score_df.empty:
-        draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map)
+        draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map, bar_width=bar_width, fig_width=fig_width)
     else:
         ax2.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
         ax2.axis("off")
@@ -889,13 +899,11 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
     )
     x = np.arange(len(stack_df))
     
-    # Fixed bar width with consistent visual proportion
-    bar_width = BAR_WIDTH
+    # Dynamic bar width for consistent physical appearance
     n_bars = len(stack_df)
-    # Universal formula: maintains consistent bar-to-axis ratio (~65%)
-    target_ratio = 0.65  # Bars take up 65% of axis
-    padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
-    padding = max(0.2, padding)  # Minimum padding for aesthetics
+    fig_width = FIGSIZE_WIDTH // 2  # Single column width
+    bar_width = calculate_bar_width(n_bars, fig_width)
+    padding = PADDING
     
     cumulative = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -954,12 +962,15 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
             lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
             score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
             
+            delta_exceed = metrics.get("delta_exceed", 0)
+            delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
+            delta_not_met = metrics.get("delta_not_met", 0)
+            
             lines = [
-                f"Current values ({t_curr}):",
-                f"Exceeded: {high_now:.1f} ppts",
-                f"Meet/Exceed: {hi_now:.1f} ppts",
-                f"Not Met: {lo_now:.1f} ppts",
-                f"Avg Score: {score_now:.1f} pts",
+                "Change",
+                f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
+                f"Exceeded: {delta_exceed:+.1f}%",
+                f"Not Met: {delta_not_met:+.1f}%",
             ]
         else:
             lines = ["Not enough data for insights"]
@@ -1196,10 +1207,7 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
     
     bar_width = BAR_WIDTH
     n_bars = len(stack_df)
-    # Universal formula: maintains consistent bar-to-axis ratio (~65%)
-    target_ratio = 0.65  # Bars take up 65% of axis
-    padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
-    padding = max(0.2, padding)  # Minimum padding for aesthetics
+    padding = 0.5  # Fixed padding for consistent visual appearance
     
     cum = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -1258,12 +1266,15 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
             lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
             score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
             
+            delta_exceed = metrics.get("delta_exceed", 0)
+            delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
+            delta_not_met = metrics.get("delta_not_met", 0)
+            
             lines = [
-                f"Current values ({t_curr}):",
-                f"Exceeded: {high_now:.1f} ppts",
-                f"Meet/Exceed: {hi_now:.1f} ppts",
-                f"Not Met: {lo_now:.1f} ppts",
-                f"Avg Score: {score_now:.1f} pts",
+                "Change",
+                f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
+                f"Exceeded: {delta_exceed:+.1f}%",
+                f"Not Met: {delta_not_met:+.1f}%",
             ]
         else:
             lines = ["Not enough data for insights"]
@@ -1550,10 +1561,7 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
     
     bar_width = BAR_WIDTH
     n_bars = len(stack_df)
-    # Universal formula: maintains consistent bar-to-axis ratio (~65%)
-    target_ratio = 0.65  # Bars take up 65% of axis
-    padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
-    padding = max(0.2, padding)  # Minimum padding for aesthetics
+    padding = 0.5  # Fixed padding for consistent visual appearance
     
     cumulative = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -1617,12 +1625,15 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
             lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
             score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if score_df is not None and not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
             
+            delta_exceed = metrics.get("delta_exceed", 0)
+            delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
+            delta_not_met = metrics.get("delta_not_met", 0)
+            
             lines = [
-                f"Current values ({t_curr}):",
-                f"Exceeded: {high_now:.1f} ppts",
-                f"Meet/Exceed: {hi_now:.1f} ppts",
-                f"Not Met: {lo_now:.1f} ppts",
-                f"Avg Score: {score_now:.1f} pts",
+                "Change",
+                f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
+                f"Exceeded: {delta_exceed:+.1f}%",
+                f"Not Met: {delta_not_met:+.1f}%",
             ]
         else:
             lines = ["Not enough data for insights"]
@@ -1930,13 +1941,11 @@ def plot_star_single_subject_dashboard_by_group_winter(
         x_labels = stack_df.index.tolist()
         x = np.arange(len(x_labels))
         
-        # Fixed bar width with consistent visual proportion
-        bar_width = BAR_WIDTH
+        # Dynamic bar width for consistent physical appearance
         n_bars = len(x_labels)
-        # Universal formula: maintains consistent bar-to-axis ratio (~65%)
-        target_ratio = 0.65  # Bars take up 65% of axis
-        padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
-        padding = max(0.2, padding)  # Minimum padding for aesthetics
+        fig_width = FIGSIZE_WIDTH // 2  # Single column width
+        bar_width = calculate_bar_width(n_bars, fig_width)
+        padding = PADDING
         
         cumulative = np.zeros(len(stack_df))
         
@@ -2001,12 +2010,15 @@ def plot_star_single_subject_dashboard_by_group_winter(
             lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
             score_now = metrics.get("score_now", 0)
             
+            high_delta = metrics.get("high_delta", 0)
+            hi_delta = metrics.get("hi_delta", 0)
+            lo_delta = metrics.get("lo_delta", 0)
+            
             insight_lines = [
-                f"Current values ({t_curr}):",
-                f"Exceed: {high_now:.1f} ppts",
-                f"Meet or Exceed: {hi_now:.1f} ppts",
-                f"Not Met: {lo_now:.1f} ppts",
-                f"Avg Unified Scale Score: {score_now:.1f} pts",
+                "Change",
+                f"Met+Exceeded: {hi_delta:+.1f}%",
+                f"Exceeded: {high_delta:+.1f}%",
+                f"Not Met: {lo_delta:+.1f}%",
             ]
         else:
             insight_lines = []
@@ -3088,13 +3100,11 @@ def plot_star_sgp_growth_winter(
         x = np.arange(len(x_labels))
         y = sgp_df_grade["avg_sgp"].tolist()
         
-        # Fixed bar width with consistent visual proportion
-        bar_width = BAR_WIDTH
+        # Dynamic bar width for consistent physical appearance
         n_bars = len(x_labels)
-        # Universal formula: maintains consistent bar-to-axis ratio (~65%)
-        target_ratio = 0.65  # Bars take up 65% of axis
-        padding = ((n_bars - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
-        padding = max(0.2, padding)  # Minimum padding for aesthetics
+        fig_width = FIGSIZE_WIDTH // 2  # Single column width
+        bar_width = calculate_bar_width(n_bars, fig_width)
+        padding = PADDING
         
         # Growth band
         ax1.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
@@ -3136,13 +3146,11 @@ def plot_star_sgp_growth_winter(
         x_cohort = np.arange(len(x_labels_cohort))
         y_cohort = cohort_df["median_sgp"].tolist()
         
-        # Fixed bar width with consistent visual proportion
-        bar_width = BAR_WIDTH
+        # Dynamic bar width for consistent physical appearance
         n_bars_cohort = len(x_labels_cohort)
-        # Universal formula: maintains consistent bar-to-axis ratio (~65%)
-        target_ratio = 0.65  # Bars take up 65% of axis
-        padding_cohort = ((n_bars_cohort - 1) * (1 - target_ratio) + bar_width) / (2 * target_ratio)
-        padding_cohort = max(0.2, padding_cohort)  # Minimum padding for aesthetics
+        fig_width = FIGSIZE_WIDTH // 2  # Single column width
+        bar_width = calculate_bar_width(n_bars_cohort, fig_width)
+        padding_cohort = PADDING
         
         # Growth band
         ax2.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
