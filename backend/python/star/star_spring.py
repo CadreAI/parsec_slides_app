@@ -522,9 +522,10 @@ def _prep_star_winter_spring(df, subj):
     """Filter to Winter/Spring for most recent academic year. Deduplicate to latest test per student per window."""
     d = df.copy()
     
-    # restrict to academic year 2026 and Winter/Spring
+    # Get the latest academic year from the data
     d["academicyear"] = pd.to_numeric(d["academicyear"], errors="coerce")
-    d = d[d["academicyear"] == 2026].copy()
+    latest_year = int(d["academicyear"].max()) if d["academicyear"].notna().any() else 2026
+    d = d[d["academicyear"] == latest_year].copy()
     d = d[d["testwindow"].astype(str).str.upper().isin(["WINTER", "SPRING"])].copy()
     
     # subject filtering (includes Spanish Reading preference)
@@ -535,8 +536,10 @@ def _prep_star_winter_spring(df, subj):
     if d.empty:
         return pd.DataFrame(), pd.DataFrame(), {}, []
     
-    # build Winter/Spring labels (always 25–26)
-    d["time_label"] = d["testwindow"].str.title() + " 25-26"
+    # Build time labels dynamically using the latest year
+    yy_prev = str(latest_year - 1)[-2:]
+    yy = str(latest_year)[-2:]
+    d["time_label"] = d["testwindow"].str.title() + f" {yy_prev}-{yy}"
     
     # dedupe to latest attempt
     if "activity_completed_date" in d.columns:
@@ -570,8 +573,8 @@ def _prep_star_winter_spring(df, subj):
     # avg unified scale score
     score_df = d.groupby("time_label")["unified_scale"].mean().rename("avg_score").reset_index()
     
-    # ensure order: Winter, Spring
-    time_order = ["Winter 25-26", "Spring 25-26"]
+    # ensure order: Winter, Spring (using dynamic years)
+    time_order = [f"Winter {yy_prev}-{yy}", f"Spring {yy_prev}-{yy}"]
     pct_df["time_label"] = pd.Categorical(pct_df["time_label"], time_order, True)
     score_df["time_label"] = pd.Categorical(score_df["time_label"], time_order, True)
     pct_df.sort_values(["time_label", "state_benchmark_achievement"], inplace=True)
@@ -723,7 +726,19 @@ def plot_section_1_1(df, scope_label, folder, output_dir, school_raw=None, previ
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "subjects": subjects, "metrics": metrics}
+    # Collect metrics from both subjects
+    all_metrics = {}
+    for i, subj in enumerate(subjects):
+        pct_df, score_df, metrics, _ = _prep_star_winter_spring(df, subj)
+        if not pct_df.empty:
+            all_metrics[titles[i]] = metrics
+    
+    chart_data = {
+        "scope": scope_label,
+        "subjects": subjects,
+        "metrics": all_metrics,
+        "time_orders": {titles[i]: ["Winter", "Spring"] for i in range(len(titles))}
+    }
     track_chart(f"Section 1.1: Winter → Spring Progression", out_path, scope=scope_label, section=1.1, chart_data=chart_data)
     print(f"Saved Section 1.1: {out_path}")
     return str(out_path)
@@ -856,7 +871,20 @@ def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, schoo
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "grade": grade, "subjects": subjects}
+    # Collect metrics from both subjects
+    all_metrics = {}
+    for i, subj in enumerate(subjects):
+        pct_df, score_df, metrics, _ = _prep_star_winter_spring(df, subj)
+        if not pct_df.empty:
+            all_metrics[titles[i]] = metrics
+    
+    chart_data = {
+        "scope": scope_label,
+        "grade": grade,
+        "subjects": subjects,
+        "metrics": all_metrics,
+        "time_orders": {titles[i]: ["Winter", "Spring"] for i in range(len(titles))}
+    }
     track_chart(f"Section 1.2: Grade {grade} Winter → Spring", out_path, scope=scope_label, section=1.2, chart_data=chart_data)
     print(f"Saved Section 1.2 (Grade {grade}): {out_path}")
     return str(out_path)
@@ -1041,7 +1069,14 @@ def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, 
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "group_name": group_name, "subjects": subjects}
+    # Include actual metrics and time orders for value checking
+    chart_data = {
+        "scope": scope_label,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": {titles[i]: metrics_list[i] for i in range(len(titles)) if metrics_list[i]},
+        "time_orders": {titles[i]: ["Winter", "Spring"] for i in range(len(titles))}
+    }
     track_chart(f"Section 1.3: {group_name} Winter → Spring", out_path, scope=scope_label, section=1.3, chart_data=chart_data)
     print(f"[1.3] Saved: {out_path}")
     return str(out_path)
@@ -1251,7 +1286,14 @@ def plot_star_subject_dashboard_by_group_spring(
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    chart_data = {"scope": scope_label, "window_filter": window_filter, "group_name": group_name, "subjects": subjects}
+    chart_data = {
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "group_name": group_name,
+        "subjects": subjects,
+        "metrics": {subject_titles[i]: metrics_list[i] for i in range(len(subject_titles)) if metrics_list[i]},
+        "time_orders": {subject_titles[i]: time_orders[i] for i in range(len(subject_titles)) if time_orders[i]}
+    }
     track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2, chart_data=chart_data)
     print(f"Saved Section 2: {out_path}")
     return str(out_path)
@@ -3253,6 +3295,7 @@ def main(star_data=None):
                     traceback.print_exc()
                 continue
     
+    return chart_paths
     # Section 3: Overall + Cohort Trends (Spring)
     print("\n[Section 3] Generating Overall + Cohort Trends (Spring)...")
     selected_grades = chart_filters.get("grades", [])
