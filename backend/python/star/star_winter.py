@@ -585,7 +585,9 @@ def plot_star_single_subject_dashboard_winter(
         activity_type_filter = 'reading'
         title = 'Reading'
     
-    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    # Single-column layout
+    fig_width = FIGSIZE_WIDTH // 2
+    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3)
     
@@ -611,6 +613,10 @@ def plot_star_single_subject_dashboard_winter(
         n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
     else:
         n_map = {}
+    
+    # Calculate dynamic bar width
+    n_bars = len(time_order)
+    bar_width = calculate_bar_width(n_bars, fig_width)
     
     # Plot panels
     ax1 = fig.add_subplot(gs[0, 0])
@@ -877,7 +883,9 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
         subj = 'reading'
         title = 'Reading'
     
-    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    # Single-column layout
+    fig_width = FIGSIZE_WIDTH // 2
+    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3)
     
@@ -1183,7 +1191,9 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
         subj = 'reading'
         title = 'Reading'
     
-    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    # Single-column layout
+    fig_width = FIGSIZE_WIDTH // 2
+    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3)
     
@@ -1205,9 +1215,11 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
     )
     x = np.arange(len(stack_df))
     
-    bar_width = BAR_WIDTH
+    # Dynamic bar width for consistent physical appearance
     n_bars = len(stack_df)
-    padding = 0.5  # Fixed padding for consistent visual appearance
+    fig_width = FIGSIZE_WIDTH // 2  # Single column width
+    bar_width = calculate_bar_width(n_bars, fig_width)
+    padding = PADDING
     
     cum = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -1544,7 +1556,9 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         print(f"[1.3][{group_name}] No {title} data")
         return None
     
-    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    # Single-column layout
+    fig_width = FIGSIZE_WIDTH // 2
+    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3)
     
@@ -1559,9 +1573,11 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
     )
     x = np.arange(len(stack_df))
     
-    bar_width = BAR_WIDTH
+    # Dynamic bar width for consistent physical appearance
     n_bars = len(stack_df)
-    padding = 0.5  # Fixed padding for consistent visual appearance
+    fig_width = FIGSIZE_WIDTH // 2  # Single column width
+    bar_width = calculate_bar_width(n_bars, fig_width)
+    padding = PADDING
     
     cumulative = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
@@ -1920,8 +1936,9 @@ def plot_star_single_subject_dashboard_by_group_winter(
         print(f"[group {group_name}] skipped (no data) in {scope_label}")
         return None
     
-    # Create figure with 3-row layout (insights at bottom)
-    fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    # Create figure with 3-row layout (insights at bottom) - single column
+    fig_width = FIGSIZE_WIDTH // 2
+    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3)
     
@@ -1986,7 +2003,7 @@ def plot_star_single_subject_dashboard_by_group_winter(
         n_map = {}
     
     if score_df is not None and not score_df.empty:
-        draw_score_bar(ax_score, score_df, hf.STAR_ORDER, n_map)
+        draw_score_bar(ax_score, score_df, hf.STAR_ORDER, n_map, bar_width=bar_width, fig_width=fig_width)
     else:
         ax_score.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
         ax_score.axis("off")
@@ -2809,8 +2826,9 @@ def plot_district_sgp_overview_single_subject_winter(
         else:
             sgp_vector_label = f"{vector_used} SGP"
     
-    # Create single-subject plot
-    fig, ax = plt.subplots(1, 1, figsize=(FIGSIZE_WIDTH, 9), dpi=300)
+    # Create single-subject plot (single column)
+    fig_width = FIGSIZE_WIDTH // 2
+    fig, ax = plt.subplots(1, 1, figsize=(fig_width, 9), dpi=300)
     
     if not {"time_label", "median_sgp", "n"}.issubset(trend_df.columns):
         ax.axis("off")
@@ -2823,13 +2841,18 @@ def plot_district_sgp_overview_single_subject_winter(
     x = np.arange(len(sub))
     y = sub["median_sgp"].to_numpy(float)
     
+    # Calculate dynamic bar width for consistent appearance
+    n_bars = len(sub)
+    bar_width = calculate_bar_width(n_bars, fig_width)
+    padding = PADDING
+    
     # Growth band (35-65 typical growth range)
     ax.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
     for yref in [35, 50, 65]:
         ax.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
     
-    # Bars
-    bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+    # Bars with consistent width
+    bars = ax.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
     for rect, val in zip(bars, y):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
                f"{val:.1f}", ha="center", va="center", fontsize=9,
@@ -2840,6 +2863,7 @@ def plot_district_sgp_overview_single_subject_winter(
     formatted_labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" 
                        for tl in sub["time_label"].astype(str).tolist()]
     
+    ax.set_xlim(-padding, n_bars - 1 + padding)
     ax.set_xticks(x)
     ax.set_xticklabels(formatted_labels)
     ax.set_title(title, fontweight="bold", fontsize=14, pad=10)
