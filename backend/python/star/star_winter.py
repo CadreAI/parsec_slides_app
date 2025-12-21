@@ -576,8 +576,8 @@ def plot_star_single_subject_dashboard_winter(
         title = 'Reading'
     
     fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3)
     
     legend_handles = [
         Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q)
@@ -619,7 +619,7 @@ def plot_star_single_subject_dashboard_winter(
         ax2.axis("off")
     ax2.set_title("Avg Unified Scale Score", fontsize=8, fontweight="bold", pad=10)
     
-    ax3 = fig.add_subplot(gs[:, 1])
+    ax3 = fig.add_subplot(gs[2, 0])
     draw_insight_card(ax3, metrics, title)
     
     fig.legend(
@@ -868,8 +868,8 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
         title = 'Reading'
     
     fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3)
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -937,7 +937,7 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
     ax2.spines["right"].set_visible(False)
     
     # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[:, 1])
+    ax3 = fig.add_subplot(gs[2, 0])
     ax3.axis("off")
     if metrics.get("t_prev"):
         t_curr = metrics.get("t_curr", "Current")
@@ -1173,8 +1173,8 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
         title = 'Reading'
     
     fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3)
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -1241,7 +1241,7 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
     ax2.spines["right"].set_visible(False)
     
     # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[:, 1])
+    ax3 = fig.add_subplot(gs[2, 0])
     ax3.axis("off")
     if metrics.get("t_prev"):
         t_curr = metrics.get("t_curr", "Current")
@@ -1534,8 +1534,8 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         return None
     
     fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3)
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -1600,7 +1600,7 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         ax2.axis("off")
     
     # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[:, 1])
+    ax3 = fig.add_subplot(gs[2, 0])
     ax3.axis("off")
     if metrics.get("t_prev"):
         t_curr = metrics.get("t_curr", "Current")
@@ -1909,14 +1909,14 @@ def plot_star_single_subject_dashboard_by_group_winter(
         print(f"[group {group_name}] skipped (no data) in {scope_label}")
         return None
     
-    # Create figure with 2-column layout (charts left, insights right)
+    # Create figure with 3-row layout (insights at bottom)
     fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=2, ncols=2, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1])
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3)
     
     ax_perf = fig.add_subplot(gs[0, 0])
     ax_score = fig.add_subplot(gs[1, 0])
-    ax_insight = fig.add_subplot(gs[:, 1])
+    ax_insight = fig.add_subplot(gs[2, 0])
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
@@ -2464,23 +2464,23 @@ def plot_star_blended_dashboard_winter(
         print(f"[Section 3] No data for {scope_label} - Grade {current_grade} - {subject_str}")
         return None
     
-    # Create figure with 4 columns (Overall left with insights, Cohort right with insights)
+    # Create figure with 2 columns (Overall left, Cohort right, insights at bottom)
     fig = plt.figure(figsize=(FIGSIZE_WIDTH, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=2, ncols=4, height_ratios=[1.85, 0.65], width_ratios=[2.5, 1, 2.5, 1])
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
     # Left side: Overall trends
     axes_left = [
         fig.add_subplot(gs[0, 0]),  # Stacked bars (top left)
         fig.add_subplot(gs[1, 0]),  # Score bars (bottom left)
-        fig.add_subplot(gs[:, 1])   # Insights (right side of left column, spans both rows)
+        fig.add_subplot(gs[2, 0])   # Insights (bottom left)
     ]
     
     # Right side: Cohort trends
     axes_right = [
-        fig.add_subplot(gs[0, 2]),  # Stacked bars (top right)
-        fig.add_subplot(gs[1, 2]),  # Score bars (bottom right)
-        fig.add_subplot(gs[:, 3])   # Insights (right side of right column, spans both rows)
+        fig.add_subplot(gs[0, 1]),  # Stacked bars (top right)
+        fig.add_subplot(gs[1, 1]),  # Score bars (bottom right)
+        fig.add_subplot(gs[2, 1])   # Insights (bottom right)
     ]
     
     # Left side: Overall trends
