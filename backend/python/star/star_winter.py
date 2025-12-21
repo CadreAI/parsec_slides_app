@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
 from .star_chart_utils import (
+    BAR_WIDTH,
     LABEL_MIN_PCT,
     draw_insight_card,
     draw_score_bar,
@@ -886,10 +887,17 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
         .fillna(0)
     )
     x = np.arange(len(stack_df))
+    
+    # Fixed bar width with adaptive padding
+    bar_width = BAR_WIDTH
+    n_bars = len(stack_df)
+    # Dynamic padding: inversely proportional to number of bars, minimum 0.5
+    padding = max(0.5, 2.0 / n_bars)
+    
     cumulative = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
         vals = stack_df[cat].to_numpy()
-        bars = ax.bar(x, vals, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
+        bars = ax.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
         for j, rect in enumerate(bars):
             h = vals[j]
             if h >= 3:
@@ -897,7 +905,9 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
                 ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                        ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
         cumulative += vals
+    
     ax.set_ylim(0, 100)
+    ax.set_xlim(-padding, n_bars - 1 + padding)
     ax.set_xticks(x)
     ax.set_xticklabels(stack_df.index.tolist())
     ax.set_ylabel("% of Students")
@@ -909,13 +919,14 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
     ax2 = fig.add_subplot(gs[1, 0])
     x2 = np.arange(len(score_df))
     vals = score_df["avg_score"].to_numpy()
-    bars = ax2.bar(x2, vals, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
+    bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
     for rect, v in zip(bars, vals):
         ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
                 ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
     n_map = pct_df.groupby("time_label")["N_total"].max().to_dict()
     labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
              for tl in score_df["time_label"].astype(str).tolist()]
+    ax2.set_xlim(-padding, n_bars - 1 + padding)
     ax2.set_xticks(x2)
     ax2.set_xticklabels(labels)
     ax2.set_ylabel("Avg Unified Scale Score")
@@ -1179,10 +1190,15 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
         .fillna(0)
     )
     x = np.arange(len(stack_df))
+    
+    bar_width = BAR_WIDTH
+    n_bars = len(stack_df)
+    padding = max(0.5, 2.0 / n_bars)
+    
     cum = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
         vals = stack_df[cat].to_numpy()
-        bars = ax.bar(x, vals, bottom=cum, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
+        bars = ax.bar(x, vals, width=bar_width, bottom=cum, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
         for j, rect in enumerate(bars):
             h = vals[j]
             if h >= 3:
@@ -1190,7 +1206,9 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
                 ax.text(rect.get_x() + rect.get_width() / 2, cum[j] + h / 2, f"{h:.1f}%",
                        ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
         cum += vals
+    
     ax.set_ylim(0, 100)
+    ax.set_xlim(-padding, n_bars - 1 + padding)
     ax.set_xticks(x)
     ax.set_xticklabels(stack_df.index.tolist())
     ax.set_ylabel("% of Students")
@@ -1202,13 +1220,14 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
     ax2 = fig.add_subplot(gs[1, 0])
     x2 = np.arange(len(score_df))
     vals = score_df["avg_score"].to_numpy()
-    bars2 = ax2.bar(x2, vals, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
+    bars2 = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
     for rect, v in zip(bars2, vals):
         ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
                 ha="center", va="bottom", fontsize=10, fontweight="bold", color="#434343")
     n_map = pct_df.groupby("time_label")["N_total"].max().to_dict()
     labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
              for tl in score_df["time_label"].astype(str)]
+    ax2.set_xlim(-padding, n_bars - 1 + padding)
     ax2.set_xticks(x2)
     ax2.set_xticklabels(labels)
     ax2.set_ylabel("Avg Unified Scale Score")
@@ -1522,10 +1541,15 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         .fillna(0)
     )
     x = np.arange(len(stack_df))
+    
+    bar_width = BAR_WIDTH
+    n_bars = len(stack_df)
+    padding = max(0.5, 2.0 / n_bars)
+    
     cumulative = np.zeros(len(stack_df))
     for cat in hf.STAR_ORDER:
         vals = stack_df[cat].to_numpy()
-        bars = ax.bar(x, vals, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
+        bars = ax.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
         for j, rect in enumerate(bars):
             h = vals[j]
             if h >= 3:
@@ -1533,7 +1557,9 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
                 ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                        ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
         cumulative += vals
+    
     ax.set_ylim(0, 100)
+    ax.set_xlim(-padding, n_bars - 1 + padding)
     ax.set_xticks(x)
     ax.set_xticklabels(stack_df.index.tolist())
     ax.set_ylabel("% of Students")
@@ -1549,12 +1575,13 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
     if score_df is not None and not score_df.empty and "time_label" in score_df.columns:
         x2 = np.arange(len(score_df))
         vals = score_df["avg_score"].to_numpy()
-        bars = ax2.bar(x2, vals, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
+        bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
         for rect, v in zip(bars, vals):
             ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
                     ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
         n_map = pct_df.groupby("time_label")["N_total"].max().dropna().astype(int).to_dict()
         labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" for tl in score_df["time_label"].astype(str).tolist()]
+        ax2.set_xlim(-padding, n_bars - 1 + padding)
         ax2.set_xticks(x2)
         ax2.set_xticklabels(labels)
         ax2.set_ylabel("Avg Unified Scale Score")

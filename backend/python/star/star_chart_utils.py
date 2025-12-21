@@ -16,6 +16,9 @@ import helper_functions as hf
 # Global threshold for inline % labels on stacked bars
 LABEL_MIN_PCT = 5.0
 
+# Fixed bar width for all STAR charts
+BAR_WIDTH = 0.4
+
 
 def draw_stacked_bar(ax, pct_df, score_df, labels):
     """Draw stacked bar chart for STAR benchmark achievement levels"""
@@ -49,6 +52,13 @@ def draw_stacked_bar(ax, pct_df, score_df, labels):
         return
     
     x = np.arange(len(x_labels))
+    
+    # Fixed bar width with adaptive padding based on number of bars
+    bar_width = BAR_WIDTH
+    n_bars = len(x_labels)
+    # Dynamic padding: inversely proportional to number of bars, minimum 0.5
+    padding = max(0.5, 2.0 / n_bars)
+    
     cumulative = np.zeros(len(stack_df))
     
     for cat in hf.STAR_ORDER:
@@ -61,6 +71,7 @@ def draw_stacked_bar(ax, pct_df, score_df, labels):
             bars = ax.bar(
                 x,
                 band_vals,
+                width=bar_width,
                 bottom=cumulative,
                 color=hf.STAR_COLORS[cat],
                 edgecolor="white",
@@ -94,6 +105,7 @@ def draw_stacked_bar(ax, pct_df, score_df, labels):
             continue
     
     ax.set_ylim(0, 100)
+    ax.set_xlim(-padding, n_bars - 1 + padding)
     ax.set_ylabel("% of Students")
     ax.set_xticks(x)
     ax.set_xticklabels(x_labels)
@@ -128,12 +140,18 @@ def draw_score_bar(ax, score_df, labels, n_map=None):
             ax.axis("off")
             return
         
+        # Fixed bar width with adaptive padding based on number of bars
+        bar_width = BAR_WIDTH
+        n_bars = len(rit_x)
+        # Dynamic padding: inversely proportional to number of bars, minimum 0.5
+        padding = max(0.5, 2.0 / n_bars)
+        
         if len(hf.default_quintile_colors) < 5:
             bar_color = "#4A90E2"
         else:
             bar_color = hf.default_quintile_colors[4]
         
-        rit_bars = ax.bar(rit_x, rit_vals, color=bar_color, edgecolor="white", linewidth=1.2)
+        rit_bars = ax.bar(rit_x, rit_vals, width=bar_width, color=bar_color, edgecolor="white", linewidth=1.2)
         for rect, v in zip(rit_bars, rit_vals):
             ax.text(
                 rect.get_x() + rect.get_width() / 2,
@@ -155,6 +173,7 @@ def draw_score_bar(ax, score_df, labels, n_map=None):
         else:
             labels_with_n = base_labels
         
+        ax.set_xlim(-padding, n_bars - 1 + padding)
         ax.set_ylabel("Avg Unified Scale Score")
         ax.set_xticks(rit_x)
         ax.set_xticklabels(labels_with_n)
