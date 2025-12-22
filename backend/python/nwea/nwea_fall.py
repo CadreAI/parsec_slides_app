@@ -2955,4 +2955,3 @@ def generate_nwea_fall_charts(
         sys.argv = old_argv
     
     return chart_paths
-

@@ -3452,4 +3452,3 @@ def generate_nwea_spring_charts(
         sys.argv = old_argv
     
     return chart_paths
-
