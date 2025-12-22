@@ -100,6 +100,10 @@ def sql_iready(
         "Economically_Disadvantaged",
         "Migrant",
         
+        # Report groups (teacher-created, meaningless for analysis)
+        "Report_Group_s_",
+        "Grouping",
+        
         # Lexile / Quantile
         "Measure",
         "Range",
@@ -118,6 +122,10 @@ def sql_iready(
         "WindowOrder",
     ]
     
+    # Add email if present (check available_columns)
+    if available_cols and "email" in available_cols:
+        base_excludes.append("email")
+    
     # Add dynamic excludes if provided
     if exclude_cols:
         base_excludes.extend(exclude_cols)
@@ -127,7 +135,7 @@ def sql_iready(
     excludes_sql = ",\n        ".join([f"`{col}`" for col in base_excludes])
     
     # Build WHERE conditions
-    where_conditions = ["Enrolled = 'Enrolled'"]
+    where_conditions = [ "Domain = 'Overall'"]
     
     # Year filter (iReady might use AcademicYear or Year column)
     # Use detected column or COALESCE as fallback

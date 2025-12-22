@@ -405,6 +405,7 @@ def run_section0_iready(
             d.loc[
                 (d["testwindow"].str.upper() == "WINTER")
                 & (d["cers_overall_performanceband"].notna())
+                & (d["enrolled"].astype(str) == "Enrolled")
             ]["academicyear"]
             .dropna()
             .unique()
@@ -732,72 +733,175 @@ def run_section0_1_iready_fall_winter(
         d["academicyear"] = pd.to_numeric(d.get("academicyear"), errors="coerce")
         year = int(d["academicyear"].max())
 
-        d = d[
+        win_order = ["Fall", "Winter"]
+        
+        
+        base = d[
             (d["academicyear"] == year)
-            & (d["testwindow"].astype(str).str.upper().isin(["FALL", "WINTER"]))
             & (d["subject"].astype(str).str.upper() == subj)
             & (d["domain"].astype(str) == "Overall")
-            & (d["enrolled"].astype(str) == "Enrolled")
-            & (d["relative_placement"].notna())
         ].copy()
 
-        if d.empty:
+        if base.empty:
             print(f"[WARN] No qualifying rows for Section 0.1 ({subj}, {year})")
             return None, None
 
         # Ensure scale_score numeric
-        d["scale_score"] = pd.to_numeric(d.get("scale_score"), errors="coerce")
+        base["scale_score"] = pd.to_numeric(base.get("scale_score"), errors="coerce")
 
-        # --- Placement % by window ---
-        win_order = ["Fall", "Winter"]
-        counts = (
-            d.groupby(["testwindow", "relative_placement"])
-            .size()
-            .rename("n")
-            .reset_index()
-        )
-        totals = d.groupby("testwindow").size().rename("N_total").reset_index()
-        pct_df = counts.merge(totals, on="testwindow", how="left")
-        pct_df["pct"] = 100 * pct_df["n"] / pct_df["N_total"]
-
-        pct_df["testwindow"] = pct_df["testwindow"].astype(str).str.title()
-        pct_df = pct_df[pct_df["testwindow"].isin(win_order)].copy()
-
-        # Ensure all placements exist for stacking
-        all_idx = pd.MultiIndex.from_product(
-            [win_order, hf.IREADY_ORDER], names=["testwindow", "relative_placement"]
-        )
-        pct_df = (
-            pct_df.set_index(["testwindow", "relative_placement"])
-            .reindex(all_idx)
-            .reset_index()
-        )
-        pct_df["pct"] = pct_df["pct"].fillna(0)
-        pct_df["n"] = pct_df["n"].fillna(0)
-        pct_df["N_total"] = pct_df.groupby("testwindow")["N_total"].transform(
-            lambda s: s.ffill().bfill()
-        )
-
-        # --- Avg scale score by window ---
-        score_df = (
-            d.dropna(subset=["scale_score"])
-            .groupby(d["testwindow"].astype(str).str.title())["scale_score"]
-            .mean()
-            .reindex(win_order)
-            .rename("avg_score")
-            .reset_index()
-            .rename(columns={"testwindow": "window"})
-        )
-
-        # Compute diff (Winter - Fall)
-        fall_val = score_df.loc[score_df["window"] == "Fall", "avg_score"]
-        winter_val = score_df.loc[score_df["window"] == "Winter", "avg_score"]
-        if len(fall_val) == 0 or len(winter_val) == 0:
-            diff = np.nan
+         # Choose dedupe sort column once
+        if "completion_date" in base.columns:
+            base["completion_date"] = pd.to_datetime(
+                base["completion_date"], errors="coerce"
+            )
+            sort_col = "completion_date"
+        elif "teststartdate" in base.columns:
+            base["teststartdate"] = pd.to_datetime(
+                base["teststartdate"], errors="coerce"
+            )
+            sort_col = "teststartdate"
         else:
-            diff = float(winter_val.iloc[0]) - float(fall_val.iloc[0])
+            base["_row_order"] = np.arange(len(base))
+            sort_col = "_row_order"
 
-        metrics = {"year": year, "diff": diff}
+        def _window_df(win_label: str) -> pd.DataFrame:
+            w = base[
+                (base["testwindow"].astype(str) == win_label)
+                & (base["enrolled"].astype(str) == "Enrolled")
+            ].copy()
+            if w.empty:
+                return w
+            if "uniqueidentifier" in w.columns:
+                w = w.sort_values(["uniqueidentifier", sort_col])
+                w = w.groupby("uniqueidentifier", as_index=False).tail(1)
+            return w
+
+        # Extract each window independently from the same base
+        fall_df = _window_df("Fall")
+        winter_df = _window_df("Winter")
+
+        # Build N_total per window (COUNT DISTINCT uniqueidentifier)
+        def _n_total(wdf: pd.DataFrame) -> int:
+            if wdf is None or wdf.empty:
+                return 0
+            if "uniqueidentifier" in wdf.columns:
+                return int(wdf["uniqueidentifier"].nunique())
+            return int(len(wdf))
+
+        totals_map = {
+            "Fall": _n_total(fall_df),
+            "Winter": _n_total(winter_df),
+        }
+
+        # Build placement counts per window (COUNT DISTINCT uniqueidentifier)
+        def _counts_by_place(wdf: pd.DataFrame) -> dict:
+            if wdf is None or wdf.empty:
+                return {}
+            w2 = wdf[wdf["relative_placement"].notna()].copy()
+            if w2.empty:
+                return {}
+            if "uniqueidentifier" in w2.columns:
+                s = w2.groupby("relative_placement")["uniqueidentifier"].nunique()
+            else:
+                s = w2.groupby("relative_placement").size()
+            return {k: int(v) for k, v in s.to_dict().items()}
+
+        fall_counts = _counts_by_place(fall_df)
+        winter_counts = _counts_by_place(winter_df)
+
+        # Assemble pct_df with a complete grid (both windows x all placements)
+        rows = []
+        for win in win_order:
+            N = int(totals_map.get(win, 0))
+            counts_map = fall_counts if win == "Fall" else winter_counts
+            for rp in hf.IREADY_ORDER:
+                n = int(counts_map.get(rp, 0))
+                pct = 0 if N == 0 else (100 * n / N)
+                rows.append(
+                    {
+                        "testwindow": win,
+                        "relative_placement": rp,
+                        "n": n,
+                        "N_total": N,
+                        "pct": pct,
+                    }
+                )
+        pct_df = pd.DataFrame(rows)
+
+        # --- Avg scale score by window (computed from each window df independently) ---
+        score_rows = []
+        for win, wdf in [("Fall", fall_df), ("Winter", winter_df)]:
+            if wdf is None or wdf.empty:
+                score_rows.append({"window": win, "avg_score": np.nan})
+                continue
+            avg = wdf.dropna(subset=["scale_score"])["scale_score"].mean()
+            score_rows.append({"window": win, "avg_score": avg})
+        score_df = pd.DataFrame(score_rows)
+
+        # Cleanup helper column if created
+        if "_row_order" in base.columns:
+            # base is a temp; nothing else to do
+            pass
+
+        # --- Insight metrics (mirror Section 1 semantics, but for Fall -> Winter) ---
+        win_order = ["Fall", "Winter"]
+        last_two = win_order  # fixed for this section
+
+        if len(last_two) == 2:
+            t_prev, t_curr = last_two
+
+            def pct_for(buckets, tlabel):
+                return pct_df[
+                    (pct_df["testwindow"] == tlabel)
+                    & (pct_df["relative_placement"].isin(buckets))
+                ]["pct"].sum()
+
+            # Placement buckets
+            hi_curr = pct_for(hf.IREADY_HIGH_GROUP, t_curr)
+            hi_prev = pct_for(hf.IREADY_HIGH_GROUP, t_prev)
+            lo_curr = pct_for(hf.IREADY_LOW_GROUP, t_curr)
+            lo_prev = pct_for(hf.IREADY_LOW_GROUP, t_prev)
+            high_curr = pct_for(["Mid/Above"], t_curr)
+            high_prev = pct_for(["Mid/Above"], t_prev)
+
+            # Avg scale score deltas
+            fall_val = score_df.loc[score_df["window"] == t_prev, "avg_score"]
+            winter_val = score_df.loc[score_df["window"] == t_curr, "avg_score"]
+            if len(fall_val) == 0 or len(winter_val) == 0:
+                score_now = np.nan
+                score_delta = np.nan
+            else:
+                score_now = float(winter_val.iloc[0])
+                score_delta = float(winter_val.iloc[0]) - float(fall_val.iloc[0])
+
+            metrics = {
+                "year": year,
+                "t_prev": t_prev,
+                "t_curr": t_curr,
+                "hi_now": hi_curr,
+                "hi_delta": hi_curr - hi_prev,
+                "lo_now": lo_curr,
+                "lo_delta": lo_curr - lo_prev,
+                "score_now": score_now,
+                "score_delta": score_delta,
+                "high_now": high_curr,
+                "high_delta": high_curr - high_prev,
+            }
+        else:
+            metrics = {
+                "year": year,
+                "t_prev": None,
+                "t_curr": None,
+                "hi_now": None,
+                "hi_delta": None,
+                "lo_now": None,
+                "lo_delta": None,
+                "score_now": None,
+                "score_delta": None,
+                "high_now": None,
+                "high_delta": None,
+            }
+
         return pct_df, score_df, metrics
 
     def _plot_section0_1(scope_label, folder, data_dict, preview=False):
@@ -1169,18 +1273,18 @@ def _prep_iready_for_charts(
     d = d[d["relative_placement"].notna()].copy()
 
     # --- Dedupe to latest completion per student/year ---
-    if "completion_date" in d.columns:
-        d["completion_date"] = pd.to_datetime(d["completion_date"], errors="coerce")
-        sort_col = "completion_date"
-    elif "teststartdate" in d.columns:
-        d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
-        sort_col = "teststartdate"
-    else:
-        d["completion_date"] = pd.NaT
-        sort_col = "completion_date"
+    # if "completion_date" in d.columns:
+    #     d["completion_date"] = pd.to_datetime(d["completion_date"], errors="coerce")
+    #     sort_col = "completion_date"
+    # elif "teststartdate" in d.columns:
+    #     d["teststartdate"] = pd.to_datetime(d["teststartdate"], errors="coerce")
+    #     sort_col = "teststartdate"
+    # else:
+    #     d["completion_date"] = pd.NaT
+    #     sort_col = "completion_date"
 
-    d.sort_values(["uniqueidentifier", "time_label", sort_col], inplace=True)
-    d = d.groupby(["uniqueidentifier", "time_label"], as_index=False).tail(1)
+    # d.sort_values(["uniqueidentifier", "time_label", sort_col], inplace=True)
+    # d = d.groupby(["uniqueidentifier", "time_label"], as_index=False).tail(1)
 
     # --- Percent by placement ---
     quint_counts = (
@@ -1613,7 +1717,7 @@ def plot_iready_subject_dashboard_by_group(
     school_display = (
         hf._safe_normalize_school_name(school_raw, cfg) if school_raw else None
     )
-    title_label = ((f"{district_label} (All Students)") if not school_display else school_display)
+    title_label = ((f"{district_label}") if not school_display else school_display)
 
     subjects = ["ELA", "Math"]
     subject_titles = ["ELA", "Math"]
@@ -2548,6 +2652,7 @@ def _prep_mid_above_to_cers(df_in: pd.DataFrame, subject: str) -> pd.DataFrame:
         (d["domain"].astype(str).str.lower() == "overall")
         & (d["testwindow"].astype(str).str.lower() == "winter")
         & (d["cers_overall_performanceband"].notna())
+        & (d["enrolled"].astype(str) == "Enrolled")
         & (d[placement_col].notna())
     ].copy()
 
