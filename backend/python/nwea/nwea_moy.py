@@ -12,16 +12,17 @@ import matplotlib
 matplotlib.use("Agg")
 
 from pathlib import Path
-import pandas as pd
-import numpy as np
-from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from matplotlib.gridspec import GridSpec
-from matplotlib import transforms as mtransforms
-from matplotlib import lines as mlines
+
 import helper_functions_nwea as hf
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib import lines as mlines
+from matplotlib import transforms as mtransforms
+from matplotlib.gridspec import GridSpec
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 _NWEA_MOY_HARD_RC = {
     "font.family": "DejaVu Sans",
@@ -52,12 +53,13 @@ try:
 except Exception:  # pragma: no cover
     tb = None
 
-import yaml
+import json
+import logging
 import os
 import sys
-import json
 import warnings
-import logging
+
+import yaml
 from nwea_data import filter_nwea_subject_rows
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -246,14 +248,17 @@ def _jsonable(v):
 
 # Libraries for modeling (optional; many environments won't have these installed)
 try:
-    from sklearn.model_selection import train_test_split  # type: ignore
+    from sklearn.ensemble import (  # type: ignore
+        RandomForestClassifier,
+        RandomForestRegressor,
+    )
     from sklearn.metrics import (  # type: ignore
-        r2_score,
-        mean_absolute_error,
         accuracy_score,
         f1_score,
+        mean_absolute_error,
+        r2_score,
     )
-    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier  # type: ignore
+    from sklearn.model_selection import train_test_split  # type: ignore
 except Exception:  # pragma: no cover
     train_test_split = None
     r2_score = None
@@ -732,7 +737,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
         bar_ax.set_ylim(0, 100)
         bar_ax.set_ylabel("% of Students")
         bar_ax.set_title(titles[subject], fontsize=14, fontweight="bold", pad=30)
-        bar_ax.grid(axis="y", alpha=0.5)
+        # bar_ax.grid(axis="y", alpha=0.5)  # Gridlines disabled globally
         bar_ax.spines["top"].set_visible(False)
         bar_ax.spines["right"].set_visible(False)
 
@@ -768,7 +773,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
             )
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
-        pct_ax.grid(axis="y", alpha=0.2)
+        # pct_ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
         pct_ax.spines["top"].set_visible(False)
         pct_ax.spines["right"].set_visible(False)
 
@@ -1196,7 +1201,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1246,7 +1251,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         ax.set_ylabel("Avg RIT")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1779,7 +1784,7 @@ def plot_nwea_dual_subject_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         # legend_handles = [
@@ -1843,7 +1848,7 @@ def plot_nwea_dual_subject_dashboard(
         ax.set_ylabel("Avg RIT")
         ax.set_xticks(rit_x)
         ax.set_xticklabels(x_labels)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1874,12 +1879,10 @@ def plot_nwea_dual_subject_dashboard(
                 lo_delta = _bucket_delta("Low", pct_df)
                 score_delta = metrics["score_delta"]
                 title_line = "Change calculations from " + f"{t_prev} to {t_curr}:\n"
-                line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-                line_hiavg = (
-                    rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-                )
-                line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-                line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
+                line_high = f"High: {high_delta:+.1f} ppts"
+                line_hiavg = f"Avg+HiAvg+High: {hi_delta:+.1f} ppts"
+                line_low = f"Low: {lo_delta:+.1f} ppts"
+                line_rit = f"Avg RIT: {score_delta:+.1f} pts"
                 insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
         else:
             insight_lines = ["Not enough history for change insights"]
@@ -2360,10 +2363,10 @@ def plot_nwea_subject_dashboard_by_group(
             lo_delta = metrics["lo_delta"]
             score_delta = metrics["score_delta"]
             title_line = "Change calculations from " + f"{t_prev} to {t_curr}:\n"
-            line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-            line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-            line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
+            line_high = f"High: {high_delta:+.1f} ppts"
+            line_hiavg = f"Avg+HiAvg+High: {hi_delta:+.1f} ppts"
+            line_low = f"Low: {lo_delta:+.1f} ppts"
+            line_rit = f"Avg RIT: {score_delta:+.1f} pts"
             insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
         else:
             insight_lines = ["Not enough history for change insights"]
@@ -2968,7 +2971,7 @@ def plot_nwea_blended_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist(), fontsize=8)
-        ax.grid(axis="y", alpha=0.2)
+        # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -3147,10 +3150,10 @@ def plot_nwea_blended_dashboard(
         lo_delta = metrics_left["lo_delta"]
         score_delta = metrics_left["score_delta"]
         title_line = "Change calculations from previous to current year\n"
-        line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-        line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-        line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-        line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
+        line_high = f"High: {high_delta:+.1f} ppts"
+        line_hiavg = f"Avg+HiAvg+High: {hi_delta:+.1f} ppts"
+        line_low = f"Low: {lo_delta:+.1f} ppts"
+        line_rit = f"Avg RIT: {score_delta:+.1f} pts"
         insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
     else:
         insight_lines = ["Not enough history for change insights"]
@@ -3193,10 +3196,10 @@ def plot_nwea_blended_dashboard(
         lo_delta = metrics_right["lo_delta"]
         score_delta = metrics_right["score_delta"]
         title_line = "Change calculations from previous to current year\n"
-        line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-        line_hiavg = rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
-        line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-        line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
+        line_high = f"High: {high_delta:+.1f} ppts"
+        line_hiavg = f"Avg+HiAvg+High: {hi_delta:+.1f} ppts"
+        line_low = f"Low: {lo_delta:+.1f} ppts"
+        line_rit = f"Avg RIT: {score_delta:+.1f} pts"
         insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
     else:
         insight_lines = ["Not enough history for change insights"]
@@ -3455,7 +3458,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist())
     ax.set_ylim(0, 100)
-    ax.grid(axis="y", linestyle=":", alpha=0.6)
+    # ax.grid(axis="y", linestyle=":", alpha=0.6)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -3994,7 +3997,7 @@ def _plot_cgp_dual_facet(
             )
 
         ax.set_title(title, fontsize=14, fontweight="bold")
-        ax.grid(axis="y", linestyle=":", alpha=0.6)
+        # ax.grid(axis="y", linestyle=":", alpha=0.6)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax2.spines["top"].set_visible(False)
@@ -4493,7 +4496,7 @@ def _plot_section6_fall_winter_by_school(
     # Axes styling
     ax.set_ylim(0, 100)
     ax.set_ylabel("% of Students")
-    ax.grid(axis="y", alpha=0.2)
+    # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -4835,7 +4838,7 @@ def _plot_section7_fall_winter_by_grade(
     # Axes styling
     ax.set_ylim(0, 100)
     ax.set_ylabel("% of Students")
-    ax.grid(axis="y", alpha=0.2)
+    # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -5227,7 +5230,7 @@ def _plot_section8_fall_winter_by_student_group(
 
     ax.set_ylim(0, 100)
     ax.set_ylabel("% of Students")
-    ax.grid(axis="y", alpha=0.2)
+    # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -5643,7 +5646,7 @@ def _plot_scope_growth_bar(
 
     ax.set_ylabel(ylab)
     ax.set_ylim(y_lim[0], y_lim[1])
-    ax.grid(axis="y", alpha=0.2)
+    # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -5925,4 +5928,3 @@ try:
 except Exception as e:
     print(f"[Sections 9–11] ERROR: {e}")
 #########################################################################
-#
