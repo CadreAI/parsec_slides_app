@@ -61,7 +61,7 @@ plt.rcParams.update(
         "savefig.bbox": "tight",
         "savefig.pad_inches": 0.15,
         # Cleaner look by default
-        "axes.grid": False,  # Disable gridlines globally
+        "axes.grid": True,
         "grid.alpha": 0.2,
         "axes.spines.top": False,
         "axes.spines.right": False,
@@ -1074,7 +1074,7 @@ def plot_matched_cohort_100(
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v*100)}%"))
         ax.set_xlabel("Spring 2025 Placement")
         ax.set_title(title, fontweight="bold", pad=8)
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
         ax.legend(
             handles=_legend_for_levels(y_order, color_map),
             title="Fall 2026 Placement",
@@ -1233,7 +1233,7 @@ def plot_cohort_prev_next_100(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontweight="bold", pad=10)
-    # ax.grid(False)  # Gridlines disabled globally
+    ax.grid(axis="y", linestyle=":", linewidth=0.7, alpha=0.6)
 
     ax.legend(
         handles=_legend_for_levels(levels_order, color_map),
