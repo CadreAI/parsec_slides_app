@@ -229,7 +229,7 @@ def _plot_section0_star_single_subject_winter(scope_label, folder, subject, proj
     
     bar_ax.set_ylim(0, 100)
     bar_ax.set_ylabel("% of Students")
-    bar_ax.set_xticks([])
+    bar_ax.set_xticks([-0.2, 0.2])
     bar_ax.set_xticklabels(["Predicted", "Actual"])
     bar_ax.spines["top"].set_visible(False)
     bar_ax.spines["right"].set_visible(False)
@@ -368,10 +368,6 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.35, wspace=0.25)
     
-    # Calculate bar width for 2 side-by-side bars per column
-    n_bars = 2
-    bar_width = calculate_bar_width(n_bars, 16 / 2)  # Half width per column
-    
     subjects = [s for s in ["Reading", "Mathematics"] if s in subj_payload]
     titles = {"Reading": "Reading", "Mathematics": "Math"}
     
@@ -413,7 +409,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
                 -0.2,
                 val,
                 bottom=cumulative,
-                width=bar_width,
+                width=0.35,
                 color=col,
                 alpha=0.6,
                 edgecolor="#434343",
@@ -442,7 +438,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
                 0.2,
                 val,
                 bottom=cumulative,
-                width=bar_width,
+                width=0.35,
                 color=col,
                 edgecolor="white",
                 linewidth=1.2,
@@ -570,80 +566,84 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
     return str(out_path)
 
 # ---------------------------------------------------------------------
-# SECTION 1 - Winter Performance Trends (Single Subject Dashboard)
+# SECTION 1 - Winter Performance Trends (Dual Subject Dashboard)
 # ---------------------------------------------------------------------
 
-def plot_star_single_subject_dashboard_winter(
-    df, scope_label, folder, output_dir, subject_str, window_filter="Winter", preview=False
+def plot_star_dual_subject_dashboard_winter(
+    df, scope_label, folder, output_dir, window_filter="Winter", preview=False
 ):
-    """Single-subject dashboard for either Math or Reading - Winter version"""
+    """Faceted dashboard showing both Math and Reading for a given scope - Winter version"""
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
-    # Determine subject and title
-    if subject_str.lower() in ['math', 'mathematics']:
-        activity_type_filter = 'math'
-        title = 'Math'
-    else:
-        activity_type_filter = 'reading'
-        title = 'Reading'
-    
-    # Single-column layout
-    fig_width = FIGSIZE_WIDTH // 2
-    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    subjects = ["reading", "math"]
+    titles = ["Reading", "Math"]
     
     legend_handles = [
         Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q)
         for q in hf.STAR_ORDER
     ]
     
-    # Prepare data for this subject
-    pct_df, score_df, metrics, time_order = prep_star_for_charts(
-        df, subject_str=activity_type_filter, window_filter=window_filter
-    )
+    pct_dfs, score_dfs, metrics_list, time_orders, n_maps = [], [], [], [], []
     
-    # Limit to most recent 4 timepoints
-    if len(time_order) > 4:
-        time_order = time_order[-4:]
-        pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
-        score_df = score_df[score_df["time_label"].isin(time_order)].copy()
+    for i, (activity_type_filter, title) in enumerate(zip(subjects, titles)):
+        pct_df, score_df, metrics, time_order = prep_star_for_charts(
+            df, subject_str=activity_type_filter, window_filter=window_filter
+        )
+        
+        # Limit to most recent 4 timepoints
+        if len(time_order) > 4:
+            time_order = time_order[-4:]
+            pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
+            score_df = score_df[score_df["time_label"].isin(time_order)].copy()
+        
+        pct_dfs.append(pct_df)
+        score_dfs.append(score_df)
+        metrics_list.append(metrics)
+        time_orders.append(time_order)
+        
+        # Build n_map for x-axis labels
+        if pct_df is not None and not pct_df.empty:
+            n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
+            n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
+        else:
+            n_map = {}
+        n_maps.append(n_map)
     
-    # Build n_map for x-axis labels
-    if pct_df is not None and not pct_df.empty:
-        n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
-        n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
-    else:
-        n_map = {}
-    
-    # Calculate dynamic bar width
-    n_bars = len(time_order)
-    bar_width = calculate_bar_width(n_bars, fig_width)
+    # Calculate dynamic bar width for 2-column layout (each subplot gets half width)
+    max_timepoints = max(len(to) for to in time_orders if to) if time_orders else 4
+    fig_width_per_subplot = FIGSIZE_WIDTH // 2
+    bar_width = calculate_bar_width(max_timepoints, fig_width_per_subplot)
     
     # Plot panels
-    ax1 = fig.add_subplot(gs[0, 0])
-    if pct_df is not None and not pct_df.empty:
-        draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER, bar_width=bar_width, fig_width=fig_width)
-    else:
-        ax1.text(0.5, 0.5, f"No {title} data", ha="center", va="center", fontsize=12)
-        ax1.axis("off")
-    ax1.set_title(f"{title}", fontsize=14, fontweight="bold", pad=30)
-    
-    ax2 = fig.add_subplot(gs[1, 0])
-    if score_df is not None and not score_df.empty:
-        draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map, bar_width=bar_width, fig_width=fig_width)
-    else:
-        ax2.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
-        ax2.axis("off")
-    ax2.set_title("Avg Unified Scale Score", fontsize=8, fontweight="bold", pad=10)
-    
-    ax3 = fig.add_subplot(gs[2, 0])
-    draw_insight_card(ax3, metrics, title)
+    for i, (pct_df, score_df, metrics, time_order, n_map) in enumerate(
+        zip(pct_dfs, score_dfs, metrics_list, time_orders, n_maps)
+    ):
+        ax1 = fig.add_subplot(gs[0, i])
+        if pct_df is not None and not pct_df.empty:
+            draw_stacked_bar(ax1, pct_df, score_df, hf.STAR_ORDER, bar_width=bar_width, fig_width=fig_width_per_subplot)
+        else:
+            ax1.text(0.5, 0.5, f"No {titles[i]} data", ha="center", va="center", fontsize=12)
+            ax1.axis("off")
+        ax1.set_title(f"{titles[i]}", fontsize=14, fontweight="bold", pad=30)
+        
+        ax2 = fig.add_subplot(gs[1, i])
+        if score_df is not None and not score_df.empty:
+            draw_score_bar(ax2, score_df, hf.STAR_ORDER, n_map, bar_width=bar_width, fig_width=fig_width_per_subplot)
+        else:
+            ax2.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
+            ax2.axis("off")
+        ax2.set_title("Avg Unified Scale Score", fontsize=8, fontweight="bold", pad=10)
+        
+        ax3 = fig.add_subplot(gs[2, i])
+        draw_insight_card(ax3, metrics, titles[i])
     
     fig.legend(
         handles=legend_handles,
         labels=hf.STAR_ORDER,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.95),
+        bbox_to_anchor=(0.5, 0.93),
         ncol=len(hf.STAR_ORDER),
         frameon=False,
         fontsize=10,
@@ -653,27 +653,24 @@ def plot_star_single_subject_dashboard_winter(
     )
     
     fig.suptitle(
-        f"{scope_label} • {window_filter} Year-to-Year Trends\n{title}",
-        fontsize=18,
+        f"{scope_label} • {window_filter} Year-to-Year Trends",
+        fontsize=20,
         fontweight="bold",
-        y=0.98,
+        y=1,
     )
     
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
-    # Include subject in filename so they don't overwrite each other
-    out_name = f"{scope_label}_STAR_section1_{window_filter.lower()}_{activity_type_filter}_trends.png"
+    out_name = f"{scope_label}_STAR_section1_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
     chart_data = {
-        "metrics": metrics,
-        "time_order": time_order
+        "metrics": {titles[i]: metrics_list[i] for i in range(len(titles))},
+        "time_orders": {titles[i]: time_orders[i] for i in range(len(titles))}
     }
-    track_chart(f"Section 1: {window_filter} {title} Trends", out_path, 
-                scope=scope_label, section=1, chart_data=chart_data)
-    
-    print(f"Saved Section 1 ({window_filter} {title}): {out_path}")
+    track_chart(f"Section 1: {window_filter} Trends", out_path, scope=scope_label, section=1, chart_data=chart_data)
+    print(f"Saved Section 1 ({window_filter}): {out_path}")
     return str(out_path)
 
 
@@ -873,151 +870,147 @@ def _prep_star_fall_winter(df, subj):
     
     return pct_df, score_df, metrics, time_order
 
-def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject_str, school_raw=None, preview=False):
-    """Plot Section 1.1: Fall → Winter Performance Progression - Single Subject"""
+def plot_section_1_1_dual_subject(df, scope_label, folder, output_dir, school_raw=None, preview=False):
+    """Plot Section 1.1: Fall → Winter Performance Progression - Dual Subject"""
     
-    # Determine subject
-    if subject_str.lower() in ['math', 'mathematics']:
-        subj = 'math'
-        title = 'Math'
-    else:
-        subj = 'reading'
-        title = 'Reading'
+    # 2-column layout
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
-    # Single-column layout
-    fig_width = FIGSIZE_WIDTH // 2
-    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    subjects = ["reading", "math"]
+    titles = ["Reading", "Math"]
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
-    pct_df, score_df, metrics, time_order = _prep_star_fall_winter(df, subj)
+    pct_dfs, score_dfs, metrics_list, time_orders = [], [], [], []
     
-    if pct_df.empty or score_df.empty or "time_label" not in pct_df.columns:
-        print(f"[Section 1.1] No {title} data for {scope_label}")
-        plt.close(fig)
-        return None
+    for i, subj in enumerate(subjects):
+        pct_df, score_df, metrics, time_order = _prep_star_fall_winter(df, subj)
+        
+        if pct_df.empty or score_df.empty or "time_label" not in pct_df.columns:
+            pct_df = pd.DataFrame()
+            score_df = pd.DataFrame()
+            metrics = {}
+            time_order = []
+        
+        pct_dfs.append(pct_df)
+        score_dfs.append(score_df)
+        metrics_list.append(metrics)
+        time_orders.append(time_order)
     
-    # Panel 1 — 100% stacked bars
-    ax = fig.add_subplot(gs[0, 0])
-    stack_df = (
-        pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
-        .reindex(columns=hf.STAR_ORDER)
-        .fillna(0)
-    )
-    x = np.arange(len(stack_df))
-    
-    # Dynamic bar width for consistent physical appearance
-    n_bars = len(stack_df)
-    fig_width = FIGSIZE_WIDTH // 2  # Single column width
-    bar_width = calculate_bar_width(n_bars, fig_width)
+    # Calculate dynamic bar width for 2-column layout
+    max_timepoints = max(len(to) for to in time_orders if to) if time_orders else 2
+    fig_width_per_subplot = FIGSIZE_WIDTH // 2
+    bar_width = calculate_bar_width(max_timepoints, fig_width_per_subplot)
     padding = PADDING
     
-    cumulative = np.zeros(len(stack_df))
-    for cat in hf.STAR_ORDER:
-        vals = stack_df[cat].to_numpy()
-        bars = ax.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
-        for j, rect in enumerate(bars):
-            h = vals[j]
-            if h >= 3:
-                label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
-                ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
-                       ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
-        cumulative += vals
-    
-    ax.set_ylim(0, 100)
-    ax.set_xlim(-padding, n_bars - 1 + padding)
-    ax.set_xticks(x)
-    ax.set_xticklabels(stack_df.index.tolist())
-    ax.set_ylabel("% of Students")
-    ax.set_title(title, fontsize=14, fontweight="bold", pad=30)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    
-    # Panel 2 — Avg score bars
-    ax2 = fig.add_subplot(gs[1, 0])
-    x2 = np.arange(len(score_df))
-    vals = score_df["avg_score"].to_numpy()
-    bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
-    for rect, v in zip(bars, vals):
-        ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
-    n_map = pct_df.groupby("time_label")["N_total"].max().to_dict()
-    labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
-             for tl in score_df["time_label"].astype(str).tolist()]
-    ax2.set_xlim(-padding, n_bars - 1 + padding)
-    ax2.set_xticks(x2)
-    ax2.set_xticklabels(labels)
-    ax2.set_ylabel("Avg Unified Scale Score")
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["right"].set_visible(False)
-    
-    # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[2, 0])
-    ax3.axis("off")
-    if metrics.get("t_prev"):
-        t_curr = metrics.get("t_curr", "Current")
-        pct_df_metrics = metrics.get("pct_df")
-        if pct_df_metrics is not None and not pct_df_metrics.empty:
-            def _bucket_pct(bucket, tlabel):
-                return pct_df_metrics.loc[
-                    (pct_df_metrics["time_label"] == tlabel) &
-                    (pct_df_metrics["state_benchmark_achievement"] == bucket), "pct"
-                ].sum()
+    # Plot panels for each subject
+    for i, (pct_df, score_df, metrics, time_order) in enumerate(zip(pct_dfs, score_dfs, metrics_list, time_orders)):
+        # Panel 1 — 100% stacked bars
+        ax = fig.add_subplot(gs[0, i])
+        if not pct_df.empty and "time_label" in pct_df.columns:
+            stack_df = (
+                pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
+                .reindex(columns=hf.STAR_ORDER)
+                .fillna(0)
+            )
+            x = np.arange(len(stack_df))
+            cumulative = np.zeros(len(stack_df))
+            for cat in hf.STAR_ORDER:
+                vals = stack_df[cat].to_numpy()
+                bars = ax.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
+                for j, rect in enumerate(bars):
+                    h = vals[j]
+                    if h >= 3:
+                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
+                               ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
+                cumulative += vals
             
-            high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
-            hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
-            lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
-            score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
-            
-            delta_exceed = metrics.get("delta_exceed", 0)
-            delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
-            delta_not_met = metrics.get("delta_not_met", 0)
-            
-            lines = [
-                "Change",
-                f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
-                f"Exceeded: {delta_exceed:+.1f}%",
-                f"Not Met: {delta_not_met:+.1f}%",
-            ]
+            ax.set_ylim(0, 100)
+            ax.set_xlim(-padding, len(stack_df) - 1 + padding)
+            ax.set_xticks(x)
+            ax.set_xticklabels(stack_df.index.tolist())
+            ax.set_ylabel("% of Students")
+            ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+        else:
+            ax.text(0.5, 0.5, f"No {titles[i]} data", ha="center", va="center", fontsize=12)
+            ax.axis("off")
+        
+        # Panel 2 — Avg score bars
+        ax2 = fig.add_subplot(gs[1, i])
+        if not score_df.empty and "time_label" in score_df.columns:
+            x2 = np.arange(len(score_df))
+            vals = score_df["avg_score"].to_numpy()
+            bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
+            for rect, v in zip(bars, vals):
+                ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
+                        ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
+            n_map = pct_df.groupby("time_label")["N_total"].max().to_dict() if not pct_df.empty else {}
+            labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
+                     for tl in score_df["time_label"].astype(str).tolist()]
+            ax2.set_xlim(-padding, len(score_df) - 1 + padding)
+            ax2.set_xticks(x2)
+            ax2.set_xticklabels(labels)
+            ax2.set_ylabel("Avg Unified Scale Score")
+            ax2.spines["top"].set_visible(False)
+            ax2.spines["right"].set_visible(False)
+        else:
+            ax2.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
+            ax2.axis("off")
+        
+        # Panel 3 — Insights
+        ax3 = fig.add_subplot(gs[2, i])
+        ax3.axis("off")
+        if metrics.get("t_prev"):
+            pct_df_metrics = metrics.get("pct_df")
+            if pct_df_metrics is not None and not pct_df_metrics.empty:
+                delta_exceed = metrics.get("delta_exceed", 0)
+                delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
+                delta_not_met = metrics.get("delta_not_met", 0)
+                
+                lines = [
+                    "Change",
+                    f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
+                    f"Exceeded: {delta_exceed:+.1f}%",
+                    f"Not Met: {delta_not_met:+.1f}%",
+                ]
+            else:
+                lines = ["Not enough data for insights"]
         else:
             lines = ["Not enough data for insights"]
-    else:
-        lines = ["Not enough data for insights"]
-    ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
-            usetex=False, color="#333333",
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+        ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
+                usetex=False, color="#333333",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
     fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center",
               bbox_to_anchor=(0.5, 0.93), ncol=len(hf.STAR_ORDER), frameon=False)
     
-    fig.suptitle(f"{scope_label} • Fall → Winter Performance Progression • {title}",
+    fig.suptitle(f"{scope_label} • Fall → Winter Performance Progression",
                 fontsize=18, fontweight="bold", y=1)
     
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")
-    activity_type = 'math' if subj == 'math' else 'reading'
-    out_name = f"{safe_scope}_STAR_section1_1_fall_winter_{activity_type}_progression.png"
+    out_name = f"{safe_scope}_STAR_section1_1_fall_winter_progression.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    m = dict(metrics) if isinstance(metrics, dict) else {}
-    m.pop("pct_df", None)
     chart_data = {
-        "chart_type": "star_winter_section1_1_fall_winter_progression_single_subject",
+        "chart_type": "star_winter_section1_1_fall_winter_progression_dual_subject",
         "section": 1.1,
         "scope": scope_label,
         "window_filter": "Fall/Winter",
-        "subject": title,
-        "pct_data": pct_df.to_dict("records") if not pct_df.empty else [],
-        "score_data": score_df.to_dict("records") if not score_df.empty else [],
-        "metrics": m,
-        "time_orders": [str(t) for t in time_order],
+        "pct_data": {titles[i]: pct_dfs[i].to_dict("records") if not pct_dfs[i].empty else [] for i in range(len(titles))},
+        "score_data": {titles[i]: score_dfs[i].to_dict("records") if not score_dfs[i].empty else [] for i in range(len(titles))},
+        "metrics": {titles[i]: {k: v for k, v in metrics_list[i].items() if k != "pct_df"} for i in range(len(titles))},
+        "time_orders": {titles[i]: [str(t) for t in time_orders[i]] for i in range(len(titles))},
     }
-    track_chart(f"Section 1.1: Fall → Winter {title}", out_path, scope=scope_label, section=1.1, chart_data=chart_data)
-    print(f"Saved Section 1.1 ({title}): {out_path}")
+    track_chart(f"Section 1.1: Fall → Winter Progression", out_path, scope=scope_label, section=1.1, chart_data=chart_data)
+    print(f"Saved Section 1.1: {out_path}")
     return str(out_path)
 
 
@@ -1181,153 +1174,149 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
 # ---------------------------------------------------------------------
 
 
-def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_dir, grade, subject_str, school_raw=None, preview=False):
-    """Plot Section 1.2 for a single grade and subject - Fall → Winter Progression"""
+def plot_section_1_2_for_grade_dual_subject(df, scope_label, folder, output_dir, grade, school_raw=None, preview=False):
+    """Plot Section 1.2 for a single grade - Dual Subject Fall → Winter Progression"""
     
-    # Determine subject
-    if subject_str.lower() in ['math', 'mathematics']:
-        subj = 'math'
-        title = 'Math'
-    else:
-        subj = 'reading'
-        title = 'Reading'
+    # 2-column layout
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
-    # Single-column layout
-    fig_width = FIGSIZE_WIDTH // 2
-    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    subjects = ["reading", "math"]
+    titles = ["Reading", "Math"]
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
-    pct_df, score_df, metrics, time_order = _prep_star_fall_winter(df, subj)
+    pct_dfs, score_dfs, metrics_list, time_orders = [], [], [], []
     
-    if pct_df.empty or score_df.empty:
-        print(f"Grade {grade} ({title}): No Fall/Winter data — skipping chart.")
-        plt.close(fig)
-        return None
+    for i, subj in enumerate(subjects):
+        pct_df, score_df, metrics, time_order = _prep_star_fall_winter(df, subj)
+        
+        if pct_df.empty or score_df.empty:
+            pct_df = pd.DataFrame()
+            score_df = pd.DataFrame()
+            metrics = {}
+            time_order = []
+        
+        pct_dfs.append(pct_df)
+        score_dfs.append(score_df)
+        metrics_list.append(metrics)
+        time_orders.append(time_order)
     
-    # Panel 1 — 100% stacked bars
-    ax = fig.add_subplot(gs[0, 0])
-    stack_df = (
-        pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
-        .reindex(columns=hf.STAR_ORDER)
-        .fillna(0)
-    )
-    x = np.arange(len(stack_df))
-    
-    # Dynamic bar width for consistent physical appearance
-    n_bars = len(stack_df)
-    fig_width = FIGSIZE_WIDTH // 2  # Single column width
-    bar_width = calculate_bar_width(n_bars, fig_width)
+    # Calculate dynamic bar width for 2-column layout
+    max_timepoints = max(len(to) for to in time_orders if to) if time_orders else 2
+    fig_width_per_subplot = FIGSIZE_WIDTH // 2
+    bar_width = calculate_bar_width(max_timepoints, fig_width_per_subplot)
     padding = PADDING
     
-    cum = np.zeros(len(stack_df))
-    for cat in hf.STAR_ORDER:
-        vals = stack_df[cat].to_numpy()
-        bars = ax.bar(x, vals, width=bar_width, bottom=cum, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
-        for j, rect in enumerate(bars):
-            h = vals[j]
-            if h >= 3:
-                label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
-                ax.text(rect.get_x() + rect.get_width() / 2, cum[j] + h / 2, f"{h:.1f}%",
-                       ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
-        cum += vals
-    
-    ax.set_ylim(0, 100)
-    ax.set_xlim(-padding, n_bars - 1 + padding)
-    ax.set_xticks(x)
-    ax.set_xticklabels(stack_df.index.tolist())
-    ax.set_ylabel("% of Students")
-    ax.set_title(title, fontsize=14, fontweight="bold", pad=30)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    
-    # Panel 2 — Avg score bars
-    ax2 = fig.add_subplot(gs[1, 0])
-    x2 = np.arange(len(score_df))
-    vals = score_df["avg_score"].to_numpy()
-    bars2 = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
-    for rect, v in zip(bars2, vals):
-        ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                ha="center", va="bottom", fontsize=10, fontweight="bold", color="#434343")
-    n_map = pct_df.groupby("time_label")["N_total"].max().to_dict()
-    labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
-             for tl in score_df["time_label"].astype(str)]
-    ax2.set_xlim(-padding, n_bars - 1 + padding)
-    ax2.set_xticks(x2)
-    ax2.set_xticklabels(labels)
-    ax2.set_ylabel("Avg Unified Scale Score")
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["right"].set_visible(False)
-    
-    # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[2, 0])
-    ax3.axis("off")
-    if metrics.get("t_prev"):
-        t_curr = metrics.get("t_curr", "Current")
-        pct_df_metrics = metrics.get("pct_df")
-        if pct_df_metrics is not None and not pct_df_metrics.empty:
-            def _bucket_pct(bucket, tlabel):
-                return pct_df_metrics.loc[
-                    (pct_df_metrics["time_label"] == tlabel) &
-                    (pct_df_metrics["state_benchmark_achievement"] == bucket), "pct"
-                ].sum()
+    # Plot panels for each subject
+    for i, (pct_df, score_df, metrics, time_order) in enumerate(zip(pct_dfs, score_dfs, metrics_list, time_orders)):
+        # Panel 1 — 100% stacked bars
+        ax = fig.add_subplot(gs[0, i])
+        if not pct_df.empty and "time_label" in pct_df.columns:
+            stack_df = (
+                pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
+                .reindex(columns=hf.STAR_ORDER)
+                .fillna(0)
+            )
+            x = np.arange(len(stack_df))
+            cum = np.zeros(len(stack_df))
+            for cat in hf.STAR_ORDER:
+                vals = stack_df[cat].to_numpy()
+                bars = ax.bar(x, vals, width=bar_width, bottom=cum, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
+                for j, rect in enumerate(bars):
+                    h = vals[j]
+                    if h >= 3:
+                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        ax.text(rect.get_x() + rect.get_width() / 2, cum[j] + h / 2, f"{h:.1f}%",
+                               ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
+                cum += vals
             
-            high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
-            hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
-            lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
-            score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
-            
-            delta_exceed = metrics.get("delta_exceed", 0)
-            delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
-            delta_not_met = metrics.get("delta_not_met", 0)
-            
-            lines = [
-                "Change",
-                f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
-                f"Exceeded: {delta_exceed:+.1f}%",
-                f"Not Met: {delta_not_met:+.1f}%",
-            ]
+            ax.set_ylim(0, 100)
+            ax.set_xlim(-padding, len(stack_df) - 1 + padding)
+            ax.set_xticks(x)
+            ax.set_xticklabels(stack_df.index.tolist())
+            ax.set_ylabel("% of Students")
+            ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+        else:
+            ax.text(0.5, 0.5, f"No {titles[i]} data", ha="center", va="center", fontsize=12)
+            ax.axis("off")
+        
+        # Panel 2 — Avg score bars
+        ax2 = fig.add_subplot(gs[1, i])
+        if not score_df.empty and "time_label" in score_df.columns:
+            x2 = np.arange(len(score_df))
+            vals = score_df["avg_score"].to_numpy()
+            bars2 = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
+            for rect, v in zip(bars2, vals):
+                ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
+                        ha="center", va="bottom", fontsize=10, fontweight="bold", color="#434343")
+            n_map = pct_df.groupby("time_label")["N_total"].max().to_dict() if not pct_df.empty else {}
+            labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
+                     for tl in score_df["time_label"].astype(str)]
+            ax2.set_xlim(-padding, len(score_df) - 1 + padding)
+            ax2.set_xticks(x2)
+            ax2.set_xticklabels(labels)
+            ax2.set_ylabel("Avg Unified Scale Score")
+            ax2.spines["top"].set_visible(False)
+            ax2.spines["right"].set_visible(False)
+        else:
+            ax2.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
+            ax2.axis("off")
+        
+        # Panel 3 — Insights
+        ax3 = fig.add_subplot(gs[2, i])
+        ax3.axis("off")
+        if metrics.get("t_prev"):
+            pct_df_metrics = metrics.get("pct_df")
+            if pct_df_metrics is not None and not pct_df_metrics.empty:
+                delta_exceed = metrics.get("delta_exceed", 0)
+                delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
+                delta_not_met = metrics.get("delta_not_met", 0)
+                
+                lines = [
+                    "Change",
+                    f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
+                    f"Exceeded: {delta_exceed:+.1f}%",
+                    f"Not Met: {delta_not_met:+.1f}%",
+                ]
+            else:
+                lines = ["Not enough data for insights"]
         else:
             lines = ["Not enough data for insights"]
-    else:
-        lines = ["Not enough data for insights"]
-    ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
-            usetex=False, color="#333333",
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+        ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
+                usetex=False, color="#333333",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
     fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center",
               bbox_to_anchor=(0.5, 0.93), ncol=len(hf.STAR_ORDER), frameon=False)
     
     grade_label = f"Grade {grade}"
-    fig.suptitle(f"{scope_label} • {grade_label} • Fall → Winter Performance Progression • {title}",
+    fig.suptitle(f"{scope_label} • {grade_label} • Fall → Winter Performance Progression",
                 fontsize=18, fontweight="bold", y=1)
     
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")
-    activity_type = 'math' if subj == 'math' else 'reading'
-    out_name = f"{safe_scope}_STAR_grade{grade}_section1_2_fall_winter_{activity_type}_progression.png"
+    out_name = f"{safe_scope}_STAR_grade{grade}_section1_2_fall_winter_progression.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    m = dict(metrics) if isinstance(metrics, dict) else {}
-    m.pop("pct_df", None)
     chart_data = {
-        "chart_type": "star_winter_section1_2_fall_winter_progression_by_grade_single_subject",
+        "chart_type": "star_winter_section1_2_fall_winter_progression_by_grade_dual_subject",
         "section": 1.2,
         "scope": scope_label,
         "window_filter": "Fall/Winter",
-        "subject": title,
         "grade_data": {"grade": int(grade) if grade is not None else grade},
-        "pct_data": pct_df.to_dict("records") if not pct_df.empty else [],
-        "score_data": score_df.to_dict("records") if not score_df.empty else [],
-        "metrics": m,
-        "time_orders": [str(t) for t in time_order],
+        "pct_data": {titles[i]: pct_dfs[i].to_dict("records") if not pct_dfs[i].empty else [] for i in range(len(titles))},
+        "score_data": {titles[i]: score_dfs[i].to_dict("records") if not score_dfs[i].empty else [] for i in range(len(titles))},
+        "metrics": {titles[i]: {k: v for k, v in metrics_list[i].items() if k != "pct_df"} for i in range(len(titles))},
+        "time_orders": {titles[i]: [str(t) for t in time_orders[i]] for i in range(len(titles))},
     }
-    track_chart(f"Section 1.2: Grade {grade} Fall → Winter {title}", out_path, scope=scope_label, section=1.2, chart_data=chart_data)
-    print(f"Saved Section 1.2 (Grade {grade} {title}): {out_path}")
+    track_chart(f"Section 1.2: Grade {grade} Fall → Winter", out_path, scope=scope_label, section=1.2, chart_data=chart_data)
+    print(f"Saved Section 1.2 (Grade {grade}): {out_path}")
     return str(out_path)
 
 #def plot_section_1_2_for_grade(df, scope_label, folder, output_dir, grade, school_raw=None, preview=False):
@@ -1490,7 +1479,7 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
 #    return str(out_path)
 
 def plot_section_1_2(df, scope_label, folder, output_dir, chart_filters=None, school_raw=None, preview=False):
-    """Plot Section 1.2 for all grades and subjects"""
+    """Plot Section 1.2 for all grades - Dual Subject"""
     grade_col = "grade" if "grade" in df.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in df.columns else "studentgrade")
     if grade_col not in df.columns:
         print("No grade column found.")
@@ -1504,15 +1493,13 @@ def plot_section_1_2(df, scope_label, folder, output_dir, chart_filters=None, sc
         df_grade = df[df["__grade_int"] == grade].copy()
         if df_grade.empty:
             continue
-        # Generate separate charts for Reading and Math
-        for subject in ["Reading", "Mathematics"]:
-            if chart_filters and not should_generate_subject(subject, chart_filters):
-                continue
-            path = plot_section_1_2_for_grade_single_subject(
-                df_grade, scope_label, folder, output_dir, grade, subject, school_raw, preview
-            )
-            if path:
-                chart_paths.append(path)
+        if chart_filters and not should_generate_grade(grade, chart_filters):
+            continue
+        path = plot_section_1_2_for_grade_dual_subject(
+            df_grade, scope_label, folder, output_dir, grade, school_raw, preview
+        )
+        if path:
+            chart_paths.append(path)
     return chart_paths
 
 # ---------------------------------------------------------------------
@@ -1530,8 +1517,8 @@ def _apply_student_group_mask(df_in, group_name, group_def):
     return vals.isin(allowed_norm)
 
 
-def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_dir, group_name, group_def, subject_str, school_raw=None, preview=False):
-    """Plot Section 1.3 for a single student group and subject - Fall → Winter Progression"""
+def plot_section_1_3_for_group_dual_subject(df, scope_label, folder, output_dir, group_name, group_def, school_raw=None, preview=False):
+    """Plot Section 1.3 for a single student group - Dual Subject Fall → Winter Progression"""
     mask = _apply_student_group_mask(df, group_name, group_def)
     d0 = df[mask].copy()
     
@@ -1543,151 +1530,145 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         print(f"[1.3][{group_name}] skipped (<12 students)")
         return None
     
-    # Determine subject
-    if subject_str.lower() in ['math', 'mathematics']:
-        subj = 'math'
-        title = 'Math'
-    else:
-        subj = 'reading'
-        title = 'Reading'
+    # 2-column layout
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     
-    pct_df, score_df, metrics, time_order = _prep_star_fall_winter(d0, subj)
-    
-    if pct_df.empty or "time_label" not in pct_df.columns:
-        print(f"[1.3][{group_name}] No {title} data")
-        return None
-    
-    # Single-column layout
-    fig_width = FIGSIZE_WIDTH // 2
-    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
+    subjects = ["reading", "math"]
+    titles = ["Reading", "Math"]
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
-    # Panel 1 — 100% stacked bars
-    ax = fig.add_subplot(gs[0, 0])
-    stack_df = (
-        pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
-        .reindex(columns=hf.STAR_ORDER)
-        .fillna(0)
-    )
-    x = np.arange(len(stack_df))
+    pct_dfs, score_dfs, metrics_list, time_orders = [], [], [], []
     
-    # Dynamic bar width for consistent physical appearance
-    n_bars = len(stack_df)
-    fig_width = FIGSIZE_WIDTH // 2  # Single column width
-    bar_width = calculate_bar_width(n_bars, fig_width)
+    for i, subj in enumerate(subjects):
+        pct_df, score_df, metrics, time_order = _prep_star_fall_winter(d0, subj)
+        
+        if pct_df.empty or "time_label" not in pct_df.columns:
+            pct_df = pd.DataFrame()
+            score_df = pd.DataFrame()
+            metrics = {}
+            time_order = []
+        
+        pct_dfs.append(pct_df)
+        score_dfs.append(score_df)
+        metrics_list.append(metrics)
+        time_orders.append(time_order)
+    
+    # Calculate dynamic bar width for 2-column layout
+    max_timepoints = max(len(to) for to in time_orders if to) if time_orders else 2
+    fig_width_per_subplot = FIGSIZE_WIDTH // 2
+    bar_width = calculate_bar_width(max_timepoints, fig_width_per_subplot)
     padding = PADDING
     
-    cumulative = np.zeros(len(stack_df))
-    for cat in hf.STAR_ORDER:
-        vals = stack_df[cat].to_numpy()
-        bars = ax.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
-        for j, rect in enumerate(bars):
-            h = vals[j]
-            if h >= 3:
-                label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
-                ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
-                       ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
-        cumulative += vals
-    
-    ax.set_ylim(0, 100)
-    ax.set_xlim(-padding, n_bars - 1 + padding)
-    ax.set_xticks(x)
-    ax.set_xticklabels(stack_df.index.tolist())
-    ax.set_ylabel("% of Students")
-    ax.set_title(title, fontsize=14, fontweight="bold", pad=30)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    # Plot panels for each subject
+    for i, (pct_df, score_df, metrics, time_order) in enumerate(zip(pct_dfs, score_dfs, metrics_list, time_orders)):
+        # Panel 1 — 100% stacked bars
+        ax = fig.add_subplot(gs[0, i])
+        if not pct_df.empty and "time_label" in pct_df.columns:
+            stack_df = (
+                pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
+                .reindex(columns=hf.STAR_ORDER)
+                .fillna(0)
+            )
+            x = np.arange(len(stack_df))
+            cumulative = np.zeros(len(stack_df))
+            for cat in hf.STAR_ORDER:
+                vals = stack_df[cat].to_numpy()
+                bars = ax.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat], edgecolor="white", linewidth=1.0)
+                for j, rect in enumerate(bars):
+                    h = vals[j]
+                    if h >= 3:
+                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
+                               ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
+                cumulative += vals
+            
+            ax.set_ylim(0, 100)
+            ax.set_xlim(-padding, len(stack_df) - 1 + padding)
+            ax.set_xticks(x)
+            ax.set_xticklabels(stack_df.index.tolist())
+            ax.set_ylabel("% of Students")
+            ax.set_title(titles[i], fontsize=14, fontweight="bold", pad=30)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+        else:
+            ax.text(0.5, 0.5, f"No {titles[i]} data", ha="center", va="center", fontsize=12)
+            ax.axis("off")
+        
+        # Panel 2 — Avg score bars
+        ax2 = fig.add_subplot(gs[1, i])
+        if score_df is not None and not score_df.empty and "time_label" in score_df.columns:
+            x2 = np.arange(len(score_df))
+            vals = score_df["avg_score"].to_numpy()
+            bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
+            for rect, v in zip(bars, vals):
+                ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
+                        ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
+            n_map = pct_df.groupby("time_label")["N_total"].max().dropna().astype(int).to_dict() if not pct_df.empty else {}
+            labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" for tl in score_df["time_label"].astype(str).tolist()]
+            ax2.set_xlim(-padding, len(score_df) - 1 + padding)
+            ax2.set_xticks(x2)
+            ax2.set_xticklabels(labels)
+            ax2.set_ylabel("Avg Unified Scale Score")
+            ax2.spines["top"].set_visible(False)
+            ax2.spines["right"].set_visible(False)
+        else:
+            ax2.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
+            ax2.axis("off")
+        
+        # Panel 3 — Insights
+        ax3 = fig.add_subplot(gs[2, i])
+        ax3.axis("off")
+        if metrics.get("t_prev"):
+            pct_df_metrics = metrics.get("pct_df")
+            if pct_df_metrics is not None and not pct_df_metrics.empty:
+                delta_exceed = metrics.get("delta_exceed", 0)
+                delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
+                delta_not_met = metrics.get("delta_not_met", 0)
+                
+                lines = [
+                    "Change",
+                    f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
+                    f"Exceeded: {delta_exceed:+.1f}%",
+                    f"Not Met: {delta_not_met:+.1f}%",
+                ]
+            else:
+                lines = ["Not enough data for insights"]
+        else:
+            lines = ["Not enough data for insights"]
+        ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
+                color="#333333",
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
     fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center",
               bbox_to_anchor=(0.5, 0.93), ncol=len(hf.STAR_ORDER), frameon=False)
     
-    # Panel 2 — Avg score bars
-    ax2 = fig.add_subplot(gs[1, 0])
-    if score_df is not None and not score_df.empty and "time_label" in score_df.columns:
-        x2 = np.arange(len(score_df))
-        vals = score_df["avg_score"].to_numpy()
-        bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
-        for rect, v in zip(bars, vals):
-            ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                    ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
-        n_map = pct_df.groupby("time_label")["N_total"].max().dropna().astype(int).to_dict()
-        labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" for tl in score_df["time_label"].astype(str).tolist()]
-        ax2.set_xlim(-padding, n_bars - 1 + padding)
-        ax2.set_xticks(x2)
-        ax2.set_xticklabels(labels)
-        ax2.set_ylabel("Avg Unified Scale Score")
-        ax2.spines["top"].set_visible(False)
-        ax2.spines["right"].set_visible(False)
-    else:
-        ax2.axis("off")
-    
-    # Panel 3 — Insights
-    ax3 = fig.add_subplot(gs[2, 0])
-    ax3.axis("off")
-    if metrics.get("t_prev"):
-        t_curr = metrics.get("t_curr", "Current")
-        pct_df_metrics = metrics.get("pct_df")
-        if pct_df_metrics is not None and not pct_df_metrics.empty:
-            def _bucket_pct(bucket, tlabel):
-                return pct_df_metrics.loc[
-                    (pct_df_metrics["time_label"] == tlabel) &
-                    (pct_df_metrics["state_benchmark_achievement"] == bucket), "pct"
-                ].sum()
-            
-            high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
-            hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
-            lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
-            score_now = float(score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]) if score_df is not None and not score_df.empty and len(score_df[score_df["time_label"] == t_curr]) > 0 else 0.0
-            
-            delta_exceed = metrics.get("delta_exceed", 0)
-            delta_meet_exceed = metrics.get("delta_meet_exceed", 0)
-            delta_not_met = metrics.get("delta_not_met", 0)
-            
-            lines = [
-                "Change",
-                f"Met+Exceeded: {delta_meet_exceed:+.1f}%",
-                f"Exceeded: {delta_exceed:+.1f}%",
-                f"Not Met: {delta_not_met:+.1f}%",
-            ]
-        else:
-            lines = ["Not enough data for insights"]
-    else:
-        lines = ["Not enough data for insights"]
-    ax3.text(0.5, 0.5, "\n".join(lines), fontsize=10, ha="center", va="center", wrap=True,
-            color="#333333",
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
-    
-    fig.suptitle(f"{scope_label} • {group_name} • Fall → Winter Performance Progression • {title}",
+    fig.suptitle(f"{scope_label} • {group_name} • Fall → Winter Performance Progression",
                 fontsize=18, fontweight="bold", y=1)
     
     out_dir_path = Path(output_dir) / folder
     out_dir_path.mkdir(parents=True, exist_ok=True)
     safe_group = group_name.replace(" ", "_").replace("/", "_")
     safe_scope = scope_label.replace(" ", "_")
-    activity_type = 'math' if subj == 'math' else 'reading'
-    out_name = f"{safe_scope}_STAR_section1_3_{safe_group}_fall_winter_{activity_type}_progression.png"
+    out_name = f"{safe_scope}_STAR_section1_3_{safe_group}_fall_winter_progression.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    m = dict(metrics) if isinstance(metrics, dict) else {}
-    m.pop("pct_df", None)
     chart_data = {
-        "chart_type": "star_winter_section1_3_fall_winter_progression_by_group_single_subject",
+        "chart_type": "star_winter_section1_3_fall_winter_progression_by_group_dual_subject",
         "section": 1.3,
         "scope": scope_label,
         "window_filter": "Fall/Winter",
-        "subject": title,
         "cohort_data": {"group_name": group_name},
-        "pct_data": pct_df.to_dict("records") if not pct_df.empty else [],
-        "score_data": score_df.to_dict("records") if score_df is not None and not score_df.empty else [],
-        "metrics": m,
-        "time_orders": [str(t) for t in time_order],
+        "pct_data": {titles[i]: pct_dfs[i].to_dict("records") if not pct_dfs[i].empty else [] for i in range(len(titles))},
+        "score_data": {titles[i]: score_dfs[i].to_dict("records") if score_dfs[i] is not None and not score_dfs[i].empty else [] for i in range(len(titles))},
+        "metrics": {titles[i]: {k: v for k, v in metrics_list[i].items() if k != "pct_df"} for i in range(len(titles))},
+        "time_orders": {titles[i]: [str(t) for t in time_orders[i]] for i in range(len(titles))},
     }
-    track_chart(f"Section 1.3: {group_name} Fall → Winter {title}", out_path, scope=scope_label, section=1.3, chart_data=chart_data)
-    print(f"[1.3] Saved ({title}): {out_path}")
+    track_chart(f"Section 1.3: {group_name} Fall → Winter", out_path, scope=scope_label, section=1.3, chart_data=chart_data)
+    print(f"[1.3] Saved: {out_path}")
     return str(out_path)
 
 #def plot_section_1_3_for_group(df, scope_label, folder, output_dir, group_name, group_def, school_raw=None, preview=False):
@@ -1881,11 +1862,11 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
 # SECTION 2 — Student Group Performance Trends (Winter)
 # ---------------------------------------------------------------------
 
-def plot_star_single_subject_dashboard_by_group_winter(
-    df, scope_label, folder, output_dir, subject_str, window_filter="Winter",
+def plot_star_subject_dashboard_by_group_winter(
+    df, scope_label, folder, output_dir, window_filter="Winter",
     group_name=None, group_def=None, cfg=None, preview=False
 ):
-    """Single-subject dashboard filtered to one student group - Winter version"""
+    """Same layout as main dashboard but filtered to one student group - Winter version"""
     d0 = df.copy()
     
     mask = _apply_student_group_mask(d0, group_name, group_def)
@@ -1895,159 +1876,178 @@ def plot_star_single_subject_dashboard_by_group_winter(
         print(f"[group {group_name}] no rows after group mask ({scope_label})")
         return None
     
-    # Determine subject and filter
-    if subject_str.lower() in ['math', 'mathematics']:
-        subj_df = d0[d0["activity_type"].astype(str).str.contains("math", case=False, na=False)].copy()
-        title = 'Mathematics'
-        activity_type = 'math'
-    else:
-        subj_df = d0[d0["activity_type"].astype(str).str.contains("reading", case=False, na=False)].copy()
-        title = 'Reading'
-        activity_type = 'reading'
+    subjects = ["Reading", "Mathematics"]
+    subject_titles = ["Reading", "Mathematics"]
     
-    subj_df["testwindow"] = subj_df["testwindow"].astype(str).str.strip().str.lower()
-    win = str(window_filter).strip().lower()
-    subj_df = subj_df[subj_df["testwindow"] == win]
+    pct_dfs, score_dfs, metrics_list, time_orders, min_ns, n_maps = [], [], [], [], [], []
     
-    if subj_df.empty:
-        print(f"[group {group_name}] no {subject_str} data for {scope_label}")
+    for subj in subjects:
+        if subj == "Reading":
+            subj_df = d0[d0["activity_type"].astype(str).str.contains("reading", case=False, na=False)].copy()
+        elif subj == "Mathematics":
+            subj_df = d0[d0["activity_type"].astype(str).str.contains("math", case=False, na=False)].copy()
+        else:
+            subj_df = d0.copy()
+        
+        subj_df["testwindow"] = subj_df["testwindow"].astype(str).str.strip().str.lower()
+        win = str(window_filter).strip().lower()
+        subj_df = subj_df[subj_df["testwindow"] == win]
+        
+        if subj_df.empty:
+            pct_dfs.append(None)
+            score_dfs.append(None)
+            metrics_list.append(None)
+            time_orders.append([])
+            min_ns.append(0)
+            n_maps.append({})
+            continue
+        
+        pct_df, score_df, metrics, time_order = prep_star_for_charts(
+            subj_df, subject_str=subj, window_filter=window_filter
+        )
+        
+        if len(time_order) > 4:
+            time_order = time_order[-4:]
+            pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
+            score_df = score_df[score_df["time_label"].isin(time_order)].copy()
+        
+        pct_dfs.append(pct_df)
+        score_dfs.append(score_df)
+        metrics_list.append(metrics)
+        time_orders.append(time_order)
+        
+        if pct_df is not None and not pct_df.empty and time_order:
+            latest_label = time_order[-1]
+            latest_slice = pct_df[pct_df["time_label"] == latest_label]
+            if "N_total" in latest_slice.columns:
+                latest_n = latest_slice["N_total"].max()
+            else:
+                latest_n = latest_slice["n"].sum()
+            min_ns.append(latest_n if not pd.isna(latest_n) else 0)
+        else:
+            min_ns.append(0)
+        
+        if pct_df is not None and not pct_df.empty:
+            n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
+            n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
+        else:
+            n_map = {}
+        n_maps.append(n_map)
+    
+    if any((n is None or n < 12) for n in min_ns):
+        print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
         return None
     
-    pct_df, score_df, metrics, time_order = prep_star_for_charts(
-        subj_df, subject_str=subject_str, window_filter=window_filter
-    )
-    
-    if len(time_order) > 4:
-        time_order = time_order[-4:]
-        pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
-        score_df = score_df[score_df["time_label"].isin(time_order)].copy()
-    
-    # Check minimum N
-    if pct_df is not None and not pct_df.empty and time_order:
-        latest_label = time_order[-1]
-        latest_slice = pct_df[pct_df["time_label"] == latest_label]
-        if "N_total" in latest_slice.columns:
-            latest_n = latest_slice["N_total"].max()
-        else:
-            latest_n = latest_slice["n"].sum()
-        if latest_n < 12:
-            print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
-            return None
-    else:
+    if all((df is None or df.empty) for df in pct_dfs):
         print(f"[group {group_name}] skipped (no data) in {scope_label}")
         return None
     
-    # Create figure with 3-row layout (insights at bottom) - single column
-    fig_width = FIGSIZE_WIDTH // 2
-    fig = plt.figure(figsize=(fig_width, 9), dpi=300)
-    gs = fig.add_gridspec(nrows=3, ncols=1, height_ratios=[1.85, 0.65, 0.5])
-    fig.subplots_adjust(hspace=0.3)
-    
-    ax_perf = fig.add_subplot(gs[0, 0])
-    ax_score = fig.add_subplot(gs[1, 0])
-    ax_insight = fig.add_subplot(gs[2, 0])
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
+    axes = [
+        [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
+        [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])],
+        [fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1])],
+    ]
     
     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
     
-    # Plot performance percentages
-    if pct_df is not None and not pct_df.empty:
-        stack_df = (
-            pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
-            .reindex(columns=hf.STAR_ORDER)
-            .fillna(0)
-        )
-        x_labels = stack_df.index.tolist()
-        x = np.arange(len(x_labels))
+    for i, subj in enumerate(subjects):
+        pct_df = pct_dfs[i]
+        score_df = score_dfs[i]
+        metrics = metrics_list[i]
+        time_order = time_orders[i]
+        n_map = n_maps[i]
         
-        # Dynamic bar width for consistent physical appearance
-        n_bars = len(x_labels)
-        fig_width = FIGSIZE_WIDTH // 2  # Single column width
-        bar_width = calculate_bar_width(n_bars, fig_width)
-        padding = PADDING
-        
-        cumulative = np.zeros(len(stack_df))
-        
-        for cat in hf.STAR_ORDER:
-            vals = stack_df[cat].to_numpy()
-            bars = ax_perf.bar(x, vals, width=bar_width, bottom=cumulative, color=hf.STAR_COLORS[cat],
-                                 edgecolor="white", linewidth=1.2)
-            for idx, rect in enumerate(bars):
-                h = vals[idx]
-                if h >= LABEL_MIN_PCT:
-                    color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
-                    ax_perf.text(rect.get_x() + rect.get_width() / 2, cumulative[idx] + h / 2,
-                                   f"{h:.1f}%", ha="center", va="center",
-                                   fontsize=8, fontweight="bold", color=color)
-            cumulative += vals
-        
-        ax_perf.set_ylim(0, 100)
-        ax_perf.set_xlim(-padding, n_bars - 1 + padding)
-        ax_perf.set_ylabel("% of Students")
-        ax_perf.set_xticks(x)
-        ax_perf.set_xticklabels(x_labels)
-        ax_perf.spines["top"].set_visible(False)
-        ax_perf.spines["right"].set_visible(False)
-    else:
-        ax_perf.text(0.5, 0.5, f"No {title} data", ha="center", va="center", fontsize=12)
-        ax_perf.axis("off")
-    ax_perf.set_title(title, fontsize=14, fontweight="bold", y=1.1)
+        if pct_df is not None and not pct_df.empty:
+            stack_df = (
+                pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
+                .reindex(columns=hf.STAR_ORDER)
+                .fillna(0)
+            )
+            x_labels = stack_df.index.tolist()
+            x = np.arange(len(x_labels))
+            cumulative = np.zeros(len(stack_df))
+            
+            for cat in hf.STAR_ORDER:
+                vals = stack_df[cat].to_numpy()
+                bars = axes[0][i].bar(x, vals, bottom=cumulative, color=hf.STAR_COLORS[cat],
+                                     edgecolor="white", linewidth=1.2)
+                for idx, rect in enumerate(bars):
+                    h = vals[idx]
+                    if h >= LABEL_MIN_PCT:
+                        color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        axes[0][i].text(rect.get_x() + rect.get_width() / 2, cumulative[idx] + h / 2,
+                                       f"{h:.1f}%", ha="center", va="center",
+                                       fontsize=8, fontweight="bold", color=color)
+                cumulative += vals
+            
+            axes[0][i].set_ylim(0, 100)
+            axes[0][i].set_ylabel("% of Students")
+            axes[0][i].set_xticks(x)
+            axes[0][i].set_xticklabels(x_labels)
+            axes[0][i].spines["top"].set_visible(False)
+            axes[0][i].spines["right"].set_visible(False)
+        else:
+            axes[0][i].text(0.5, 0.5, f"No {subj} data", ha="center", va="center", fontsize=12)
+            axes[0][i].axis("off")
+        axes[0][i].set_title(subject_titles[i], fontsize=14, fontweight="bold", y=1.1)
     
     fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center",
               bbox_to_anchor=(0.5, 0.92), ncol=len(hf.STAR_ORDER), frameon=False, fontsize=9,
               handlelength=1.8, handletextpad=0.5, columnspacing=1.1)
     
-    # Plot score bar
-    if pct_df is not None and not pct_df.empty:
-        n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
-        n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
-    else:
-        n_map = {}
-    
-    if score_df is not None and not score_df.empty:
-        draw_score_bar(ax_score, score_df, hf.STAR_ORDER, n_map, bar_width=bar_width, fig_width=fig_width)
-    else:
-        ax_score.text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
-        ax_score.axis("off")
-    ax_score.set_title("Average Unified Scale Score", fontsize=8, fontweight="bold", pad=10)
-    
-    # Plot insights
-    ax_insight.axis("off")
-    if metrics and metrics.get("t_prev"):
-        t_prev = metrics["t_prev"]
-        t_curr = metrics["t_curr"]
-        
-        if pct_df is not None and not pct_df.empty:
-            def _bucket_pct(bucket, tlabel):
-                return pct_df.loc[
-                    (pct_df["time_label"] == tlabel) &
-                    (pct_df["state_benchmark_achievement"] == bucket), "pct"
-                ].sum()
-            
-            high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
-            hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
-            lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
-            score_now = metrics.get("score_now", 0)
-            
-            high_delta = metrics.get("high_delta", 0)
-            hi_delta = metrics.get("hi_delta", 0)
-            lo_delta = metrics.get("lo_delta", 0)
-            
-            insight_lines = [
-                "Change",
-                f"Met+Exceeded: {hi_delta:+.1f}%",
-                f"Exceeded: {high_delta:+.1f}%",
-                f"Not Met: {lo_delta:+.1f}%",
-            ]
+    for i in range(2):
+        score_df = score_dfs[i]
+        n_map = n_maps[i] if i < len(n_maps) else {}
+        if score_df is not None and not score_df.empty:
+            draw_score_bar(axes[1][i], score_df, hf.STAR_ORDER, n_map)
         else:
-            insight_lines = []
-    else:
-        insight_lines = ["Not enough history for insights"]
+            axes[1][i].text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
+            axes[1][i].axis("off")
+        axes[1][i].set_title("Average Unified Scale Score", fontsize=8, fontweight="bold", pad=10)
     
-    ax_insight.text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="normal", color="#434343",
-                  ha="center", va="center", wrap=True, usetex=False,
-                  bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
+    for i in range(2):
+        metrics = metrics_list[i]
+        pct_df = pct_dfs[i]
+        axes[2][i].axis("off")
+        if metrics and metrics.get("t_prev"):
+            t_prev = metrics["t_prev"]
+            t_curr = metrics["t_curr"]
+            
+            if pct_df is not None and not pct_df.empty:
+                def _bucket_pct(bucket, tlabel):
+                    return pct_df.loc[
+                        (pct_df["time_label"] == tlabel) &
+                        (pct_df["state_benchmark_achievement"] == bucket), "pct"
+                    ].sum()
+                
+                high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
+                hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
+                lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
+                score_now = metrics.get("score_now", 0)
+                
+                high_delta = metrics.get("high_delta", 0)
+                hi_delta = metrics.get("hi_delta", 0)
+                lo_delta = metrics.get("lo_delta", 0)
+                
+                insight_lines = [
+                    "Change",
+                    f"Met+Exceeded: {hi_delta:+.1f}%",
+                    f"Exceeded: {high_delta:+.1f}%",
+                    f"Not Met: {lo_delta:+.1f}%",
+                ]
+            else:
+                insight_lines = []
+        else:
+            insight_lines = ["Not enough history for insights"]
+        
+        axes[2][i].text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="normal", color="#434343",
+                      ha="center", va="center", wrap=True, usetex=False,
+                      bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
-    fig.suptitle(f"{scope_label} • {group_name} • {window_filter} {title} Year-to-Year Trends",
+    fig.suptitle(f"{scope_label} • {group_name} • {window_filter} Year-to-Year Trends",
                 fontsize=20, fontweight="bold", y=1)
     
     out_dir_path = Path(output_dir) / folder
@@ -2055,270 +2055,50 @@ def plot_star_single_subject_dashboard_by_group_winter(
     order_map = cfg.get("student_group_order", {}) if cfg else {}
     group_order_val = order_map.get(group_name, 99)
     safe_group = group_name.replace(" ", "_").replace("/", "_")
-    out_name = f"{scope_label.replace(' ', '_')}_STAR_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_{activity_type}_trends.png"
+    out_name = f"{scope_label.replace(' ', '_')}_STAR_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
     out_path = out_dir_path / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     
-    # Sidecar JSON
+    # Sidecar JSON for chart_analyzer.py
+    json_subjects: list[str] = []
+    pct_payload: list[dict] = []
+    score_payload: list[dict] = []
+    metrics_payload: list[dict] = []
+    time_order_top: list[str] = []
+
+    for i in range(len(subjects)):
+        if pct_dfs[i] is None or score_dfs[i] is None:
+            continue
+        if pct_dfs[i].empty or score_dfs[i].empty:
+            continue
+        json_subjects.append(subject_titles[i])
+        pct_payload.append({"subject": subject_titles[i], "data": pct_dfs[i].to_dict("records")})
+        score_payload.append({"subject": subject_titles[i], "data": score_dfs[i].to_dict("records")})
+        met = metrics_list[i]
+        if isinstance(met, dict):
+            m = dict(met)
+            m.pop("pct_df", None)
+        else:
+            m = {}
+        metrics_payload.append(m)
+        if not time_order_top and isinstance(time_orders[i], list):
+            time_order_top = [str(t) for t in time_orders[i]]
+
     chart_data = {
-        "chart_type": "star_winter_section2_student_group_single_subject",
+        "chart_type": "star_winter_section2_student_group_trends",
         "section": 2,
         "scope": scope_label,
         "window_filter": window_filter,
-        "subject": title,
+        "subjects": json_subjects or subject_titles,
         "cohort_data": {"group_name": group_name},
-        "pct_data": pct_df.to_dict("records") if pct_df is not None else [],
-        "score_data": score_df.to_dict("records") if score_df is not None else [],
-        "metrics": metrics if isinstance(metrics, dict) else {},
-        "time_order": time_order,
+        "pct_data": pct_payload,
+        "score_data": score_payload,
+        "metrics": metrics_payload,
+        "time_orders": time_order_top,
     }
-    track_chart(f"Section 2: {group_name} {title}", out_path, scope=scope_label, section=2, chart_data=chart_data)
-    print(f"Saved Section 2 ({title}): {out_path}")
+    track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2, chart_data=chart_data)
+    print(f"Saved Section 2: {out_path}")
     return str(out_path)
-
-
-# COMMENTED OUT: Dual-subject student group dashboard
-# def plot_star_subject_dashboard_by_group_winter(
-#     df, scope_label, folder, output_dir, window_filter="Winter",
-#     group_name=None, group_def=None, cfg=None, preview=False
-# ):
-#     """Same layout as main dashboard but filtered to one student group - Winter version"""
-#     d0 = df.copy()
-#     
-#     mask = _apply_student_group_mask(d0, group_name, group_def)
-#     d0 = d0[mask].copy()
-#     
-#     if d0.empty:
-#         print(f"[group {group_name}] no rows after group mask ({scope_label})")
-#         return None
-#     
-#     subjects = ["Reading", "Mathematics"]
-#     subject_titles = ["Reading", "Mathematics"]
-#     
-#     pct_dfs, score_dfs, metrics_list, time_orders, min_ns, n_maps = [], [], [], [], [], []
-#     
-#     for subj in subjects:
-#         if subj == "Reading":
-#             subj_df = d0[d0["activity_type"].astype(str).str.contains("reading", case=False, na=False)].copy()
-#         elif subj == "Mathematics":
-#             subj_df = d0[d0["activity_type"].astype(str).str.contains("math", case=False, na=False)].copy()
-#         else:
-#             subj_df = d0.copy()
-#         
-#         subj_df["testwindow"] = subj_df["testwindow"].astype(str).str.strip().str.lower()
-#         win = str(window_filter).strip().lower()
-#         subj_df = subj_df[subj_df["testwindow"] == win]
-#         
-#         if subj_df.empty:
-#             pct_dfs.append(None)
-#             score_dfs.append(None)
-#             metrics_list.append(None)
-#             time_orders.append([])
-#             min_ns.append(0)
-#             n_maps.append({})
-#             continue
-#         
-#         pct_df, score_df, metrics, time_order = prep_star_for_charts(
-#             subj_df, subject_str=subj, window_filter=window_filter
-#         )
-#         
-#         if len(time_order) > 4:
-#             time_order = time_order[-4:]
-#             pct_df = pct_df[pct_df["time_label"].isin(time_order)].copy()
-#             score_df = score_df[score_df["time_label"].isin(time_order)].copy()
-#         
-#         pct_dfs.append(pct_df)
-#         score_dfs.append(score_df)
-#         metrics_list.append(metrics)
-#         time_orders.append(time_order)
-#         
-#         if pct_df is not None and not pct_df.empty and time_order:
-#             latest_label = time_order[-1]
-#             latest_slice = pct_df[pct_df["time_label"] == latest_label]
-#             if "N_total" in latest_slice.columns:
-#                 latest_n = latest_slice["N_total"].max()
-#             else:
-#                 latest_n = latest_slice["n"].sum()
-#             min_ns.append(latest_n if not pd.isna(latest_n) else 0)
-#         else:
-#             min_ns.append(0)
-#         
-#         if pct_df is not None and not pct_df.empty:
-#             n_map_df = pct_df.groupby("time_label")["N_total"].max().reset_index()
-#             n_map = dict(zip(n_map_df["time_label"].astype(str), n_map_df["N_total"]))
-#         else:
-#             n_map = {}
-#         n_maps.append(n_map)
-#     
-#     if any((n is None or n < 12) for n in min_ns):
-#         print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
-#         return None
-#     
-#     if all((df is None or df.empty) for df in pct_dfs):
-#         print(f"[group {group_name}] skipped (no data) in {scope_label}")
-#         return None
-#     
-#     fig = plt.figure(figsize=(16, 9), dpi=300)
-#     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
-#     fig.subplots_adjust(hspace=0.3, wspace=0.25)
-#     axes = [
-#         [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
-#         [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])],
-#         [fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1])],
-#     ]
-#     
-#     legend_handles = [Patch(facecolor=hf.STAR_COLORS[q], edgecolor="none", label=q) for q in hf.STAR_ORDER]
-#     
-#     for i, subj in enumerate(subjects):
-#         pct_df = pct_dfs[i]
-#         score_df = score_dfs[i]
-#         metrics = metrics_list[i]
-#         time_order = time_orders[i]
-#         n_map = n_maps[i]
-#         
-#         if pct_df is not None and not pct_df.empty:
-#             stack_df = (
-#                 pct_df.pivot(index="time_label", columns="state_benchmark_achievement", values="pct")
-#                 .reindex(columns=hf.STAR_ORDER)
-#                 .fillna(0)
-#             )
-#             x_labels = stack_df.index.tolist()
-#             x = np.arange(len(x_labels))
-#             cumulative = np.zeros(len(stack_df))
-#             
-#             for cat in hf.STAR_ORDER:
-#                 vals = stack_df[cat].to_numpy()
-#                 bars = axes[0][i].bar(x, vals, bottom=cumulative, color=hf.STAR_COLORS[cat],
-#                                      edgecolor="white", linewidth=1.2)
-#                 for idx, rect in enumerate(bars):
-#                     h = vals[idx]
-#                     if h >= LABEL_MIN_PCT:
-#                         color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
-#                         axes[0][i].text(rect.get_x() + rect.get_width() / 2, cumulative[idx] + h / 2,
-#                                        f"{h:.1f}%", ha="center", va="center",
-#                                        fontsize=8, fontweight="bold", color=color)
-#                 cumulative += vals
-#             
-#             axes[0][i].set_ylim(0, 100)
-#             axes[0][i].set_ylabel("% of Students")
-#             axes[0][i].set_xticks(x)
-#             axes[0][i].set_xticklabels(x_labels)
-#             # axes[0][i].grid(False)  # Gridlines disabled globally
-#             axes[0][i].spines["top"].set_visible(False)
-#             axes[0][i].spines["right"].set_visible(False)
-#         else:
-#             axes[0][i].text(0.5, 0.5, f"No {subj} data", ha="center", va="center", fontsize=12)
-#             axes[0][i].axis("off")
-#         axes[0][i].set_title(subject_titles[i], fontsize=14, fontweight="bold", y=1.1)
-#     
-#     fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center",
-#               bbox_to_anchor=(0.5, 0.92), ncol=len(hf.STAR_ORDER), frameon=False, fontsize=9,
-#               handlelength=1.8, handletextpad=0.5, columnspacing=1.1)
-#     
-#     for i in range(2):
-#         score_df = score_dfs[i]
-#         n_map = n_maps[i] if i < len(n_maps) else {}
-#         if score_df is not None and not score_df.empty:
-#             draw_score_bar(axes[1][i], score_df, hf.STAR_ORDER, n_map)
-#         else:
-#             axes[1][i].text(0.5, 0.5, "No score data", ha="center", va="center", fontsize=12)
-#             axes[1][i].axis("off")
-#         axes[1][i].set_title("Average Unified Scale Score", fontsize=8, fontweight="bold", pad=10)
-#     
-#     for i in range(2):
-#         metrics = metrics_list[i]
-#         pct_df = pct_dfs[i]
-#         axes[2][i].axis("off")
-#         if metrics and metrics.get("t_prev"):
-#             t_prev = metrics["t_prev"]
-#             t_curr = metrics["t_curr"]
-#             
-#             def _bucket_delta(bucket, pct_df):
-#                 curr = pct_df.loc[(pct_df["time_label"] == t_curr) & (pct_df["state_benchmark_achievement"] == bucket), "pct"].sum()
-#                 prev = pct_df.loc[(pct_df["time_label"] == t_prev) & (pct_df["state_benchmark_achievement"] == bucket), "pct"].sum()
-#                 return curr - prev
-#             
-#             if pct_df is not None and not pct_df.empty:
-#                 # Show current values, not deltas (deltas still calculated in metrics)
-#                 def _bucket_pct(bucket, tlabel):
-#                     return pct_df.loc[
-#                         (pct_df["time_label"] == tlabel) &
-#                         (pct_df["state_benchmark_achievement"] == bucket), "pct"
-#                     ].sum()
-#                 
-#                 high_now = _bucket_pct("4 - Standard Exceeded", t_curr)
-#                 hi_now = sum(_bucket_pct(b, t_curr) for b in ["4 - Standard Exceeded", "3 - Standard Met"])
-#                 lo_now = _bucket_pct("1 - Standard Not Met", t_curr)
-#                 score_now = metrics.get("score_now", 0)
-#                 
-#                 insight_lines = [
-#                     f"Current values ({t_curr}):",
-#                     f"Exceed: {high_now:.1f} ppts",
-#                     f"Meet or Exceed: {hi_now:.1f} ppts",
-#                     f"Not Met: {lo_now:.1f} ppts",
-#                     f"Avg Unified Scale Score: {score_now:.1f} pts",
-#                 ]
-#             else:
-#                 insight_lines = []
-#         else:
-#             insight_lines = ["Not enough history for insights"]
-#         
-#         axes[2][i].text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="normal", color="#434343",
-#                       ha="center", va="center", wrap=True, usetex=False,
-#                       bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
-#     
-#     fig.suptitle(f"{scope_label} • {group_name} • {window_filter} Year-to-Year Trends",
-#                 fontsize=20, fontweight="bold", y=1)
-#     
-#     out_dir_path = Path(output_dir) / folder
-#     out_dir_path.mkdir(parents=True, exist_ok=True)
-#     order_map = cfg.get("student_group_order", {}) if cfg else {}
-#     group_order_val = order_map.get(group_name, 99)
-#     safe_group = group_name.replace(" ", "_").replace("/", "_")
-#     out_name = f"{scope_label.replace(' ', '_')}_STAR_section2_{group_order_val:02d}_{safe_group}_{window_filter.lower()}_trends.png"
-#     out_path = out_dir_path / out_name
-#     hf._save_and_render(fig, out_path, dev_mode=preview)
-#     
-#     # Sidecar JSON for chart_analyzer.py
-#     json_subjects: list[str] = []
-#     pct_payload: list[dict] = []
-#     score_payload: list[dict] = []
-#     metrics_payload: list[dict] = []
-#     time_order_top: list[str] = []
-# 
-#     for i in range(len(subjects)):
-#         if pct_dfs[i] is None or score_dfs[i] is None:
-#             continue
-#         if pct_dfs[i].empty or score_dfs[i].empty:
-#             continue
-#         json_subjects.append(subject_titles[i])
-#         pct_payload.append({"subject": subject_titles[i], "data": pct_dfs[i].to_dict("records")})
-#         score_payload.append({"subject": subject_titles[i], "data": score_dfs[i].to_dict("records")})
-#         met = metrics_list[i]
-#         if isinstance(met, dict):
-#             m = dict(met)
-#             m.pop("pct_df", None)
-#         else:
-#             m = {}
-#         metrics_payload.append(m)
-#         if not time_order_top and isinstance(time_orders[i], list):
-#             time_order_top = [str(t) for t in time_orders[i]]
-# 
-#     chart_data = {
-#         "chart_type": "star_winter_section2_student_group_trends",
-#         "section": 2,
-#         "scope": scope_label,
-#         "window_filter": window_filter,
-#         "subjects": json_subjects or subject_titles,
-#         "cohort_data": {"group_name": group_name},
-#         "pct_data": pct_payload,
-#         "score_data": score_payload,
-#         "metrics": metrics_payload,
-#         "time_orders": time_order_top,
-#     }
-#     track_chart(f"Section 2: {group_name}", out_path, scope=scope_label, section=2, chart_data=chart_data)
-#     print(f"Saved Section 2: {out_path}")
-#     return str(out_path)
 
 # ---------------------------------------------------------------------
 # SECTION 3 — Overall + Cohort Trends (Winter)
@@ -2919,6 +2699,138 @@ def plot_district_sgp_overview_single_subject_winter(
         "sgp_data": trend_df.to_dict("records") if not trend_df.empty else []
     }
     track_chart(f"Section 4: District SGP Overview {title}", out_path, scope=scope_label, section=4, chart_data=chart_data)
+    plt.close(fig)
+    
+    return str(out_path)
+
+
+def plot_district_sgp_overview_dual_subject_winter(
+    df, scope_label, folder, output_dir, window_filter="Winter", preview=False
+):
+    """
+    District-level SGP overview: Dual subject version.
+    Aggregates across all grades to show overall district growth for both Reading and Math.
+    """
+    subjects = ["Reading", "Mathematics"]
+    titles = {"Reading": "Reading", "Mathematics": "Math"}
+    
+    sgp_color = "#0381a2"
+    band_color = "#eab308"
+    band_line_color = "#ffa800"
+    
+    # Prepare SGP data for both subjects
+    trend_dfs = []
+    vector_used_list = []
+    
+    for subject_str in subjects:
+        trend_df, vector_used = _prep_star_sgp_trend_district_overview(df, subject_str=subject_str)
+        trend_dfs.append(trend_df)
+        vector_used_list.append(vector_used)
+    
+    # Get the SGP vector label from the actual data used (use first non-None)
+    sgp_vector_label = "SGP"  # Default
+    for vector_used in vector_used_list:
+        if vector_used:
+            if vector_used == "FALL_WINTER":
+                sgp_vector_label = "Fall→Winter SGP"
+            elif vector_used == "FALL_SPRING":
+                sgp_vector_label = "Fall→Spring SGP"
+            else:
+                sgp_vector_label = f"{vector_used} SGP"
+            break
+    
+    # Check if we have any data
+    if all(df.empty for df in trend_dfs):
+        print(f"[Section 4 Overview] No SGP data for {scope_label}")
+        return None
+    
+    # Create dual-subject plot (2 columns)
+    fig = plt.figure(figsize=(16, 9), dpi=300)
+    gs = fig.add_gridspec(nrows=1, ncols=2)
+    fig.subplots_adjust(wspace=0.3)
+    
+    for i, (subject_str, trend_df) in enumerate(zip(subjects, trend_dfs)):
+        title = titles[subject_str]
+        ax = fig.add_subplot(gs[0, i])
+        
+        if trend_df.empty or not {"time_label", "median_sgp", "n"}.issubset(trend_df.columns):
+            ax.axis("off")
+            ax.text(0.5, 0.5, f"No {title} data", ha="center", va="center",
+                   fontsize=16, fontweight="bold", color="#434343")
+            continue
+        
+        sub = trend_df.copy()
+        x = np.arange(len(sub))
+        y = sub["median_sgp"].to_numpy(float)
+        
+        # Calculate dynamic bar width for consistent appearance
+        n_bars = len(sub)
+        fig_width_per_subplot = FIGSIZE_WIDTH // 2
+        bar_width = calculate_bar_width(n_bars, fig_width_per_subplot)
+        padding = PADDING
+        
+        # Growth band (35-65 typical growth range)
+        ax.axhspan(35, 65, facecolor=band_color, alpha=0.25, zorder=0)
+        for yref in [35, 50, 65]:
+            ax.axhline(yref, ls="--", color=band_line_color, lw=1.2, zorder=0)
+        
+        # Bars with consistent width
+        bars = ax.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+        for rect, val in zip(bars, y):
+            ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
+                   f"{val:.1f}", ha="center", va="center", fontsize=9,
+                   fontweight="bold", color="white")
+        
+        # Add n-counts under x-axis
+        n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
+        formatted_labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" 
+                           for tl in sub["time_label"].astype(str).tolist()]
+        
+        ax.set_xlim(-padding, n_bars - 1 + padding)
+        ax.set_xticks(x)
+        ax.set_xticklabels(formatted_labels)
+        ax.set_title(title, fontweight="bold", fontsize=14, pad=10)
+        ax.set_ylim(0, 100)
+        ax.set_ylabel(f"Median {sgp_vector_label}")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+    
+    # Legend
+    fig.legend(
+        handles=[Patch(facecolor=sgp_color, label="Median SGP")],
+        loc="upper center", bbox_to_anchor=(0.5, 0.95),
+        frameon=False, fontsize=10
+    )
+    
+    # Title
+    fig.suptitle(
+        f"{scope_label} • {sgp_vector_label} Trends (All Grades)",
+        fontsize=18, fontweight="bold", y=0.98
+    )
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    
+    # Save
+    out_dir = Path(output_dir) / folder
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_scope = scope_label.replace(" ", "_")
+    out_name = f"DISTRICT_{safe_scope}_STAR_section4_sgp_overview_{window_filter.lower()}.png"
+    out_path = out_dir / out_name
+    
+    hf._save_and_render(fig, out_path, dev_mode=preview)
+    print(f"Saved Section 4 SGP Overview: {out_path}")
+    
+    # Track chart with data
+    chart_data = {
+        "chart_type": "star_winter_section4_sgp_overview_dual_subject",
+        "section": 4,
+        "scope": scope_label,
+        "window_filter": window_filter,
+        "sgp_data": {
+            titles[subj]: trend_dfs[i].to_dict("records") if not trend_dfs[i].empty else []
+            for i, subj in enumerate(subjects)
+        }
+    }
+    track_chart(f"Section 4: District SGP Overview", out_path, scope=scope_label, section=4, chart_data=chart_data)
     plt.close(fig)
     
     return str(out_path)
@@ -4301,78 +4213,71 @@ def main(star_data=None):
     # Section 0: Predicted vs Actual CAASPP (Winter)
     print("\n[Section 0] Generating Winter Predicted vs Actual CAASPP...")
     for scope_df, scope_label, folder in scopes:
-        for subj in ["Reading", "Mathematics"]:
-            if not should_generate_subject(subj, chart_filters):
-                continue
-            try:
+        try:
+            payload = {}
+            for subj in ["Reading", "Mathematics"]:
+                if not should_generate_subject(subj, chart_filters):
+                    print(f"[Section 0] Skipping {subj} for {scope_label} (filtered out)")
+                    continue
                 proj, act, metrics, year = _prep_section0_star_winter(scope_df, subj)
                 if proj is None:
+                    print(f"[Section 0] No data for {subj} in {scope_label} - skipping this subject")
                     continue
-                chart_path = _plot_section0_star_single_subject_winter(
-                    scope_label, folder, subj, proj, act, metrics,
-                    args.output_dir, preview=hf.DEV_MODE
-                )
+                payload[subj] = {"proj_pct": proj, "act_pct": act, "metrics": metrics}
+            if payload:
+                chart_path = _plot_section0_star_winter(scope_label, folder, payload, args.output_dir, preview=hf.DEV_MODE)
                 if chart_path:
                     chart_paths.append(chart_path)
-            except Exception as e:
-                print(f"Error generating Section 0 {subj} chart for {scope_label}: {e}")
+            else:
+                print(f"[Section 0] No data available for {scope_label} - skipping chart")
+        except Exception as e:
+            print(f"Error generating Section 0 chart for {scope_label}: {e}")
             if hf.DEV_MODE:
                 import traceback
                 traceback.print_exc()
-            continue
     
-    # Section 1: Winter Performance Trends
+    # Section 1: Winter Performance Trends (dual-subject dashboard)
     print("\n[Section 1] Generating Winter Performance Trends...")
     for quarter in selected_quarters:
         for scope_df, scope_label, folder in scopes:
-            # Generate separate charts for Reading and Math
-            for subject in ["Reading", "Mathematics"]:
-                if not should_generate_subject(subject, chart_filters):
-                    continue
-                try:
-                    chart_path = plot_star_single_subject_dashboard_winter(
-                        scope_df,
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subject,
-                        window_filter=quarter,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating {subject} chart for {scope_label} ({quarter}): {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
-    
-    # Section 1.1: Fall → Winter Performance Progression
-    print("\n[Section 1.1] Generating Fall → Winter Performance Progression...")
-    for scope_df, scope_label, folder in scopes:
-        # Generate separate charts for Reading and Math
-        for subject in ["Reading", "Mathematics"]:
-            if not should_generate_subject(subject, chart_filters):
-                continue
             try:
-                chart_path = plot_section_1_1_single_subject(
+                chart_path = plot_star_dual_subject_dashboard_winter(
                     scope_df,
                     scope_label,
                     folder,
                     args.output_dir,
-                    subject_str=subject,
-                    school_raw=None if folder == "_district" else scope_label,
+                    window_filter=quarter,
                     preview=hf.DEV_MODE
                 )
                 if chart_path:
                     chart_paths.append(chart_path)
             except Exception as e:
-                print(f"Error generating Section 1.1 {subject} chart for {scope_label}: {e}")
+                print(f"Error generating Section 1 chart for {scope_label} ({quarter}): {e}")
                 if hf.DEV_MODE:
                     import traceback
                     traceback.print_exc()
                 continue
+    
+    # Section 1.1: Fall → Winter Performance Progression (dual-subject dashboard)
+    print("\n[Section 1.1] Generating Fall → Winter Performance Progression...")
+    for scope_df, scope_label, folder in scopes:
+        try:
+            chart_path = plot_section_1_1_dual_subject(
+                scope_df,
+                scope_label,
+                folder,
+                args.output_dir,
+                school_raw=None if folder == "_district" else scope_label,
+                preview=hf.DEV_MODE
+            )
+            if chart_path:
+                chart_paths.append(chart_path)
+        except Exception as e:
+            print(f"Error generating Section 1.1 chart for {scope_label}: {e}")
+            if hf.DEV_MODE:
+                import traceback
+                traceback.print_exc()
+            continue
     
     # Section 1.2: Fall → Winter Performance Progression by Grade
     print("\n[Section 1.2] Generating Fall → Winter Performance Progression by Grade...")
@@ -4395,7 +4300,7 @@ def main(star_data=None):
                 traceback.print_exc()
             continue
     
-    # Section 1.3: Fall → Winter Performance Progression by Student Group
+    # Section 1.3: Fall → Winter Performance Progression by Student Group (dual-subject dashboard)
     print("\n[Section 1.3] Generating Fall → Winter Performance Progression by Student Group...")
     student_groups_cfg = cfg.get("student_groups", {})
     group_order = cfg.get("student_group_order", {})
@@ -4412,32 +4317,27 @@ def main(star_data=None):
             # Check if this student group should be generated based on filters
             if not should_generate_student_group(group_name, chart_filters):
                 continue
-            # Generate separate charts for Reading and Math
-            for subject in ["Reading", "Mathematics"]:
-                if not should_generate_subject(subject, chart_filters):
-                    continue
-                try:
-                    chart_path = plot_section_1_3_for_group_single_subject(
-                        scope_df,
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        group_name,
-                        group_def,
-                        subject_str=subject,
-                        school_raw=None if folder == "_district" else scope_label,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 1.3 {subject} chart for {scope_label} ({group_name}): {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
+            try:
+                chart_path = plot_section_1_3_for_group_dual_subject(
+                    scope_df,
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    group_name,
+                    group_def,
+                    school_raw=None if folder == "_district" else scope_label,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error generating Section 1.3 chart for {scope_label} ({group_name}): {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
+                continue
     
-    # Section 2: Student Group Performance Trends (Winter)
+    # Section 2: Student Group Performance Trends (Winter) - dual-subject dashboard
     print("\n[Section 2] Generating Student Group Performance Trends (Winter)...")
     
     # Limit number of groups if max_student_groups filter is set
@@ -4452,27 +4352,22 @@ def main(star_data=None):
             # Check if this student group should be generated based on filters
             if not should_generate_student_group(group_name, chart_filters):
                 continue
-            # Generate separate charts for Reading and Math
-            for subject in ["Reading", "Mathematics"]:
-                if not should_generate_subject(subject, chart_filters):
-                    continue
-                try:
-                    chart_path = plot_star_single_subject_dashboard_by_group_winter(
-                        scope_df,
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subject,
-                        window_filter="Winter",
-                        group_name=group_name,
-                        group_def=group_def,
-                        cfg=cfg,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 2 {subject} chart for {scope_label} ({group_name}): {e}")
+            try:
+                chart_path = plot_star_subject_dashboard_by_group_winter(
+                    scope_df,
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    window_filter="Winter",
+                    group_name=group_name,
+                    group_def=group_def,
+                    cfg=cfg,
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error generating Section 2 chart for {scope_label} ({group_name}): {e}")
                 if hf.DEV_MODE:
                     import traceback
                     traceback.print_exc()
@@ -4525,54 +4420,30 @@ def main(star_data=None):
                         traceback.print_exc()
                     continue
     
-    # Section 4: Overall Growth Trends by Site (Winter)
+    # Section 4: Overall Growth Trends by Site (Winter) - Dual Subject
     print("\n[Section 4] Generating Overall Growth Trends by Site (Winter)...")
     for scope_df, scope_label, folder in scopes:
         if folder == "_district":
-            # District-level SGP overview (separate charts for Reading and Math)
-            for subj in subjects_to_plot:
-                if not should_generate_subject(subj, chart_filters):
-                    continue
-                try:
-                    chart_path = plot_district_sgp_overview_single_subject_winter(
-                        scope_df.copy(),
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subj,
-                        window_filter="Winter",
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
+            # District-level SGP overview (dual-subject)
+            try:
+                chart_path = plot_district_sgp_overview_dual_subject_winter(
+                    scope_df.copy(),
+                    scope_label,
+                    folder,
+                    args.output_dir,
+                    window_filter="Winter",
+                    preview=hf.DEV_MODE
+                )
+                if chart_path:
+                    chart_paths.append(chart_path)
+            except Exception as e:
+                print(f"Error generating Section 4 SGP Overview for {scope_label}: {e}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
         else:
-            # School-level SGP overview (separate charts for Reading and Math)
-            for subj in subjects_to_plot:
-                if not should_generate_subject(subj, chart_filters):
-                    continue
-                try:
-                    chart_path = plot_district_sgp_overview_single_subject_winter(
-                        scope_df.copy(),
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subj,
-                        window_filter="Winter",
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 4 SGP Overview for {scope_label} - {subj}: {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
+            # School-level SGP overview - skip for now if no dual-subject version exists
+            pass
     
     # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort (Winter)
     print("\n[Section 5] Generating STAR SGP Growth (Winter)...")
