@@ -170,6 +170,11 @@ def is_chart_valuable(chart_path: str, use_llm_analysis: bool = False) -> Tuple[
     # Check 2: Check for meaningful data in common fields
     has_meaningful_data = False
     
+    # Special case: Section 5 (growth progress) should always be included if chart exists
+    # It shows important pathway/growth metrics even if some subjects have no data
+    if chart_data.get('section') == 5 or 'section5' in chart_data.get('chart_type', '').lower():
+        return (True, "Section 5 (growth progress) - always include")
+    
     # Check metrics
     if 'metrics' in chart_data:
         metrics = chart_data['metrics']
