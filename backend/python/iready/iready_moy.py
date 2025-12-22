@@ -2929,19 +2929,68 @@ def run_section5_growth_progress_moy(
             how="left",
         )
 
-        # progress percents (0–100 ints) — exports vary (extra underscores/casing).
-        def _norm_col_s5(s: str) -> str:
-            return re.sub(r"[^a-z0-9]+", "", str(s).strip().lower())
-
-        def _find_col_like_s5(df_in: pd.DataFrame, canonical: str) -> str | None:
-            target = _norm_col_s5(canonical)
-            for c in df_in.columns:
-                if _norm_col_s5(c) == target:
-                    return c
+        # progress percents (0–100 ints) — use the same robust column picker as Sections 9-11
+        # This handles variations like Percent_Progress_to_Annual_Typical_Growth____
+        def _pick_progress_col_s5(candidates: list[str]) -> str | None:
+            """Pick the best progress column, with fuzzy fallback for variations."""
+            # Try exact normalized match first
+            def _norm(s: str) -> str:
+                return re.sub(r"[^a-z0-9]+", "", str(s).strip().lower())
+            
+            for cand in candidates:
+                target = _norm(cand)
+                for c in winter.columns:
+                    if _norm(c) == target:
+                        # Prefer columns with non-zero data
+                        if not winter[c].isna().all() and (winter[c] != 0).any():
+                            return c
+            
+            # Fuzzy fallback: look for columns with key substrings + %
+            for cand in candidates:
+                cand_lower = cand.lower()
+                if "typical" in cand_lower:
+                    for col in winter.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "typical" in col_lower and "%" in col_lower:
+                            if not winter[col].isna().all() and (winter[col] != 0).any():
+                                return col
+                elif "stretch" in cand_lower:
+                    for col in winter.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "stretch" in col_lower and "%" in col_lower:
+                            if not winter[col].isna().all() and (winter[col] != 0).any():
+                                return col
+            
+            # Last resort: return first exact match even if all zeros
+            for cand in candidates:
+                target = _norm(cand)
+                for c in winter.columns:
+                    if _norm(c) == target:
+                        return c
+            
             return None
 
-        typ_src = _find_col_like_s5(winter, "percent_progress_to_annual_typical_growth")
-        str_src = _find_col_like_s5(winter, "percent_progress_to_annual_stretch_growth")
+        typ_src = _pick_progress_col_s5([
+            "percent_progress_to_annual_typical_growth",
+            "percent_progress_to_typical_growth",
+            "percent_progress_to_typical",
+        ])
+        str_src = _pick_progress_col_s5([
+            "percent_progress_to_annual_stretch_growth",
+            "percent_progress_to_stretch_growth",
+            "percent_progress_to_stretch",
+        ])
+        
+        if typ_src:
+            print(f"[S5] Using typical progress column: {typ_src}")
+        else:
+            print(f"[S5] WARNING: Could not find typical progress column for {subj}")
+        
+        if str_src:
+            print(f"[S5] Using stretch progress column: {str_src}")
+        else:
+            print(f"[S5] WARNING: Could not find stretch progress column for {subj}")
+        
         winter["pct_typ"] = pd.to_numeric(winter[typ_src], errors="coerce") if typ_src else np.nan
         winter["pct_str"] = pd.to_numeric(winter[str_src], errors="coerce") if str_src else np.nan
 
@@ -3197,7 +3246,7 @@ def run_section5_growth_progress_moy(
         plt.close(fig)
 
     # ----------------------------
-    # Build + plot
+    # Build + plot (ALWAYS produce Section 5, even with partial data)
     # ----------------------------
     metrics_by_subject = {}
     for subj in ["ELA", "Math"]:
@@ -3206,8 +3255,12 @@ def run_section5_growth_progress_moy(
             metrics_by_subject[subj] = m
 
     if not metrics_by_subject:
-        print(f"[WARN] No valid Section 5 data for {scope_label}")
-        return
+        print(f"[WARN] No valid Section 5 data for {scope_label} - creating placeholder")
+        # Create empty/placeholder metrics so Section 5 always produces a chart
+        metrics_by_subject = {
+            "ELA": None,
+            "Math": None,
+        }
 
     _plot_section5(scope_label, folder, metrics_by_subject, preview=preview)
 
@@ -3854,6 +3907,10 @@ def _prep_progress_base(
         Preference order:
         - first candidate with data (non-null and not all zeros)
         - otherwise first candidate that exists at all
+        
+        Also supports fuzzy pattern matching for variations like:
+        - Percent_Progress_to_Annual_Typical_Growth____
+        - percent_progress_to_typical_growth
         """
         found_existing: list[str] = []
         for cand in candidates:
@@ -3863,12 +3920,37 @@ def _prep_progress_base(
             found_existing.append(src)
             if src in d.columns and not _is_all_zero_or_nan(d[src]):
                 return src
+        
+        # If no exact match found, try fuzzy pattern matching
+        # Look for columns containing key substrings (e.g., "progress" + "typical")
+        if not found_existing:
+            for cand in candidates:
+                # Extract key parts (e.g., "percent", "progress", "typical/stretch")
+                cand_lower = cand.lower()
+                if "typical" in cand_lower:
+                    # Look for any column with "progress" AND "typical"
+                    for col in d.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "typical" in col_lower and "%" in col_lower:
+                            if not _is_all_zero_or_nan(d[col]):
+                                return col
+                            found_existing.append(col)
+                elif "stretch" in cand_lower:
+                    # Look for any column with "progress" AND "stretch"
+                    for col in d.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "stretch" in col_lower and "%" in col_lower:
+                            if not _is_all_zero_or_nan(d[col]):
+                                return col
+                            found_existing.append(col)
+        
         return found_existing[0] if found_existing else None
 
     rename_map = {}
     # Some exports provide annual progress columns; others provide non-annual variants.
     _typ_src = _pick_progress_source(
         [
+            "Percent_Progress_to_Annual_Typical_Growth____",
             "percent_progress_to_annual_typical_growth",
             "percent_progress_to_typical_growth",
             "percent_progress_to_typical",
@@ -3876,6 +3958,7 @@ def _prep_progress_base(
     )
     _str_src = _pick_progress_source(
         [
+            "Percent_Progress_to_Annual_Stretch_Growth____",
             "percent_progress_to_annual_stretch_growth",
             "percent_progress_to_stretch_growth",
             "percent_progress_to_stretch",

@@ -299,11 +299,11 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
 
                     IREADY_TITLES = {
                         "0": "i-Ready vs CERS (Predicted vs Actual)",
-                        "0.1": "Fall → Winter Comparison",
+                        "0.1": "Winter → Spring Comparison",
                         "1": "Performance Trends",
                         "2": "Student Group Performance Trends",
                         "3": "Overall + Cohort Trends",
-                        "4": "Winter i-Ready Mid/Above → % CERS Met/Exceeded",
+                        "4": "Spring i-Ready Mid/Above → % CERS Met/Exceeded",
                         "5": "Growth Progress Toward Annual Goals",
                         "6": "Window Compare by School",
                         "7": "Window Compare by Grade",
@@ -596,7 +596,7 @@ def run_section0_iready(
                 # --- Bar panel: i-Ready Mid/Above vs CERS Met/Exceed ---
                 ax_mid = fig.add_subplot(gs[1, i])
                 bars = ax_mid.bar(
-                    ["i-Ready Mid/Above", "CERS Met/Exceed"],
+                    ["i-Ready Mid/Above", "CAASPP Met/Exceed"],
                     [metrics["iready_mid_above"], metrics["cers_met_exceed"]],
                     color=["#00baeb", "#0381a2"],
                     edgecolor="white",
@@ -627,7 +627,7 @@ def run_section0_iready(
                 ax_bot = fig.add_subplot(gs[2, i])
                 ax_bot.axis("off")
                 insight_text = (
-                    f"Spring i-Ready Mid/Above vs CERS Met/Exceed:\n"
+                    f"Spring i-Ready Mid/Above vs CAASPP Met/Exceed:\n"
                     rf"${metrics['iready_mid_above']:.1f}\% - {metrics['cers_met_exceed']:.1f}\% = "
                     rf"\mathbf{{{metrics['delta']:+.1f}}}$ pts"
                 )
@@ -650,7 +650,7 @@ def run_section0_iready(
             # --- Chart title and save ---
             year = next(iter(data_dict.values()))[1].get("year", "")
             fig.suptitle(
-                f"{scope_label} • Spring {year} • i-Ready Placement vs CERS Performance",
+                f"{scope_label} • Spring {year} • i-Ready Placement vs CASSPP Performance",
                 fontsize=26,
                 fontweight="bold",
                 y=0.99,
@@ -1041,7 +1041,7 @@ def run_section0_1_iready_fall_winter_spring(
 
 
 # Backward-compatible alias (older driver code calls this name)
-def run_section0_1_iready_fall_winter(
+def run_section0_1_iready_fall_spring(
     df_scope, scope_label="Districtwide", folder="_district", preview=False
 ):
     return run_section0_1_iready_fall_winter_spring(
@@ -1058,7 +1058,7 @@ print("Running Section 0.1 batch...")
 scope_df = iready_base.copy()
 scope_label = district_label
 folder = "_district"
-run_section0_1_iready_fall_winter(
+run_section0_1_iready_fall_spring(
     scope_df, scope_label=scope_label, folder=folder, preview=False
 )
 
@@ -1068,7 +1068,7 @@ if _include_school_charts():
         scope_df = iready_base[iready_base[school_col] == raw_school].copy()
         scope_label = hf._safe_normalize_school_name(raw_school, cfg)
         folder = scope_label.replace(" ", "_")
-        run_section0_1_iready_fall_winter(
+        run_section0_1_iready_fall_spring(
             scope_df, scope_label=scope_label, folder=folder, preview=False
         )
 
@@ -1110,7 +1110,7 @@ for g in sorted(_base0_1["student_grade"].dropna().unique()):
     if int(g) not in _grade_whitelist0_1:
         continue
     df_g = _base0_1[_base0_1["student_grade"] == g].copy()
-    run_section0_1_iready_fall_winter(
+    run_section0_1_iready_fall_spring(
         df_g,
         scope_label=f"{scope_label_district} • Grade {int(g)}",
         folder="_district",
@@ -1128,7 +1128,7 @@ if _include_school_charts():
             if int(g) not in _grade_whitelist0_1:
                 continue
             df_g = school_df[school_df["student_grade"] == g].copy()
-            run_section0_1_iready_fall_winter(
+            run_section0_1_iready_fall_spring(
                 df_g,
                 scope_label=f"{scope_label_school} • Grade {int(g)}",
                 folder=folder_school,
@@ -1344,7 +1344,7 @@ def _prep_iready_for_charts(
 # ---------------------------------------------------------------------
 def plot_iready_dual_subject_dashboard(
     df,
-    window_filter="Winter",
+    window_filter="Spring",
     figsize=(16, 9),
     school_raw=None,
     scope_label=None,
@@ -1581,7 +1581,7 @@ scope_label = district_label
 
 plot_iready_dual_subject_dashboard(
     scope_df,
-    window_filter="Winter",
+    window_filter="Spring",
     figsize=(16, 9),
     school_raw=None,
     scope_label=scope_label,
@@ -1596,7 +1596,7 @@ if _include_school_charts():
 
         plot_iready_dual_subject_dashboard(
             scope_df,
-            window_filter="Winter",
+            window_filter="Spring",
             figsize=(16, 9),
             school_raw=raw_school,  # keep raw for internal filters
             scope_label=scope_label,  # standardized label for chart titles + filenames
@@ -1637,7 +1637,7 @@ def _apply_student_group_mask(
 def plot_iready_subject_dashboard_by_group(
     df,
     subject_str=None,
-    window_filter="Winter",
+    window_filter="Spring",
     group_name=None,
     group_def=None,
     figsize=(16, 9),
@@ -1929,7 +1929,7 @@ def plot_iready_subject_dashboard_by_group(
         )
     # Main title for the whole figure
     fig.suptitle(
-        f"{title_label} • {group_name} • Winter Year-to-Year Trends",
+        f"{title_label} • {group_name} • Spring Year-to-Year Trends",
         fontsize=26,
         fontweight="bold",
         y=0.99,
@@ -1950,7 +1950,7 @@ def plot_iready_subject_dashboard_by_group(
     order_map = cfg.get("student_group_order", {})
     group_order_val = order_map.get(group_name, 99)
 
-    out_name = f"{safe_scope}_section2_{group_order_val:02d}_{safe_group}_Winter_i-Ready_trends_eoy.png"
+    out_name = f"{safe_scope}_section2_{group_order_val:02d}_{safe_group}_Spring_i-Ready_trends_eoy.png"
     out_path = out_dir / out_name
 
     hf._save_and_render(fig, out_path)
@@ -2094,7 +2094,7 @@ def _prep_iready_matched_cohort_by_grade(
         tmp = tmp.groupby("uniqueidentifier", as_index=False).tail(1)
 
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • Winter {y_prev}-{y_curr}"
+        label = f"Gr {int(gr)} • Spring {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)
@@ -2214,7 +2214,7 @@ def plot_iready_blended_dashboard(
     df,
     subject_str,
     current_grade,
-    window_filter="Winter",
+    window_filter="Spring",
     cohort_year=None,
     figsize=(16, 9),
     scope_label=None,
@@ -2969,14 +2969,44 @@ def run_section5_growth_progress_eoy(
         # ----------------------------
 
         # progress percents (exports vary in naming / casing / underscores).
-        def _norm_col_s5(s: str) -> str:
-            return re.sub(r"[^a-z0-9]+", "", str(s).strip().lower())
-
-        def _find_col_like_s5(df_in: pd.DataFrame, canonical: str) -> str | None:
-            target = _norm_col_s5(canonical)
-            for c in df_in.columns:
-                if _norm_col_s5(c) == target:
-                    return c
+        # Use robust column picker with fuzzy fallback for variations like Percent_Progress_to_Annual_Typical_Growth____
+        def _pick_progress_col_s5(df_in: pd.DataFrame, candidates: list[str]) -> str | None:
+            """Pick the best progress column, with fuzzy fallback for variations."""
+            # Try exact normalized match first
+            def _norm(s: str) -> str:
+                return re.sub(r"[^a-z0-9]+", "", str(s).strip().lower())
+            
+            for cand in candidates:
+                target = _norm(cand)
+                for c in df_in.columns:
+                    if _norm(c) == target:
+                        # Prefer columns with non-zero data
+                        if not df_in[c].isna().all() and (df_in[c] != 0).any():
+                            return c
+            
+            # Fuzzy fallback: look for columns with key substrings + %
+            for cand in candidates:
+                cand_lower = cand.lower()
+                if "typical" in cand_lower:
+                    for col in df_in.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "typical" in col_lower and "%" in col_lower:
+                            if not df_in[col].isna().all() and (df_in[col] != 0).any():
+                                return col
+                elif "stretch" in cand_lower:
+                    for col in df_in.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "stretch" in col_lower and "%" in col_lower:
+                            if not df_in[col].isna().all() and (df_in[col] != 0).any():
+                                return col
+            
+            # Last resort: return first exact match even if all zeros
+            for cand in candidates:
+                target = _norm(cand)
+                for c in df_in.columns:
+                    if _norm(c) == target:
+                        return c
+            
             return None
 
         # Compute from Fall baseline when possible
@@ -3001,17 +3031,31 @@ def run_section5_growth_progress_eoy(
         pct_str_calc = (observed / pd.to_numeric(spring.get("_fall_str"), errors="coerce")) * 100
 
         # Fall back to export-provided % columns if we can't compute (missing measures)
-        typ_src = _find_col_like_s5(spring, "percent_progress_to_annual_typical_growth")
-        str_src = _find_col_like_s5(spring, "percent_progress_to_annual_stretch_growth")
+        typ_src = _pick_progress_col_s5(spring, [
+            "percent_progress_to_annual_typical_growth",
+            "percent_progress_to_typical_growth",
+            "percent_progress_to_typical",
+        ])
+        str_src = _pick_progress_col_s5(spring, [
+            "percent_progress_to_annual_stretch_growth",
+            "percent_progress_to_stretch_growth",
+            "percent_progress_to_stretch",
+        ])
+        
+        if typ_src:
+            print(f"[S5 EOY] Fallback typical progress column: {typ_src}")
+        if str_src:
+            print(f"[S5 EOY] Fallback stretch progress column: {str_src}")
+        
         pct_typ_fallback = pd.to_numeric(spring[typ_src], errors="coerce") if typ_src else pd.Series(dtype=float)
         pct_str_fallback = pd.to_numeric(spring[str_src], errors="coerce") if str_src else pd.Series(dtype=float)
 
         spring["pct_typ"] = pct_typ_calc.where(pct_typ_calc.notna(), pct_typ_fallback)
         spring["pct_str"] = pct_str_calc.where(pct_str_calc.notna(), pct_str_fallback)
 
-        # Cap negatives at 0; allow >100 (students can exceed annual targets)
-        spring["pct_typ"] = spring["pct_typ"].clip(lower=0)
-        spring["pct_str"] = spring["pct_str"].clip(lower=0)
+        # Cap at 0-100 range (clip negatives to 0, cap at 100)
+        spring["pct_typ"] = spring["pct_typ"].clip(lower=0, upper=100)
+        spring["pct_str"] = spring["pct_str"].clip(lower=0, upper=100)
 
         # ----------------------------
         # Metrics for chart panels
@@ -3133,9 +3177,8 @@ def run_section5_growth_progress_eoy(
                     )
             # Add 50% reference line (lighter)
             ax_top.axhline(50, linestyle="--", linewidth=1.0, color="#999", alpha=0.6)
-            # Allow >100 when students exceed annual targets, but keep a sensible cap for readability.
-            _top_cap = float(np.nanmax(np.array(vals, dtype=float))) if any(pd.notna(v) for v in vals) else 100.0
-            ax_top.set_ylim(0, max(100.0, min(200.0, _top_cap + 10.0)))
+            # Cap at 100%
+            ax_top.set_ylim(0, 100)
             ax_top.set_yticks(range(0, 101, 20))
             ax_top.set_yticklabels([f"{t}%" for t in range(0, 101, 20)])
             ax_top.set_xticks(x)
@@ -3173,8 +3216,8 @@ def run_section5_growth_progress_eoy(
                         color="#333",
                     )
             ax_mid.axhline(50, linestyle="--", linewidth=1.0, color="#666", alpha=0.8)
-            _mid_cap = float(np.nanmax(np.array(vals2, dtype=float))) if any(pd.notna(v) for v in vals2) else 100.0
-            ax_mid.set_ylim(0, max(100.0, min(100.0, _mid_cap + 10.0)))
+            # Cap at 100%
+            ax_mid.set_ylim(0, 100)
             ax_mid.set_yticks(range(0, 101, 20))
             ax_mid.set_yticklabels([f"{t}%" for t in range(0, 101, 20)])
             ax_mid.set_xticks(x2)
@@ -3268,7 +3311,7 @@ def run_section5_growth_progress_eoy(
         plt.close(fig)
 
     # ----------------------------
-    # Build + plot
+    # Build + plot (ALWAYS produce Section 5, even with partial data)
     # ----------------------------
     metrics_by_subject = {}
     for subj in ["ELA", "Math"]:
@@ -3277,8 +3320,12 @@ def run_section5_growth_progress_eoy(
             metrics_by_subject[subj] = m
 
     if not metrics_by_subject:
-        print(f"[WARN] No valid Section 5 data for {scope_label}")
-        return
+        print(f"[WARN] No valid Section 5 data for {scope_label} - creating placeholder")
+        # Create empty/placeholder metrics so Section 5 always produces a chart
+        metrics_by_subject = {
+            "ELA": None,
+            "Math": None,
+        }
 
     _plot_section5(scope_label, folder, metrics_by_subject, preview=preview)
 
@@ -3317,7 +3364,7 @@ print("Section 5 batch complete.")
 # ---------------------------------------------------------------------
 
 
-def _prep_iready_fall_winter_by_dimension(
+def _prep_iready_fall_spring_by_dimension(
     df: pd.DataFrame,
     subject_str: str,
     dim_col: str,
@@ -3454,7 +3501,7 @@ def _prep_iready_fall_winter_by_dimension(
     }
 
 
-def _plot_fall_winter_grouped_stacked(
+def _plot_fall_spring_grouped_stacked(
     prep: dict,
     scope_label: str,
     title_suffix: str,
@@ -3652,14 +3699,14 @@ def _plot_fall_winter_grouped_stacked(
     plt.close(fig)
 
 
-def run_section6_fall_winter_by_school(
+def run_section6_fall_spring_by_school(
     df_scope, scope_label=None, preview=False
 ):
     print("\n>>> STARTING SECTION 6 <<<")
     scope_label = scope_label or district_label
 
     for subj in ["ELA", "Math"]:
-        prep = _prep_iready_fall_winter_by_dimension(
+        prep = _prep_iready_fall_spring_by_dimension(
             df_scope,
             subject_str=subj,
             dim_col="school",
@@ -3670,7 +3717,7 @@ def run_section6_fall_winter_by_school(
             continue
         prep["pct"]["subject"] = subj
 
-        _plot_fall_winter_grouped_stacked(
+        _plot_fall_spring_grouped_stacked(
             prep,
             scope_label=scope_label,
             title_suffix="Trends by School",
@@ -3689,7 +3736,7 @@ def run_section6_fall_winter_by_school(
 # ---------------------------------------------------------------------
 
 
-def run_section7_fall_winter_by_grade(
+def run_section7_fall_spring_by_grade(
     df_scope, scope_label=None, preview=False
 ):
     print("\n>>> STARTING SECTION 7 <<<")
@@ -3702,7 +3749,7 @@ def run_section7_fall_winter_by_grade(
             return str(g)
 
     for subj in ["ELA", "Math"]:
-        prep = _prep_iready_fall_winter_by_dimension(
+        prep = _prep_iready_fall_spring_by_dimension(
             df_scope,
             subject_str=subj,
             dim_col="student_grade",
@@ -3713,7 +3760,7 @@ def run_section7_fall_winter_by_grade(
             continue
         prep["pct"]["subject"] = subj
 
-        _plot_fall_winter_grouped_stacked(
+        _plot_fall_spring_grouped_stacked(
             prep,
             scope_label=scope_label,
             title_suffix="Trends by Grade",
@@ -3733,7 +3780,7 @@ def run_section7_fall_winter_by_grade(
 # ---------------------------------------------------------------------
 
 
-def run_section8_fall_winter_by_student_group(
+def run_section8_fall_spring_by_student_group(
     df_scope,
     scope_label=None,
     preview=False,
@@ -3798,7 +3845,7 @@ def run_section8_fall_winter_by_student_group(
         return
 
     for subj in ["ELA", "Math"]:
-        prep = _prep_iready_fall_winter_by_dimension(
+        prep = _prep_iready_fall_spring_by_dimension(
             d0[d0["student_group"].notna()].copy(),
             subject_str=subj,
             dim_col="student_group",
@@ -3813,7 +3860,7 @@ def run_section8_fall_winter_by_student_group(
         prep["dim_order"] = ordered if ordered else prep.get("dim_order", [])
         prep["pct"]["subject"] = subj
 
-        _plot_fall_winter_grouped_stacked(
+        _plot_fall_spring_grouped_stacked(
             prep,
             scope_label=scope_label,
             title_suffix="Trends by Student Group",
@@ -3832,9 +3879,9 @@ print("Running Sections 6–8 (district-level only)...")
 _scope_df = iready_base.copy()
 _scope_label = district_label
 
-run_section6_fall_winter_by_school(_scope_df, scope_label=_scope_label, preview=False)
-run_section7_fall_winter_by_grade(_scope_df, scope_label=_scope_label, preview=False)
-run_section8_fall_winter_by_student_group(
+run_section6_fall_spring_by_school(_scope_df, scope_label=_scope_label, preview=False)
+run_section7_fall_spring_by_grade(_scope_df, scope_label=_scope_label, preview=False)
+run_section8_fall_spring_by_student_group(
     _scope_df, scope_label=_scope_label, preview=False, min_n=12
 )
 
@@ -3903,7 +3950,7 @@ def _prep_progress_base(
     # Core filters
     d = d[
         (d["academicyear"] == year)
-        & (d["testwindow"].astype(str).str.strip().str.upper() == "WINTER")
+        & (d["testwindow"].astype(str).str.strip().str.upper() == "SPRING")
         & subj_mask
         & (d["domain"].astype(str).str.strip() == "Overall")
         & (d["enrolled"].astype(str).str.strip() == "Enrolled")
@@ -3944,6 +3991,10 @@ def _prep_progress_base(
         Preference order:
         - first candidate with data (non-null and not all zeros)
         - otherwise first candidate that exists at all
+        
+        Also supports fuzzy pattern matching for variations like:
+        - Percent_Progress_to_Annual_Typical_Growth____
+        - percent_progress_to_typical_growth
         """
         found_existing: list[str] = []
         for cand in candidates:
@@ -3953,6 +4004,30 @@ def _prep_progress_base(
             found_existing.append(src)
             if src in d.columns and not _is_all_zero_or_nan(d[src]):
                 return src
+        
+        # If no exact match found, try fuzzy pattern matching
+        # Look for columns containing key substrings (e.g., "progress" + "typical")
+        if not found_existing:
+            for cand in candidates:
+                # Extract key parts (e.g., "percent", "progress", "typical/stretch")
+                cand_lower = cand.lower()
+                if "typical" in cand_lower:
+                    # Look for any column with "progress" AND "typical"
+                    for col in d.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "typical" in col_lower and "%" in col_lower:
+                            if not _is_all_zero_or_nan(d[col]):
+                                return col
+                            found_existing.append(col)
+                elif "stretch" in cand_lower:
+                    # Look for any column with "progress" AND "stretch"
+                    for col in d.columns:
+                        col_lower = str(col).lower()
+                        if "progress" in col_lower and "stretch" in col_lower and "%" in col_lower:
+                            if not _is_all_zero_or_nan(d[col]):
+                                return col
+                            found_existing.append(col)
+        
         return found_existing[0] if found_existing else None
 
     rename_map = {}
@@ -4273,13 +4348,13 @@ def plot_section9_median_progress_by_school(
 
     school_order = sorted(grp["school_display"].dropna().unique().tolist())
     title = (
-        f"{district_label} • {year} • {subj_label} • Winter Median % Progress by School"
+        f"{district_label} • {year} • {subj_label} • Spring Median % Progress by School"
     )
 
     out_dir = CHARTS_DIR / "_district"
     out_path = (
         out_dir
-        / f"{district_label.replace(' ', '_')}_section9_{subj_label}_winter_median_progress_by_school_eoy.png"
+        / f"{district_label.replace(' ', '_')}_section9_{subj_label}_spring_median_progress_by_school_eoy.png"
     )
 
     _plot_grouped_typ_stretch(
@@ -4302,7 +4377,7 @@ def plot_section10_median_progress_by_grade(
     d, year, subj_label, id_col = _prep_progress_base(df, subject_str, cfg)
     if d.empty:
         print(
-            f"[Section 10] Skipped {subj_label} (no data after Winter+MostRecent filters)"
+            f"[Section 10] Skipped {subj_label} (no data after Spring+MostRecent filters)"
         )
         return
 
@@ -4337,13 +4412,13 @@ def plot_section10_median_progress_by_grade(
     )
 
     title = (
-        f"{district_label} • {year} • {subj_label} • Winter Median % Progress by Grade"
+        f"{district_label} • {year} • {subj_label} • Spring Median % Progress by Grade"
     )
 
     out_dir = CHARTS_DIR / "_district"
     out_path = (
         out_dir
-        / f"{district_label.replace(' ', '_')}_section10_{subj_label}_winter_median_progress_by_grade_eoy.png"
+        / f"{district_label.replace(' ', '_')}_section10_{subj_label}_spring_median_progress_by_grade_eoy.png"
     )
 
     _plot_grouped_typ_stretch(
@@ -4455,12 +4530,12 @@ def plot_section11_median_progress_by_group(
     survivors = set(grp["student_group"].unique().tolist())
     plot_groups = [g for g in included_groups if g in survivors]
 
-    title = f"{district_label} • {year} • {subj_label} • Winter Median % Progress by Student Group"
+    title = f"{district_label} • {year} • {subj_label} • Spring Median % Progress by Student Group"
 
     out_dir = CHARTS_DIR / "_district"
     out_path = (
         out_dir
-        / f"{district_label.replace(' ', '_')}_section11_{subj_label}_winter_median_progress_by_group_eoy.png"
+        / f"{district_label.replace(' ', '_')}_section11_{subj_label}_spring_median_progress_by_group_eoy.png"
     )
 
     _plot_grouped_typ_stretch(
@@ -4477,7 +4552,7 @@ def plot_section11_median_progress_by_group(
 
 
 # --- DRIVER for Sections 9, 10, 11 (district-level only) ---
-print("Running Sections 9, 10, 11 (district-level winter median progress)...")
+print("Running Sections 9, 10, 11 (district-level spring median progress)...")
 scope_df = iready_base.copy()
 for subj in ["ELA", "Math"]:
     plot_section9_median_progress_by_school(
