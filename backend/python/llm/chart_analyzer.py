@@ -216,11 +216,10 @@ Your analysis should support the Emergent Learning framework which has 4 quadran
    - What patterns emerge and WHY they matter
    - The significance for student learning
    - What questions educators should consider based on each insight
-   - Format: Finding → Implication → Question
+   - Format: Finding → Question
 
 3. **Hypotheses** (Predictions & Implications):
    - What the data suggests for future student performance
-   - Implications for teachers, principals, and administrators
    - Forward-looking predictions based on current trends
 
 4. **Opportunities** (Guiding Questions):
@@ -238,7 +237,6 @@ Transform the observable data (ground truths) into meaningful insights with guid
 
 For each insight, provide:
 1. **Finding**: What pattern or meaning emerges from the data?
-2. **Implication**: Why does this matter for student learning and outcomes?
 3. **Question**: What question should educators consider to deepen understanding or guide next steps?
 
 Consider these guiding questions:
@@ -254,7 +252,6 @@ Consider these guiding questions:
 
 Based on the insights from the data, develop forward-looking hypotheses:
 - What does this data suggest about student performance in coming weeks/months?
-- What are the implications for instructional practice?
 - How might this impact different student groups differently?
 - What might happen if current trends continue?
 - What intervention points does the data suggest?
@@ -301,18 +298,15 @@ Provide your response as a JSON object with this structure:
     "insights": [
         {{
             "finding": "Pattern or meaning derived from ground truths - what does this MEAN?",
-            "implication": "What this means for educators or students",
             "question": "What question should educators explore to deepen understanding or guide next steps?"
         }},
         {{
             "finding": "Second insight connecting multiple data points or revealing trends",
-            "implication": "What this means for educators or students",
             "question": "What question should educators explore to deepen understanding or guide next steps?"
         }}
     ],
     "hypotheses": [
         "Forward-looking prediction based on insights - what might happen next?",
-        "Implication for instruction or student outcomes"
     ],
     "opportunities": {{
         "classroom": "Question about classroom-level teaching strategies or approaches",
