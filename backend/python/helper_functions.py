@@ -2,9 +2,10 @@
 Minimal helper_functions.py for nwea.py only
 """
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
 
 # ---------------------------------------------------------------------
 # Global chart style
@@ -24,6 +25,7 @@ plt.rcParams.update(
         "axes.facecolor": "white",
         "figure.facecolor": "white",
         "legend.frameon": True,
+        "axes.grid": False,  # Disable gridlines globally
     }
 )
 
@@ -209,4 +211,5 @@ def _safe_normalize_school_name(raw_school, cfg_dict):
         lower_map = {}
 
     return lower_map.get(s.lower(), s)
+
 

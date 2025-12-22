@@ -142,4 +142,3 @@ def draw_insight_card(ax, metrics, title):
     
     ax.text(0.5, 0.5, "\n".join(insight_lines), fontsize=10, fontweight="medium", color="#333333",
            ha="center", va="center", bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
-

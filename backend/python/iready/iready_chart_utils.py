@@ -196,4 +196,3 @@ def draw_insight_card(ax, metrics, title):
         va="center",
         bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8),
     )
-
