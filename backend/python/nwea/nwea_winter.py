@@ -5,48 +5,45 @@ Generates charts specifically for Winter (MOY) test window
 
 # Set matplotlib backend to non-interactive before any imports
 import matplotlib
-
 matplotlib.use('Agg')
 
 import argparse
-import json
 import sys
+import json
 from pathlib import Path
-
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-from matplotlib import lines as mlines
-from matplotlib import transforms as mtransforms
-from matplotlib.gridspec import GridSpec
-from matplotlib.lines import Line2D
+import numpy as np
 from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+import matplotlib as mpl
+from matplotlib import transforms as mtransforms
+from matplotlib import lines as mlines
 
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
 
-from .nwea_chart_utils import (
-    LABEL_MIN_PCT,
-    draw_insight_card,
-    draw_score_bar,
-    draw_stacked_bar,
-)
-
 # Import utility modules
 from .nwea_data import (
-    _short_year,
-    get_scopes,
     load_config_from_args,
     load_nwea_data,
+    get_scopes,
     prep_nwea_for_charts,
+    _short_year
 )
 from .nwea_filters import (
     apply_chart_filters,
-    should_generate_grade,
-    should_generate_student_group,
     should_generate_subject,
+    should_generate_student_group,
+    should_generate_grade
+)
+from .nwea_chart_utils import (
+    draw_stacked_bar,
+    draw_score_bar,
+    draw_insight_card,
+    LABEL_MIN_PCT
 )
 
 # Chart tracking for CSV generation
@@ -79,7 +76,6 @@ def track_chart(chart_name, file_path, scope="district", section=None, chart_dat
         data_path = chart_path.parent / f"{chart_path.stem}_data.json"
         try:
             import json
-
             # Convert any numpy/pandas types to native Python types for JSON serialization
             def convert_to_json_serializable(obj):
                 if isinstance(obj, (np.integer, np.floating)):
@@ -385,7 +381,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     
@@ -408,7 +404,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         ax.set_ylabel("Avg RIT")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     
@@ -644,7 +640,7 @@ def _plot_cgp_trend_winter(df, subject_str, scope_label, ax=None, cfg=None):
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist(), fontsize=9)
     ax.set_ylim(0, 100)
-    # ax.grid(False)  # Gridlines disabled globally
+    ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     
@@ -930,7 +926,7 @@ def _plot_cgp_dual_facet(overall_df, cohort_df, grade, subject_str, scope_label,
                    fontweight="bold", color="#ffa800", zorder=3.1)
         
         ax.set_title(title, fontsize=18, fontweight="bold")
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", linestyle=":", alpha=0.6)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax2.spines["top"].set_visible(False)
@@ -1369,7 +1365,7 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
         bar_ax.set_ylim(0, 100)
         bar_ax.set_ylabel("% of Students")
         bar_ax.set_title(titles[subject], fontsize=18, fontweight="bold", pad=30)
-        # bar_ax.grid(False)  # Gridlines disabled globally
+        bar_ax.grid(axis="y", alpha=0.5)
         bar_ax.spines["top"].set_visible(False)
         bar_ax.spines["right"].set_visible(False)
         
@@ -1382,7 +1378,7 @@ def _plot_section0_dual(scope_label, folder, output_dir, subj_payload, preview=F
             pct_ax.text(x, v + 1, f"{v:.1f}%", ha="center", va="bottom", fontsize=15, fontweight="bold", color="#434343")
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
-        # pct_ax.grid(False)  # Gridlines disabled globally
+        pct_ax.grid(axis="y", alpha=0.2)
         pct_ax.spines["top"].set_visible(False)
         pct_ax.spines["right"].set_visible(False)
         
@@ -1554,7 +1550,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         ax1.set_ylabel("% of Students")
         ax1.set_xticks(x)
         ax1.set_xticklabels(x_labels)
-        # ax1.grid(False)  # Gridlines disabled globally
+        ax1.grid(axis="y", alpha=0.2)
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
         ax1.set_title(f"{subject_titles[i]}", fontsize=18, fontweight="bold", y=1.1)
@@ -1589,7 +1585,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         ax2.set_xticks(rit_x)
         ax2.set_xticklabels(x_labels)
         ax2.set_title("Average RIT", fontsize=18, fontweight="bold", pad=10)
-        # ax2.grid(False)  # Gridlines disabled globally
+        ax2.grid(axis="y", alpha=0.2)
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
     
@@ -1913,7 +1909,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     
@@ -1966,7 +1962,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     for label in ax3.get_xticklabels():
         label.set_y(-0.09)
     ax3.set_title("Average RIT", fontsize=18, fontweight="bold", pad=10)
-    # ax3.grid(False)  # Gridlines disabled globally
+    ax3.grid(axis="y", alpha=0.2)
     ax3.spines["top"].set_visible(False)
     ax3.spines["right"].set_visible(False)
     
@@ -2004,7 +2000,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
             for label in ax4.get_xticklabels():
                 label.set_y(-0.09)
             ax4.set_title("Average RIT", fontsize=18, fontweight="bold", pad=10)
-            # ax4.grid(False)  # Gridlines disabled globally
+            ax4.grid(axis="y", alpha=0.2)
             ax4.spines["top"].set_visible(False)
             ax4.spines["right"].set_visible(False)
     
@@ -2207,7 +2203,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist(), fontsize=9)
     ax.set_ylim(0, 100)
-    # ax.grid(False)  # Gridlines disabled globally
+    ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     
@@ -2425,7 +2421,7 @@ def _plot_pred_vs_actual(scope_label, folder, output_dir, results, preview=False
         ax.set_ylim(0, 100)
         ax.set_title(subject, fontweight="bold")
         ax.set_ylabel("% of Students")
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.25)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     
@@ -2491,7 +2487,7 @@ def _plot_projection_2026(scope_label, folder, output_dir, results, preview=Fals
         ax.set_ylim(0, 100)
         ax.set_title(f"{subject} — 2026 Projected", fontweight="bold")
         ax.set_ylabel("% of Students")
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.25)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     
@@ -3432,4 +3428,3 @@ def generate_nwea_winter_charts(
         sys.argv = old_argv
     
     return chart_paths
-

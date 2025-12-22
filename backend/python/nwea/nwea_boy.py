@@ -6,21 +6,19 @@
 #
 # IMPORTANT: Set non-interactive backend before importing pyplot.
 import matplotlib
-
 matplotlib.use("Agg")
 
 from pathlib import Path
-
-import helper_functions_nwea as hf
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-from matplotlib import lines as mlines
-from matplotlib import transforms as mtransforms
-from matplotlib.gridspec import GridSpec
-from matplotlib.lines import Line2D
+import numpy as np
 from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from matplotlib.gridspec import GridSpec
+from matplotlib import transforms as mtransforms
+from matplotlib import lines as mlines
+import helper_functions_nwea as hf
 
 _NWEA_BOY_HARD_RC = {
     "font.family": "DejaVu Sans",
@@ -50,14 +48,13 @@ try:
     import tabula as tb  # type: ignore
 except Exception:  # pragma: no cover
     tb = None
-import json
-import logging
+import yaml
 import os
 import sys
-import tempfile
 import warnings
-
-import yaml
+import logging
+import json
+import tempfile
 from nwea_data import filter_nwea_subject_rows
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -118,17 +115,9 @@ logger.info(f"Logging initialized. Log file: {log_file}")
 
 # Libraries for modeling
 try:
-    from sklearn.ensemble import (  # type: ignore
-        RandomForestClassifier,
-        RandomForestRegressor,
-    )
-    from sklearn.metrics import (  # type: ignore
-        accuracy_score,
-        f1_score,
-        mean_absolute_error,
-        r2_score,
-    )
     from sklearn.model_selection import train_test_split  # type: ignore
+    from sklearn.metrics import r2_score, mean_absolute_error, accuracy_score, f1_score  # type: ignore
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier  # type: ignore
 except Exception:  # pragma: no cover
     train_test_split = None
     r2_score = None
@@ -675,7 +664,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
         bar_ax.set_ylim(0, 100)
         bar_ax.set_ylabel("% of Students")
         bar_ax.set_title(titles[subject], fontsize=14, fontweight="bold", pad=30)
-        # bar_ax.grid(False)  # Gridlines disabled globally
+        bar_ax.grid(axis="y", alpha=0.5)
         bar_ax.spines["top"].set_visible(False)
         bar_ax.spines["right"].set_visible(False)
 
@@ -711,7 +700,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
             )
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
-        # pct_ax.grid(False)  # Gridlines disabled globally
+        pct_ax.grid(axis="y", alpha=0.2)
         pct_ax.spines["top"].set_visible(False)
         pct_ax.spines["right"].set_visible(False)
 
@@ -1149,7 +1138,7 @@ def plot_nwea_dual_subject_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         # legend_handles = [
@@ -1213,7 +1202,7 @@ def plot_nwea_dual_subject_dashboard(
         ax.set_ylabel("Avg RIT")
         ax.set_xticks(rit_x)
         ax.set_xticklabels(x_labels)
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1648,7 +1637,7 @@ def plot_nwea_subject_dashboard_by_group(
         ax1.set_ylabel("% of Students")
         ax1.set_xticks(x)
         ax1.set_xticklabels(x_labels)
-        # ax1.grid(False)  # Gridlines disabled globally
+        ax1.grid(axis="y", alpha=0.2)
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
         # Title
@@ -1722,7 +1711,7 @@ def plot_nwea_subject_dashboard_by_group(
         ax2.set_xticks(rit_x)
         ax2.set_xticklabels(x_labels)
         ax2.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
-        # ax2.grid(False)  # Gridlines disabled globally
+        ax2.grid(axis="y", alpha=0.2)
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
     # Panel 3: Insights by subject
@@ -2345,7 +2334,7 @@ def plot_nwea_blended_dashboard(
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
         ax.set_xticklabels(stack_df.index.tolist())
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -2446,7 +2435,7 @@ def plot_nwea_blended_dashboard(
     for label in ax3.get_xticklabels():
         label.set_y(-0.09)
     ax3.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
-    # ax3.grid(False)  # Gridlines disabled globally
+    ax3.grid(axis="y", alpha=0.2)
     ax3.spines["top"].set_visible(False)
     ax3.spines["right"].set_visible(False)
 
@@ -2500,7 +2489,7 @@ def plot_nwea_blended_dashboard(
     for label in ax4.get_xticklabels():
         label.set_y(-0.09)
     ax4.set_title("Average RIT", fontsize=8, fontweight="bold", pad=10)
-    # ax4.grid(False)  # Gridlines disabled globally
+    ax4.grid(axis="y", alpha=0.2)
     ax4.spines["top"].set_visible(False)
     ax4.spines["right"].set_visible(False)
 
@@ -2855,7 +2844,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
     ax.set_xticks(x_vals)
     ax.set_xticklabels(sub["time_label"].astype(str).tolist())
     ax.set_ylim(0, 100)
-    # ax.grid(False)  # Gridlines disabled globally
+    ax.grid(axis="y", linestyle=":", alpha=0.6)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -3356,7 +3345,7 @@ def _plot_cgp_dual_facet(
             )
 
         ax.set_title(title, fontsize=14, fontweight="bold")
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", linestyle=":", alpha=0.6)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax2.spines["top"].set_visible(False)
@@ -3757,7 +3746,7 @@ def _plot_pred_vs_actual(scope_label, folder_name, results, preview=False):
         ax.set_ylim(0, 100)
         ax.set_title(subject, fontweight="bold")
         ax.set_ylabel("% of Students")
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.25)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -3842,7 +3831,7 @@ def _plot_projection_2026(scope_label, folder_name, results, preview=False):
         ax.set_ylim(0, 100)
         ax.set_title(f"{subject} — 2026 Projected", fontweight="bold")
         ax.set_ylabel("% of Students")
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.25)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 

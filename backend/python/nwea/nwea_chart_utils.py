@@ -2,13 +2,11 @@
 Common chart drawing utilities for NWEA charts
 """
 
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
 import sys
 from pathlib import Path
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-
 # Add parent directory to path to import helper_functions
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import helper_functions as hf
@@ -72,7 +70,7 @@ def draw_stacked_bar(ax, pct_df, score_df, labels):
     ax.set_ylabel("% of Students")
     ax.set_xticks(x)
     ax.set_xticklabels(x_labels)
-    # ax.grid(False)  # Gridlines disabled globally
+    ax.grid(axis="y", alpha=0.2)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -115,7 +113,7 @@ def draw_score_bar(ax, score_df, labels):
         ax.set_ylabel("Avg RIT")
         ax.set_xticks(rit_x)
         ax.set_xticklabels(score_df["time_label"].astype(str).tolist())
-        # ax.grid(False)  # Gridlines disabled globally
+        ax.grid(axis="y", alpha=0.2)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
     except Exception as e:
@@ -144,4 +142,3 @@ def draw_insight_card(ax, metrics, title):
     
     ax.text(0.5, 0.5, "\n".join(insight_lines), fontsize=10, fontweight="medium", color="#333333",
            ha="center", va="center", bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
-
