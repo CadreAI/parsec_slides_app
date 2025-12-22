@@ -100,4 +100,3 @@ def create_single_chart_slide_requests(
     })
     
     return requests
-
