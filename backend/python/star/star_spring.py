@@ -135,88 +135,44 @@ def track_chart(chart_name, file_path, scope="district", section=None, chart_dat
 
 def _prep_section0_star_spring(df, subject):
     """Prepare data for Section 0: STAR predicted vs actual CAASPP - Spring version"""
-    print(f"[Section 0][DEBUG][{subject}] Starting data preparation...")
-    print(f"[Section 0][DEBUG][{subject}] Initial dataframe shape: {df.shape}")
-    print(f"[Section 0][DEBUG][{subject}] Columns available: {list(df.columns)}")
-    
     d = df.copy()
     d = d[d["testwindow"].str.upper() == "SPRING"].copy()
     
-    print(f"[Section 0][DEBUG][{subject}] After filtering for SPRING: {len(d)} rows")
     if d.empty or d["academicyear"].dropna().empty:
-        print(f"[Section 0][DEBUG][{subject}] FAIL: No Spring data or academic year found")
-        if not d.empty:
-            print(f"[Section 0][DEBUG][{subject}] Available testwindow values: {d['testwindow'].unique() if 'testwindow' in d.columns else 'N/A'}")
         return None, None, None, None
     
     d = filter_star_subject_rows(d, subject)
     
-    print(f"[Section 0][DEBUG][{subject}] After filtering for subject '{subject}': {len(d)} rows")
     if d.empty or d["academicyear"].dropna().empty:
-        print(f"[Section 0][DEBUG][{subject}] FAIL: No data after filtering for subject")
         return None, None, None, None
     
     d["academicyear"] = pd.to_numeric(d["academicyear"], errors="coerce")
     if d["academicyear"].dropna().empty:
-        print(f"[Section 0][DEBUG][{subject}] FAIL: No valid academic year values")
         return None, None, None, None
     
     # Target year is the latest Spring test year present (no offset)
-    max_year = d["academicyear"].max()
     target_year = int(d["academicyear"].max() - 1)
-    print(f"[Section 0][DEBUG][{subject}] Max year in data: {max_year}, Target year: {target_year}")
-    print(f"[Section 0][DEBUG][{subject}] Available years: {sorted(d['academicyear'].dropna().unique())}")
     
     # Keep only the latest Spring year slice
     d = d[d["academicyear"] == target_year].copy()
     
-    print(f"[Section 0][DEBUG][{subject}] After filtering for year {target_year}: {len(d)} rows")
     if d.empty:
-        print(f"[Section 0][DEBUG][{subject}] FAIL: No data for target year {target_year}")
         return None, None, None, target_year
     
     if "activity_completed_date" in d.columns:
         d["activity_completed_date"] = pd.to_datetime(
             d["activity_completed_date"], errors="coerce"
         )
-        rows_before_dedup = len(d)
         d = d.sort_values("activity_completed_date").drop_duplicates(
             "student_state_id", keep="last"
         )
-        print(f"[Section 0][DEBUG][{subject}] After deduplication: {len(d)} rows (was {rows_before_dedup})")
     
-    # Check for required columns
-    has_star = "state_benchmark_achievement" in d.columns
-    has_caaspp = "cers_overall_performanceband" in d.columns
-    print(f"[Section 0][DEBUG][{subject}] Has state_benchmark_achievement: {has_star}")
-    print(f"[Section 0][DEBUG][{subject}] Has cers_overall_performanceband: {has_caaspp}")
-    
-    if has_star:
-        star_non_null = d["state_benchmark_achievement"].notna().sum()
-        print(f"[Section 0][DEBUG][{subject}] state_benchmark_achievement non-null count: {star_non_null}/{len(d)}")
-        if star_non_null > 0:
-            print(f"[Section 0][DEBUG][{subject}] state_benchmark_achievement values: {d['state_benchmark_achievement'].value_counts().to_dict()}")
-    
-    if has_caaspp:
-        caaspp_non_null = d["cers_overall_performanceband"].notna().sum()
-        print(f"[Section 0][DEBUG][{subject}] cers_overall_performanceband non-null count: {caaspp_non_null}/{len(d)}")
-        if caaspp_non_null > 0:
-            print(f"[Section 0][DEBUG][{subject}] cers_overall_performanceband values: {d['cers_overall_performanceband'].value_counts().to_dict()}")
-    
-    rows_before_dropna = len(d)
     d = d.dropna(subset=["state_benchmark_achievement", "cers_overall_performanceband"])
-    rows_after_dropna = len(d)
-    
-    print(f"[Section 0][DEBUG][{subject}] After dropna: {rows_after_dropna} rows (was {rows_before_dropna})")
     if d.empty:
-        print(f"[Section 0][DEBUG][{subject}] FAIL: No rows with both STAR and CAASPP data")
         return None, None, None, target_year
     
     proj_order = sorted(d["state_benchmark_achievement"].unique())
     act_order = hf.CERS_LEVELS
-    
-    print(f"[Section 0][DEBUG][{subject}] Projected order: {proj_order}")
-    print(f"[Section 0][DEBUG][{subject}] Actual order: {act_order}")
     
     def pct_table(col, order):
         return (
@@ -241,8 +197,6 @@ def _prep_section0_star_spring(df, subject):
     )
     
     delta = proj_met - act_met
-    
-    print(f"[Section 0][DEBUG][{subject}] SUCCESS: proj_met={proj_met:.1f}%, act_met={act_met:.1f}%, delta={delta:.1f}%")
     
     metrics = {
         "proj_met": proj_met,
@@ -4677,30 +4631,18 @@ def main(star_data=None):
     print("\n[Section 0] Generating Spring Predicted vs Actual CAASPP...")
     for scope_df, scope_label, folder in scopes:
         try:
-            print(f"[Section 0][DEBUG] Processing scope: {scope_label} (folder: {folder})")
-            print(f"[Section 0][DEBUG] Scope dataframe shape: {scope_df.shape}")
             payload = {}
             for subj in ["Reading", "Mathematics"]:
                 if not should_generate_subject(subj, chart_filters):
-                    print(f"[Section 0][DEBUG] Skipping {subj} due to chart filters")
                     continue
-                print(f"[Section 0][DEBUG] Preparing data for {subj}...")
                 proj, act, metrics, year = _prep_section0_star_spring(scope_df, subj)
                 if proj is None:
-                    print(f"[Section 0][DEBUG] No data prepared for {subj} - skipping")
                     continue
-                print(f"[Section 0][DEBUG] Successfully prepared data for {subj}")
                 payload[subj] = {"proj_pct": proj, "act_pct": act, "metrics": metrics}
             if payload:
-                print(f"[Section 0][DEBUG] Generating chart for {scope_label} with subjects: {list(payload.keys())}")
                 chart_path = _plot_section0_star_spring(scope_label, folder, payload, args.output_dir, preview=hf.DEV_MODE)
                 if chart_path:
-                    print(f"[Section 0][DEBUG] Chart saved: {chart_path}")
                     chart_paths.append(chart_path)
-                else:
-                    print(f"[Section 0][DEBUG] Chart path is None for {scope_label}")
-            else:
-                print(f"[Section 0][DEBUG] No payload generated for {scope_label} - skipping chart generation")
         except Exception as e:
             print(f"Error generating Section 0 chart for {scope_label}: {e}")
             if hf.DEV_MODE:
