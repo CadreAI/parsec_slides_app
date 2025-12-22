@@ -279,12 +279,12 @@ def _write_chart_data(out_path: Path, chart_data: dict) -> None:
                         sec_key = str(sec)
 
                     IREADY_TITLES = {
-                        "0": "i-Ready vs CERS (Predicted vs Actual)",
+                        "0": "i-Ready vs CAASPP (Predicted vs Actual)",
                         "0.1": "Fall → Winter Comparison",
                         "1": "Performance Trends",
                         "2": "Student Group Performance Trends",
                         "3": "Overall + Cohort Trends",
-                        "4": "Winter i-Ready Mid/Above → % CERS Met/Exceeded",
+                        "4": "Winter i-Ready Mid/Above → % CAASPP Met/Exceeded",
                         "5": "Growth Progress Toward Annual Goals",
                         "6": "Window Compare by School",
                         "7": "Window Compare by Grade",
@@ -493,190 +493,172 @@ def run_section0_iready(
 
         # Hardcode font for this section (rcParams elsewhere in this script can be overridden).
         # DejaVu Sans is bundled with matplotlib and is reliably available on servers.
-        section0_font = "DejaVu Sans"
-        with mpl.rc_context(
-            {
-                "font.family": section0_font,
-                "text.color": "#111111",
-                "axes.labelcolor": "#111111",
-                "axes.titlecolor": "#111111",
-                "xtick.color": "#111111",
-                "ytick.color": "#111111",
-                "font.size": 20,
-                "axes.titlesize": 20,
-                "axes.labelsize": 16,
-                "xtick.labelsize": 14,
-                "ytick.labelsize": 14,
-                "legend.fontsize": 14,
-                "savefig.dpi": 300,
-            }
-        ):
-            # Chart layout: 3 rows x 2 columns (ELA left, Math right)
-            fig = plt.figure(figsize=(16, 9), dpi=300)
-            gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.8, 0.65, 0.55])
-            fig.subplots_adjust(hspace=0.40, wspace=0.25, top=0.86, bottom=0.08)
+        # Chart layout: 3 rows x 2 columns (ELA left, Math right)
+        fig = plt.figure(figsize=(16, 9), dpi=300)
+        gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.8, 0.65, 0.55])
+        fig.subplots_adjust(hspace=0.40, wspace=0.25, top=0.86, bottom=0.08)
 
-            # Legend for CERS bands (top center)
-            handles = [
-                Patch(facecolor=hf.CERS_LEVEL_COLORS.get(l, "#ccc"), label=l)
-                for l in cers_levels
-            ]
-            leg = fig.legend(
-                handles=handles,
-                loc="upper center",
-                bbox_to_anchor=(0.5, 0.965),
-                ncol=4,
-                frameon=False,
-                fontsize=14,
+        # Legend for CERS bands (top center)
+        handles = [
+            Patch(facecolor=hf.CERS_LEVEL_COLORS.get(l, "#ccc"), label=l)
+            for l in cers_levels
+        ]
+        leg = fig.legend(
+            handles=handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.965),
+            ncol=4,
+            frameon=False,
+            fontsize=14,
+        )
+        for t in leg.get_texts():
+            t.set_color("#111111")
+
+        for i, (subj, (cross_pct, metrics)) in enumerate(data_dict.items()):
+            print(
+                f"[Plot] Subject: {subj} — {len(cross_pct)} cells  Metrics: {metrics}"
             )
-            for t in leg.get_texts():
-                t.set_color("#111111")
 
-            for i, (subj, (cross_pct, metrics)) in enumerate(data_dict.items()):
-                print(
-                    f"[Plot] Subject: {subj} — {len(cross_pct)} cells  Metrics: {metrics}"
-                )
-
-                # --- Stacked bar: % of students in each CERS band by i-Ready placement ---
-                ax_top = fig.add_subplot(gs[0, i])
-                bottom = np.zeros(len(placements))
-                for lvl in cers_levels:
-                    vals = [cross_pct.get((p, lvl), 0) for p in placements]
-                    color = hf.CERS_LEVEL_COLORS.get(lvl, "#ccc")
-                    ax_top.bar(
-                        placements,
-                        vals,
-                        bottom=bottom,
-                        color=color,
-                        edgecolor="white",
-                        linewidth=1,
-                    )
-                    for j, v in enumerate(vals):
-                        if v >= 5:
-                            ax_top.text(
-                                j,
-                                bottom[j] + v / 2,
-                                f"{v:.1f}%",
-                                ha="center",
-                                va="center",
-                                fontsize=15,
-                                fontweight="bold",
-                                color="#111111",
-                            )
-                    bottom += np.array(vals)
-
-                ax_top.set_ylim(0, 100)
-                ax_top.set_ylabel("% of Students", color="#111111")
-                ax_top.tick_params(axis="x", colors="#111111")
-                ax_top.tick_params(axis="y", colors="#111111")
-                ax_top.set_title(subj, fontsize=20, fontweight="bold", color="#111111")
-                ax_top.grid(axis="y", alpha=0.2)
-                ax_top.spines["top"].set_visible(False)
-                ax_top.spines["right"].set_visible(False)
-
-                # --- Bar panel: i-Ready Mid/Above vs CERS Met/Exceed ---
-                ax_mid = fig.add_subplot(gs[1, i])
-                bars = ax_mid.bar(
-                    ["i-Ready Mid/Above", "CERS Met/Exceed"],
-                    [metrics["iready_mid_above"], metrics["cers_met_exceed"]],
-                    color=["#00baeb", "#0381a2"],
+            # --- Stacked bar: % of students in each CERS band by i-Ready placement ---
+            ax_top = fig.add_subplot(gs[0, i])
+            bottom = np.zeros(len(placements))
+            for lvl in cers_levels:
+                vals = [cross_pct.get((p, lvl), 0) for p in placements]
+                color = hf.CERS_LEVEL_COLORS.get(lvl, "#ccc")
+                ax_top.bar(
+                    placements,
+                    vals,
+                    bottom=bottom,
+                    color=color,
                     edgecolor="white",
-                    width=0.6,
+                    linewidth=1,
                 )
-                for rect, val in zip(
-                    bars, [metrics["iready_mid_above"], metrics["cers_met_exceed"]]
-                ):
-                    ax_mid.text(
-                        rect.get_x() + rect.get_width() / 2,
-                        val + 1,
-                        f"{val:.1f}%",
-                        ha="center",
-                        va="bottom",
-                        fontsize=18,
-                        fontweight="bold",
-                        color="#111111",
-                    )
-                ax_mid.set_ylim(0, 100)
-                ax_mid.set_ylabel("% of Students", color="#111111")
-                ax_mid.tick_params(axis="x", colors="#111111")
-                ax_mid.tick_params(axis="y", colors="#111111")
-                ax_mid.grid(axis="y", alpha=0.2)
-                ax_mid.spines["top"].set_visible(False)
-                ax_mid.spines["right"].set_visible(False)
+                for j, v in enumerate(vals):
+                    if v >= 5:
+                        ax_top.text(
+                            j,
+                            bottom[j] + v / 2,
+                            f"{v:.1f}%",
+                            ha="center",
+                            va="center",
+                            fontsize=11,
+                            fontweight="bold",
+                            color="#111111",
+                        )
+                bottom += np.array(vals)
 
-                # --- Insight panel: difference between i-Ready and CERS rates ---
-                ax_bot = fig.add_subplot(gs[2, i])
-                ax_bot.axis("off")
-                insight_text = (
-                    f"Winter i-Ready Mid/Above vs CERS Met/Exceed:\n"
-                    rf"${metrics['iready_mid_above']:.1f}\% - {metrics['cers_met_exceed']:.1f}\% = "
-                    rf"\mathbf{{{metrics['delta']:+.1f}}}$ pts"
-                )
-                ax_bot.text(
-                    0.5,
-                    0.5,
-                    insight_text,
+            ax_top.set_ylim(0, 100)
+            ax_top.set_ylabel("% of Students", color="#111111")
+            ax_top.tick_params(axis="x", colors="#111111")
+            ax_top.tick_params(axis="y", colors="#111111")
+            ax_top.set_title(subj, fontsize=20, fontweight="bold", color="#111111")
+            ax_top.grid(axis="y", alpha=0.2)
+            ax_top.spines["top"].set_visible(False)
+            ax_top.spines["right"].set_visible(False)
+
+            # --- Bar panel: i-Ready Mid/Above vs CERS Met/Exceed ---
+            ax_mid = fig.add_subplot(gs[1, i])
+            bars = ax_mid.bar(
+                ["i-Ready Mid/Above", "CERS Met/Exceed"],
+                [metrics["iready_mid_above"], metrics["cers_met_exceed"]],
+                color=["#00baeb", "#0381a2"],
+                edgecolor="white",
+                width=0.6,
+            )
+            for rect, val in zip(
+                bars, [metrics["iready_mid_above"], metrics["cers_met_exceed"]]
+            ):
+                ax_mid.text(
+                    rect.get_x() + rect.get_width() / 2,
+                    val + 1,
+                    f"{val:.1f}%",
                     ha="center",
-                    va="center",
-                    fontsize=16,
+                    va="bottom",
+                    fontsize=18,
+                    fontweight="bold",
                     color="#111111",
-                    bbox=dict(
-                        boxstyle="round,pad=0.6",
-                        facecolor="#eeeeee",
-                        edgecolor="#666666",
-                        linewidth=1.2,
-                    ),
                 )
+            ax_mid.set_ylim(0, 100)
+            ax_mid.set_ylabel("% of Students", color="#111111")
+            ax_mid.tick_params(axis="x", colors="#111111")
+            ax_mid.tick_params(axis="y", colors="#111111")
+            ax_mid.grid(axis="y", alpha=0.2)
+            ax_mid.spines["top"].set_visible(False)
+            ax_mid.spines["right"].set_visible(False)
 
-            # --- Chart title and save ---
-            year = next(iter(data_dict.values()))[1].get("year", "")
-            fig.suptitle(
-                f"{scope_label} • Winter {year} • i-Ready Placement vs CERS Performance",
-                fontsize=26,
-                fontweight="bold",
-                y=0.99,
+            # --- Insight panel: difference between i-Ready and CERS rates ---
+            ax_bot = fig.add_subplot(gs[2, i])
+            ax_bot.axis("off")
+            insight_text = (
+                f"Winter i-Ready Mid/Above vs CAASPP Met/Exceed:\n"
+                rf"${metrics['iready_mid_above']:.1f}\% - {metrics['cers_met_exceed']:.1f}\% = "
+                rf"\mathbf{{{metrics['delta']:+.1f}}}$ pts"
+            )
+            ax_bot.text(
+                0.5,
+                0.5,
+                insight_text,
+                ha="center",
+                va="center",
+                fontsize=14,
+                color="#111111",
+                bbox=dict(
+                    boxstyle="round,pad=0.6",
+                    facecolor="#eeeeee",
+                    edgecolor="#666666",
+                    linewidth=1.2,
+                ),
+            )
+
+        # --- Chart title and save ---
+        year = next(iter(data_dict.values()))[1].get("year", "")
+        fig.suptitle(
+            f"{scope_label} • Winter {year} • i-Ready Placement vs CAASPP Performance",
+            fontsize=26,
+            fontweight="bold",
+            y=0.99,
+            color="#111111",
+        )
+
+        # Optional disclaimer/footer (can be blank/omitted)
+        disclaimer = (
+            (cfg or {}).get("iready_section0_disclaimer")
+            or (cfg or {}).get("section0_disclaimer")
+            or ""
+        )
+        if isinstance(disclaimer, str) and disclaimer.strip():
+            fig.text(
+                0.5,
+                0.965,
+                disclaimer.strip(),
+                ha="center",
+                fontsize=12,
+                style="italic",
                 color="#111111",
             )
 
-            # Optional disclaimer/footer (can be blank/omitted)
-            disclaimer = (
-                (cfg or {}).get("iready_section0_disclaimer")
-                or (cfg or {}).get("section0_disclaimer")
-                or ""
-            )
-            if isinstance(disclaimer, str) and disclaimer.strip():
-                fig.text(
-                    0.5,
-                    0.965,
-                    disclaimer.strip(),
-                    ha="center",
-                    fontsize=12,
-                    style="italic",
-                    color="#111111",
-                )
+        out_dir = CHARTS_DIR / folder
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{scope_label}_section0_iready_vs_cers_.png"
+        hf._save_and_render(fig, out_path)
+        _write_chart_data(
+            out_path,
+            {
+                "chart_type": "iready_moy_section0_iready_vs_cers",
+                "section": 0,
+                "scope": scope_label,
+                "folder": folder,
+                "subjects": list(data_dict.keys()),
+                "window_filter": "Winter",
+                "metrics": {k: _jsonable(v[1]) for k, v in data_dict.items()},
+                "cross_data": {k: _jsonable(v[0]) for k, v in data_dict.items()},
+            },
+        )
+        print(f"[SAVE] Section 0 → {out_path}")
 
-            out_dir = CHARTS_DIR / folder
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_path = out_dir / f"{scope_label}_section0_iready_vs_cers_.png"
-            hf._save_and_render(fig, out_path)
-            _write_chart_data(
-                out_path,
-                {
-                    "chart_type": "iready_moy_section0_iready_vs_cers",
-                    "section": 0,
-                    "scope": scope_label,
-                    "folder": folder,
-                    "subjects": list(data_dict.keys()),
-                    "window_filter": "Winter",
-                    "metrics": {k: _jsonable(v[1]) for k, v in data_dict.items()},
-                    "cross_data": {k: _jsonable(v[0]) for k, v in data_dict.items()},
-                },
-            )
-            print(f"[SAVE] Section 0 → {out_path}")
-
-            if preview:
-                plt.show()
-            plt.close()
+        if preview:
+            plt.show()
+        plt.close()
 
     # =========================================================
     # DRIVER LOGIC
@@ -1060,7 +1042,7 @@ _base0_1["student_grade"] = pd.to_numeric(
 )
 
 # Limit to grades used in reporting (Gr 3-8 and 11)
-_grade_whitelist0_1 = {8, 11}
+_grade_whitelist0_1 = {}
 # If grades were selected in the frontend, the runner passes them via env var.
 # Example: IREADY_MOY_GRADES="3,4,5"
 _env_grades = os.getenv("IREADY_MOY_GRADES")
@@ -1430,9 +1412,9 @@ def plot_iready_dual_subject_dashboard(
 
                 lines = [
                     "Comparisons based on the current and previous year:\n\n"
-                    rf"$\Delta$ Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ 2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
             else:
                 lines = ["(Missing data for insights)"]
@@ -1831,7 +1813,7 @@ def plot_iready_subject_dashboard_by_group(
                 f"{v:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=18,
+                fontsize=14,
                 fontweight="bold",
                 color="#111111",
             )
@@ -1846,7 +1828,7 @@ def plot_iready_subject_dashboard_by_group(
         ax2.set_xticklabels(labels_with_n, color="#111111")
         ax2.tick_params(axis="y", colors="#111111")
         ax2.set_title(
-            "Average Scale Score", fontsize=14, fontweight="bold", pad=10, color="#111111"
+            "Average Scale Score", fontsize=14, fontweight="bold", pad=20, color="#111111"
         )
         ax2.grid(axis="y", alpha=0.2)
         ax2.spines["top"].set_visible(False)
@@ -1875,9 +1857,9 @@ def plot_iready_subject_dashboard_by_group(
             lo_delta = metrics["lo_delta"]
             score_delta = metrics["score_delta"]
             title_line = "Comparison based on current and previous year:\n"
-            line_high = rf"$\Delta$ Mid or Above: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_low = rf"$\Delta$ 2 or More Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-            line_rit = rf"$\Delta$ Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts"
+            line_high = rf"Mid or Above: $\mathbf{{{high_delta:+.1f}}}$ ppts"
+            line_low = rf" 2 or More Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
+            line_rit = rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts"
             insight_lines = [title_line, line_high, line_low, line_rit]
         else:
             insight_lines = ["Not enough history for change insights"]
@@ -1885,7 +1867,7 @@ def plot_iready_subject_dashboard_by_group(
             0.5,
             0.5,
             "\n".join(insight_lines),
-            fontsize=16,
+            fontsize=11,
             fontweight="medium",
             color="#111111",
             ha="center",
@@ -1893,10 +1875,10 @@ def plot_iready_subject_dashboard_by_group(
             wrap=True,
             usetex=False,
             bbox=dict(
-                boxstyle="round,pad=0.6",
+                boxstyle="round,pad=0.4",
                 facecolor="#eeeeee",
                 edgecolor="#666666",
-                linewidth=1.2,
+                linewidth=1.0,
             ),
         )
     # Main title for the whole figure
@@ -2387,16 +2369,16 @@ def plot_iready_blended_dashboard(
                 score_delta = metrics.get("score_delta", 0)
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf"$\Delta$ Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ 2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
             else:
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf"$\Delta$ Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
-                    rf"$\Delta$ 2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
+                    rf"Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
+                    rf"2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
                 ]
         else:
             lines = ["Not enough history for change insights"]
@@ -2507,41 +2489,45 @@ if _env_grades2:
     except Exception:
         _selected_grades2 = None
 
-scope_label = district_label
-for g in sorted(_base["student_grade"].dropna().unique()):
-    if _selected_grades2 and int(g) not in _selected_grades2:
-        continue
-    for subj in ["ELA", "Math"]:
-        plot_iready_blended_dashboard(
-            _base.copy(),
-            subj,
-            int(g),
-            "Winter",
-            _anchor_year,
-            scope_label=scope_label,
-            preview=False,
-        )
+# Only generate Section 3 if grades are selected
+if _selected_grades2:
+    scope_label = district_label
+    for g in sorted(_base["student_grade"].dropna().unique()):
+        if _selected_grades2 and int(g) not in _selected_grades2:
+            continue
+        for subj in ["ELA", "Math"]:
+            plot_iready_blended_dashboard(
+                _base.copy(),
+                subj,
+                int(g),
+                "Winter",
+                _anchor_year,
+                scope_label=scope_label,
+                preview=False,
+            )
 
-if _include_school_charts():
-    for school_col, raw_school in _iter_schools(_base):
-        site_df = _base[_base[school_col] == raw_school].copy()
-        site_df["academicyear"] = pd.to_numeric(site_df["academicyear"], errors="coerce")
-        site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
-        anchor = int(site_df["academicyear"].max())
-        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-        for g in sorted(site_df["student_grade"].dropna().unique()):
-            if _selected_grades2 and int(g) not in _selected_grades2:
-                continue
-            for subj in ["ELA", "Math"]:
-                plot_iready_blended_dashboard(
-                    site_df.copy(),
-                    subj,
-                    int(g),
-                    "Winter",
-                    anchor,
-                    scope_label=scope_label,
-                    preview=False,
-                )
+    if _include_school_charts():
+        for school_col, raw_school in _iter_schools(_base):
+            site_df = _base[_base[school_col] == raw_school].copy()
+            site_df["academicyear"] = pd.to_numeric(site_df["academicyear"], errors="coerce")
+            site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
+            anchor = int(site_df["academicyear"].max())
+            scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+            for g in sorted(site_df["student_grade"].dropna().unique()):
+                if _selected_grades2 and int(g) not in _selected_grades2:
+                    continue
+                for subj in ["ELA", "Math"]:
+                    plot_iready_blended_dashboard(
+                        site_df.copy(),
+                        subj,
+                        int(g),
+                        "Winter",
+                        anchor,
+                        scope_label=scope_label,
+                        preview=False,
+                    )
+else:
+    print("[Section 3] Skipped (no grades selected from frontend)")
 
 # %% SECTION 4 — Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)
 # ---------------------------------------------------------------------
@@ -2668,7 +2654,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
         )
 
     fig.suptitle(
-        f"{scope_label} \n Winter i-Ready Mid/Above → % CERS Met/Exceeded",
+        f"{scope_label} \n Winter i-Ready Mid/Above → % CAASPP Met/Exceeded",
         fontsize=20,
         fontweight="bold",
         y=1.02,
@@ -3556,7 +3542,7 @@ def _plot_fall_winter_grouped_stacked(
                         f"{v:.0f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=9,
                         fontweight="bold",
                         color=(
                             "white"
@@ -3608,6 +3594,30 @@ def _plot_fall_winter_grouped_stacked(
     out_file = f"{safe_scope}_{subject_label}_{out_name}"
     out_path = out_dir / out_file
     hf._save_and_render(fig, out_path)
+    
+    # Determine section number from filename
+    section_num = None
+    if "section6" in out_name:
+        section_num = 6
+    elif "section7" in out_name:
+        section_num = 7
+    elif "section8" in out_name:
+        section_num = 8
+    
+    # Write chart metadata for LLM analyzer
+    _write_chart_data(
+        out_path,
+        {
+            "chart_type": f"iready_moy_section{section_num}_fall_winter_compare",
+            "section": section_num,
+            "scope": scope_label,
+            "subject": subject_label,
+            "window_filter": "Fall,Winter",
+            "year": prep.get("year"),
+            "dimension": dim_col,
+            "data": _jsonable(pct),
+        },
+    )
     print(f"[SAVE] {out_path}")
 
     if preview:
@@ -4170,7 +4180,7 @@ def _plot_grouped_typ_stretch(
                 f"{float(tv_true):.0f}%",
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#333",
             )
@@ -4182,7 +4192,7 @@ def _plot_grouped_typ_stretch(
                 f"{float(sv_true):.0f}%",
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#333",
             )
@@ -4230,6 +4240,35 @@ def _plot_grouped_typ_stretch(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     hf._save_and_render(fig, out_path)
+    
+    # Determine section number from filename
+    section_num = None
+    out_filename = out_path.name
+    if "section9" in out_filename:
+        section_num = 9
+    elif "section10" in out_filename:
+        section_num = 10
+    elif "section11" in out_filename:
+        section_num = 11
+    
+    # Write chart metadata for LLM analyzer
+    if section_num is not None:
+        _write_chart_data(
+            out_path,
+            {
+                "chart_type": f"iready_moy_section{section_num}_median_progress",
+                "section": section_num,
+                "scope": title.split("•")[0].strip() if "•" in title else "District",
+                "subject": "Math" if "Math" in title else "ELA",
+                "window_filter": "Winter",
+                "dimension": scope_col,
+                "metrics": {
+                    "ref_typical": ref_typical,
+                    "ref_stretch": ref_stretch,
+                },
+                "data": _jsonable(grp),
+            },
+        )
     print(f"[SAVE] {out_path}")
 
     if preview:

@@ -1982,12 +1982,12 @@ def plot_nwea_dual_subject_dashboard(
                 lo_delta = _bucket_delta("Low", pct_df)
                 score_delta = metrics["score_delta"]
                 title_line = "Change calculations from " + f"{t_prev} to {t_curr}:\n"
-                line_high = rf"$\Delta$ High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
+                line_high = rf" High: $\mathbf{{{high_delta:+.1f}}}$ ppts"
                 line_hiavg = (
-                    rf"$\Delta$ Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
+                    rf"Avg+HiAvg+High: $\mathbf{{{hi_delta:+.1f}}}$ ppts"
                 )
-                line_low = rf"$\Delta$ Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-                line_rit = rf"$\Delta$ Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
+                line_low = rf"Low: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
+                line_rit = rf"Avg RIT: $\mathbf{{{score_delta:+.1f}}}$ pts"
                 insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
         else:
             insight_lines = ["Not enough history for change insights"]

@@ -966,9 +966,9 @@ def plot_iready_dual_subject_dashboard(
 
                 lines = [
                     "Comparisons based on the current and previous year:\n\n"
-                    rf"$\Delta$ Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ 2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    rf" Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf" 2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
             else:
                 lines = ["(Missing data for insights)"]
@@ -1408,9 +1408,9 @@ def plot_iready_subject_dashboard_by_group(
             lo_delta = metrics["lo_delta"]
             score_delta = metrics["score_delta"]
             title_line = "Comparison based on current and previous year:\n"
-            line_high = rf"$\Delta$ Mid or Above: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_low = rf"$\Delta$ 2 or More Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
-            line_rit = rf"$\Delta$ Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts"
+            line_high = rf"Mid or Above: $\mathbf{{{high_delta:+.1f}}}$ ppts"
+            line_low = rf"2 or More Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
+            line_rit = rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts"
             insight_lines = [title_line, line_high, line_low, line_rit]
         else:
             insight_lines = ["Not enough history for change insights"]
@@ -1418,7 +1418,7 @@ def plot_iready_subject_dashboard_by_group(
             0.5,
             0.5,
             "\n".join(insight_lines),
-            fontsize=13,
+            fontsize=11,
             fontweight="medium",
             color="#333333",
             ha="center",
@@ -1426,10 +1426,10 @@ def plot_iready_subject_dashboard_by_group(
             wrap=True,
             usetex=False,
             bbox=dict(
-                boxstyle="round,pad=0.5",
+                boxstyle="round,pad=0.4",
                 facecolor="#f5f5f5",
                 edgecolor="#ccc",
-                linewidth=0.8,
+                linewidth=1.0,
             ),
         )
     # Main title for the whole figure
@@ -1919,16 +1919,16 @@ def plot_iready_blended_dashboard(
                 score_delta = metrics.get("score_delta", 0)
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf"$\Delta$ Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ 2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
             else:
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf"$\Delta$ Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
-                    rf"$\Delta$ 2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
-                    rf"$\Delta$ Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
+                    rf"Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
+                    rf"2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
                 ]
         else:
             lines = ["Not enough history for change insights"]
@@ -2037,41 +2037,45 @@ if _env_grades:
     except Exception:
         _selected_grades = None
 
-scope_label = district_label
-for g in sorted(_base["student_grade"].dropna().unique()):
-    if _selected_grades and int(g) not in _selected_grades:
-        continue
-    for subj in ["ELA", "Math"]:
-        plot_iready_blended_dashboard(
-            _base.copy(),
-            subj,
-            int(g),
-            "Fall",
-            _anchor_year,
-            scope_label=scope_label,
-            preview=False,
-        )
+# Only generate Section 3 if grades are selected
+if _selected_grades:
+    scope_label = district_label
+    for g in sorted(_base["student_grade"].dropna().unique()):
+        if _selected_grades and int(g) not in _selected_grades:
+            continue
+        for subj in ["ELA", "Math"]:
+            plot_iready_blended_dashboard(
+                _base.copy(),
+                subj,
+                int(g),
+                "Fall",
+                _anchor_year,
+                scope_label=scope_label,
+                preview=False,
+            )
 
-if _include_school_charts():
-    for school_col, raw_school in _iter_schools(_base):
-        site_df = _base[_base[school_col] == raw_school].copy()
-        site_df["academicyear"] = pd.to_numeric(site_df["academicyear"], errors="coerce")
-        site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
-        anchor = int(site_df["academicyear"].max())
-        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-        for g in sorted(site_df["student_grade"].dropna().unique()):
-            if _selected_grades and int(g) not in _selected_grades:
-                continue
-            for subj in ["ELA", "Math"]:
-                plot_iready_blended_dashboard(
-                    site_df.copy(),
-                    subj,
-                    int(g),
-                    "Fall",
-                    anchor,
-                    scope_label=scope_label,
-                    preview=False,
-                )
+    if _include_school_charts():
+        for school_col, raw_school in _iter_schools(_base):
+            site_df = _base[_base[school_col] == raw_school].copy()
+            site_df["academicyear"] = pd.to_numeric(site_df["academicyear"], errors="coerce")
+            site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
+            anchor = int(site_df["academicyear"].max())
+            scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+            for g in sorted(site_df["student_grade"].dropna().unique()):
+                if _selected_grades and int(g) not in _selected_grades:
+                    continue
+                for subj in ["ELA", "Math"]:
+                    plot_iready_blended_dashboard(
+                        site_df.copy(),
+                        subj,
+                        int(g),
+                        "Fall",
+                        anchor,
+                        scope_label=scope_label,
+                        preview=False,
+                    )
+else:
+    print("[Section 3] Skipped (no grades selected from frontend)")
 # %% SECTION 4 — Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)
 # ---------------------------------------------------------------------
 # Matches Section 2 exactly in layout and mathtext behavior
@@ -2197,7 +2201,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
         )
 
     fig.suptitle(
-        f"{scope_label} \n Spring i-Ready Mid/Above → % CERS Met/Exceeded (≤2025)",
+        f"{scope_label} \n Spring i-Ready Mid/Above → % CAASPP Met/Exceeded (≤2025)",
         fontsize=20,
         fontweight="bold",
         y=1.02,
@@ -2778,7 +2782,7 @@ def _plot_fall_winter_grouped_stacked(
                         f"{v:.0f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=9,
                         fontweight="bold",
                         color=(
                             "white"
@@ -3364,7 +3368,7 @@ def _plot_grouped_typ_stretch(
                 f"{float(tv_true):.0f}%",
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#333",
             )
@@ -3376,7 +3380,7 @@ def _plot_grouped_typ_stretch(
                 f"{float(sv_true):.0f}%",
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#333",
             )

@@ -1348,7 +1348,7 @@ def plot_star_sgp_growth(
     if metrics_grade and metrics_grade.get("sgp_delta") is not None:
         lines = [
             "Grade Trend Insights:",
-            rf"$\Delta$ Avg SGP: $\mathbf{{{metrics_grade['sgp_delta']:+.1f}}}$ pts",
+            rf"Avg SGP: $\mathbf{{{metrics_grade['sgp_delta']:+.1f}}}$ pts",
         ]
         ax3.text(0.5, 0.5, "\n".join(lines), ha="center", va="center", fontsize=11,
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc"))

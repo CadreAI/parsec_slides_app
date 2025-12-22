@@ -257,6 +257,37 @@ def is_chart_valuable(chart_path: str, use_llm_analysis: bool = False) -> Tuple[
                 has_meaningful_data = True
                 break
     
+    # Check generic 'data' field (used by sections 6-11)
+    if not has_meaningful_data and 'data' in chart_data:
+        data = chart_data['data']
+        if isinstance(data, list) and len(data) > 0:
+            # Check if any row has non-zero/non-null values
+            for record in data:
+                if isinstance(record, dict):
+                    for key, value in record.items():
+                        if value is not None:
+                            if isinstance(value, (int, float)) and value != 0:
+                                has_meaningful_data = True
+                                break
+                            elif isinstance(value, str) and value.strip():
+                                has_meaningful_data = True
+                                break
+                if has_meaningful_data:
+                    break
+        elif isinstance(data, dict) and len(data) > 0:
+            # Check if dict has non-zero/non-null values
+            for key, value in data.items():
+                if value is not None:
+                    if isinstance(value, (int, float)) and value != 0:
+                        has_meaningful_data = True
+                        break
+                    elif isinstance(value, str) and value.strip():
+                        has_meaningful_data = True
+                        break
+                    elif isinstance(value, (list, dict)) and len(value) > 0:
+                        has_meaningful_data = True
+                        break
+    
     # Check 3: If we have data but need to verify it's not all zeros/empty
     if not has_meaningful_data:
         return (False, "No meaningful data found (all zeros/empty)")
