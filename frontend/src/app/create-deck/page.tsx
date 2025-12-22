@@ -112,14 +112,14 @@ export default function CreateSlide() {
         undefined,
         formData.customDataSources
     )
-    const { raceOptions: dynamicRaceOptions, isLoadingRace } = useRaceOptions(
+    const { raceOptions: _dynamicRaceOptions, isLoadingRace } = useRaceOptions(
         formData.projectId,
         formData.partnerName,
         formData.location,
         formData.assessments,
         formData.customDataSources
     )
-    const { studentGroupOptions: dynamicStudentGroupOptions, isLoadingStudentGroups } = useStudentGroupOptions(
+    const { studentGroupOptions: _dynamicStudentGroupOptions, isLoadingStudentGroups } = useStudentGroupOptions(
         formData.projectId,
         formData.partnerName,
         formData.location,
@@ -444,6 +444,11 @@ export default function CreateSlide() {
 
         if (formData.years.length < 1) {
             toast.error('Please select at least 1 year')
+            return
+        }
+
+        if (!formData.quarters || formData.quarters.trim() === '') {
+            toast.error('Please select a slide timing (BOY, MOY, or EOY)')
             return
         }
 
@@ -962,10 +967,15 @@ export default function CreateSlide() {
                                                 </p>
                                             ) : null}
                                             {overLimitYears.length > 0 && (
-                                                <p className="text-sm text-amber-700">
-                                                    Warning: {overLimitYears.join(', ')} exceed 1,000,000 rows
-                                                    {isLoadingYearTotals ? ' (checking...)' : ''}. This will crash and will not produce a slide deck.
-                                                </p>
+                                                <div className="mt-2 rounded-md border border-red-400 bg-red-50 p-3">
+                                                    <p className="text-sm font-semibold text-red-700">
+                                                        ⚠️ Warning: Year(s) {overLimitYears.join(', ')} exceed 1,000,000 rows
+                                                        {isLoadingYearTotals ? ' (checking...)' : ''}
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-red-600">
+                                                        Deck creation is blocked. Remove these years or narrow your filters.
+                                                    </p>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -988,46 +998,65 @@ export default function CreateSlide() {
                                         </div>
                                     )}
                                     {(supportsStudentGroups || supportsRace) && (
-                                        <div className="grid grid-cols-2 gap-4">
-                                            {supportsStudentGroups && dynamicStudentGroupOptions.length > 1 && (
-                                                <div className="space-y-2">
-                                                    <Label>Student Groups</Label>
-                                                    <MultiSelect
-                                                        key={`student-groups-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
-                                                        options={dynamicStudentGroupOptions}
-                                                        selected={formData.studentGroups}
-                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, studentGroups: selected }))}
-                                                        placeholder={isLoadingChoices ? 'Loading student groups...' : 'Select student group(s)...'}
-                                                        disabled={isLoadingChoices}
-                                                    />
-                                                </div>
-                                            )}
-                                            {supportsRace && (
-                                                <div className="space-y-2">
-                                                    <Label>Race/Ethnicity</Label>
-                                                    <MultiSelect
-                                                        key={`race-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
-                                                        options={
-                                                            dynamicRaceOptions.length > 0
-                                                                ? dynamicRaceOptions
-                                                                : [
-                                                                      'Hispanic or Latino',
-                                                                      'White',
-                                                                      'Black or African American',
-                                                                      'Asian',
-                                                                      'Filipino',
-                                                                      'American Indian or Alaska Native',
-                                                                      'Native Hawaiian or Pacific Islander',
-                                                                      'Two or More Races'
-                                                                  ]
-                                                        }
-                                                        selected={formData.race}
-                                                        onChange={(selected) => setFormData((prev) => ({ ...prev, race: selected }))}
-                                                        placeholder={isLoadingChoices ? 'Loading race/ethnicity...' : 'Select race/ethnicity...'}
-                                                        disabled={isLoadingChoices}
-                                                    />
-                                                </div>
-                                            )}
+                                        <div className="space-y-2">
+                                            <Label>Included Groups</Label>
+                                            <MultiSelect
+                                                key={`included-groups-${formData.assessments.join(',')}-${Object.values(formData.customDataSources).join(',')}`}
+                                                options={[
+                                                    'All Students',
+                                                    'English Learners',
+                                                    'Students with Disabilities',
+                                                    'Socioeconomically Disadvantaged',
+                                                    'Hispanic or Latino',
+                                                    'White',
+                                                    'Black or African American',
+                                                    'Asian',
+                                                    'Filipino',
+                                                    'American Indian or Alaska Native',
+                                                    'Native Hawaiian or Pacific Islander',
+                                                    'Two or More Races',
+                                                    'Not Stated',
+                                                    'Foster',
+                                                    'Homeless'
+                                                ]}
+                                                selected={[...(formData.studentGroups || []), ...(formData.race || [])]}
+                                                onChange={(selected) => {
+                                                    // Split selections back into student groups and race for backend compatibility
+                                                    const studentGroupOptions = [
+                                                        'All Students',
+                                                        'English Learners',
+                                                        'Students with Disabilities',
+                                                        'Socioeconomically Disadvantaged',
+                                                        'Foster',
+                                                        'Homeless'
+                                                    ]
+                                                    const raceOptions = [
+                                                        'Hispanic or Latino',
+                                                        'White',
+                                                        'Black or African American',
+                                                        'Asian',
+                                                        'Filipino',
+                                                        'American Indian or Alaska Native',
+                                                        'Native Hawaiian or Pacific Islander',
+                                                        'Two or More Races',
+                                                        'Not Stated'
+                                                    ]
+
+                                                    const studentGroups = selected.filter((s) => studentGroupOptions.includes(s))
+                                                    const race = selected.filter((s) => raceOptions.includes(s))
+
+                                                    setFormData((prev) => ({
+                                                        ...prev,
+                                                        studentGroups,
+                                                        race
+                                                    }))
+                                                }}
+                                                placeholder={isLoadingChoices ? 'Loading groups...' : 'Select included groups...'}
+                                                disabled={isLoadingChoices}
+                                            />
+                                            <p className="text-muted-foreground text-xs">
+                                                Select student groups and/or race/ethnicity categories to include in the analysis
+                                            </p>
                                         </div>
                                     )}
                                 </div>
@@ -1113,10 +1142,30 @@ export default function CreateSlide() {
                         <Button type="button" variant="outline" onClick={() => router.back()}>
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={isCreating || isIngesting || !formData.partnerName || formData.selectedDataSources.length === 0}>
+                        <Button
+                            type="submit"
+                            disabled={
+                                isCreating ||
+                                isIngesting ||
+                                !formData.partnerName ||
+                                formData.selectedDataSources.length === 0 ||
+                                overLimitYears.length > 0 ||
+                                !formData.quarters // Require BOY/MOY/EOY selection
+                            }
+                        >
                             {isIngesting ? 'Ingesting Data & Generating Charts...' : isCreating ? 'Creating Slide Deck...' : 'Create Slide Deck'}
                         </Button>
                     </div>
+                    {overLimitYears.length > 0 && (
+                        <div className="rounded-lg border-2 border-red-500 bg-red-50 p-4 text-center">
+                            <p className="text-base font-semibold text-red-700">
+                                ⚠️ Cannot create deck: Year(s) {overLimitYears.join(', ')} exceed 1,000,000 rows
+                            </p>
+                            <p className="mt-1 text-sm text-red-600">
+                                This will crash the system. Please remove these years or narrow your filters (e.g., select fewer schools or grades).
+                            </p>
+                        </div>
+                    )}
                 </form>
             </div>
         </div>
