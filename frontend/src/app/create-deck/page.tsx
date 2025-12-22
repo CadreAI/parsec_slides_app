@@ -285,7 +285,7 @@ export default function CreateSlide() {
     // Note: District/school selection is now done per-assessment
     // See AssessmentScopeSelector component below
 
-    const handleCheckboxChange = (name: string, value: string, checked: boolean) => {
+    const _handleCheckboxChange = (name: string, value: string, checked: boolean) => {
         setFormData((prev) => {
             const currentArray = (prev[name as keyof typeof prev] as string[]) || []
 
@@ -337,7 +337,7 @@ export default function CreateSlide() {
         }))
     }
 
-    const handlePartnerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const _handlePartnerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const partner = e.target.value
         setFormData((prev) => ({
             ...prev,
@@ -368,7 +368,7 @@ export default function CreateSlide() {
         race: []
     })
 
-    const handleDataSourceToggle = (sourceId: string) => {
+    const _handleDataSourceToggle = (sourceId: string) => {
         setFormData((prev) => ({
             ...prev,
             selectedDataSources: prev.selectedDataSources.includes(sourceId)
@@ -417,7 +417,7 @@ export default function CreateSlide() {
         }
 
         if (formData.assessments.length === 0) {
-            toast.error('Please select at least one assessment first')
+            toast.error('Please select one assessment first')
             return
         }
 
@@ -749,7 +749,7 @@ export default function CreateSlide() {
                                     <h3 className="text-lg font-semibold">Assessments</h3>
                                     <div className="space-y-2">
                                         <Label>
-                                            Select Assessments <span className="text-destructive">*</span>
+                                            Select Assessment <span className="text-destructive">*</span>
                                         </Label>
                                         {isLoadingAssessments && <p className="text-muted-foreground mb-2 text-xs">Loading assessments...</p>}
                                         {isLoadingAssessmentTables && (
@@ -781,15 +781,31 @@ export default function CreateSlide() {
                                                 return (
                                                     <div key={source.id} className="space-y-1 rounded border p-2">
                                                         <div className="flex items-center space-x-2">
-                                                            <Checkbox
+                                                            <input
+                                                                type="radio"
                                                                 id={`data-${source.id}`}
+                                                                name="assessment-selection"
                                                                 checked={isSelected}
                                                                 onChange={(e) => {
-                                                                    handleDataSourceToggle(source.id)
-                                                                    // Also update assessments to match
-                                                                    handleCheckboxChange('assessments', source.id, e.target.checked)
+                                                                    if (e.target.checked) {
+                                                                        // Clear all other assessments and select only this one
+                                                                        setFormData((prev) => ({
+                                                                            ...prev,
+                                                                            selectedDataSources: [source.id],
+                                                                            assessments: [source.id],
+                                                                            assessmentScopes: {
+                                                                                [source.id]: prev.assessmentScopes[source.id] || {
+                                                                                    includeDistrictwide: false,
+                                                                                    includeSchools: false,
+                                                                                    districts: [],
+                                                                                    schools: []
+                                                                                }
+                                                                            }
+                                                                        }))
+                                                                    }
                                                                 }}
                                                                 disabled={isLoadingAssessmentTables || isLoadingAssessments}
+                                                                className="h-4 w-4 cursor-pointer"
                                                             />
                                                             <Label htmlFor={`data-${source.id}`} className="cursor-pointer text-sm font-semibold">
                                                                 {source.label}
@@ -873,7 +889,7 @@ export default function CreateSlide() {
                                             })}
                                         </div>
                                         {availableAssessments.length > 0 && formData.assessments.length === 0 && (
-                                            <p className="text-muted-foreground text-sm">Please select at least one assessment to continue</p>
+                                            <p className="text-muted-foreground text-sm">Please select one assessment to continue</p>
                                         )}
                                         {isLoadingFilters && formData.assessments.length > 0 && (
                                             <p className="text-muted-foreground text-xs">Loading available filters...</p>
@@ -916,7 +932,7 @@ export default function CreateSlide() {
                                 <div className="space-y-4 border-b pb-4">
                                     <h3 className="text-lg font-semibold">Filters</h3>
                                     <p className="text-muted-foreground mb-4 text-xs">
-                                        Available filters based on selected assessments: {formData.assessments.join(', ')}
+                                        Available filters based on selected assessment: {formData.assessments.join(', ')}
                                     </p>
                                     <div className="grid grid-cols-2 gap-4">
                                         {supportsGrades && (

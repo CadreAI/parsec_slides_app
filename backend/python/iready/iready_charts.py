@@ -1990,13 +1990,13 @@ def generate_iready_charts(
             try:
                 from .iready_spring import generate_iready_spring_charts
                 spring_charts = generate_iready_spring_charts(
-                    partner_name=partner_name,
-                    output_dir=output_dir,
-                    config=cfg,
-                    chart_filters=chart_filters_check,
-                    data_dir=data_dir,
-                    iready_data=iready_data
-                )
+                partner_name=partner_name,
+                output_dir=output_dir,
+                config=cfg,
+                chart_filters=chart_filters_check,
+                data_dir=data_dir,
+                iready_data=iready_data
+            )
                 if spring_charts:
                     all_chart_paths.extend(spring_charts)
                     print(f"[iReady Router] Generated {len(spring_charts)} Spring charts (fallback)")

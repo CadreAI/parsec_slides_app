@@ -18,7 +18,6 @@ from ..llm.chart_analyzer import analyze_charts_batch_paths
 from ..llm.decision_llm import parse_chart_instructions, should_use_ai_insights
 from .chart_slides import (
     create_chart_slide_request,
-    create_dual_chart_slide_requests,
     create_single_chart_slide_requests,
 )
 from .chart_split import create_section_divider_slide_requests
@@ -1341,100 +1340,25 @@ def create_slides_presentation(
                         i += 1
                         continue
                     
-                    title_text = None
-                    summary = None
-                    
-                    # Get AI insights for title
-                    # Normalize path for lookup (handle both absolute and relative paths)
+                    # Get AI insight for single chart
                     chart_path_for_lookup = current_charts[0]
                     chart_path_resolved = str(Path(chart_path_for_lookup).resolve())
                     
                     # Try multiple lookup strategies
-                    insight = None
-                    # Strategy 1: Exact match with original path
                     insight = chart_insights_map.get(chart_path_for_lookup)
-                    # Strategy 2: Exact match with resolved path
                     if not insight:
                         insight = chart_insights_map.get(chart_path_resolved)
-                    # Strategy 3: Match by filename
                     if not insight:
                         chart_filename = Path(chart_path_for_lookup).name
                         for path, insight_data in chart_insights_map.items():
                             if Path(path).name == chart_filename:
                                 insight = insight_data
-                                print(f"[Slides] Found insight by filename match: {path} -> {chart_filename}")
                                 break
                     
-                    if insight:
-                        title_text = insight.get('title')
-                        # Extract test type and shorten title
-                        test_type = extract_test_type(current_charts[0])
-                        if title_text:
-                            title_text = shorten_title(title_text, test_type)
-                        insights_list = insight.get('insights', [])
-                        if insights_list:
-                            # Handle both old format (strings) and new format (objects with finding/implication/recommendation)
-                            insight_texts = []
-                            for insight_item in insights_list:
-                                finding = ''
-                                implication = ''
-                                recommendation = ''
-                                
-                                # Try to parse as dict first
-                                if isinstance(insight_item, dict):
-                                    finding = insight_item.get('finding', '')
-                                    implication = insight_item.get('implication', '')
-                                    recommendation = insight_item.get('recommendation', '')
-                                elif isinstance(insight_item, str):
-                                    # Check if it's a string representation of a dict
-                                    if (insight_item.strip().startswith("{'") or insight_item.strip().startswith('{"')) and ('finding' in insight_item or 'implication' in insight_item):
-                                        try:
-                                            import ast
-
-                                            # Try to parse as Python dict literal
-                                            parsed = ast.literal_eval(insight_item)
-                                            if isinstance(parsed, dict):
-                                                finding = parsed.get('finding', '')
-                                                implication = parsed.get('implication', '')
-                                                recommendation = parsed.get('recommendation', '')
-                                        except:
-                                            # Fallback: try regex extraction
-                                            # Note: re is already imported at module level
-                                            finding_match = re.search(r"['\"]finding['\"]:\s*['\"]([^'\"]+)['\"]", insight_item)
-                                            if finding_match:
-                                                finding = finding_match.group(1)
-                                            implication_match = re.search(r"['\"]implication['\"]:\s*['\"]([^'\"]+)['\"]", insight_item)
-                                            if implication_match:
-                                                implication = implication_match.group(1)
-                                            recommendation_match = re.search(r"['\"]recommendation['\"]:\s*['\"]([^'\"]+)['\"]", insight_item)
-                                            if recommendation_match:
-                                                recommendation = recommendation_match.group(1)
-                                    else:
-                                        # Plain string format
-                                        finding = insight_item
-                                
-                                # Format the insight text
-                                if finding:
-                                    text = f"• {finding}"
-                                    if implication:
-                                        text += f"\n  → {implication}"
-                                    if recommendation:
-                                        text += f"\n  → {recommendation}"
-                                    insight_texts.append(text)
-                                elif isinstance(insight_item, str):
-                                    # Fallback for plain strings
-                                    insight_texts.append(f'• {insight_item}')
-                            
-                            summary = '\n\n'.join(insight_texts)
-                        elif insight.get('description'):
-                            summary = insight['description']
-                        print(f"[AI] Using AI-generated title: {title_text}")
-                    else:
-                        # Fallback if no AI insights available
-                        test_type = extract_test_type(current_charts[0])
-                        title_text = shorten_title('Chart Analysis', test_type)
-                        print(f"[Slides] No AI insights found for: {Path(chart_path_for_lookup).name}, using default title")
-                        print(f"[Slides] Available insights keys: {[Path(k).name for k in list(chart_insights_map.keys())[:5]]}")
+                    # Use simple default title (no AI title generation)
+                    test_type = extract_test_type(current_charts[0])
+                    title_text = shorten_title('Chart Analysis', test_type)
+                    summary = None
                     
                     chart_requests = create_single_chart_slide_requests(
                         slide_object_id,
@@ -1448,6 +1372,8 @@ def create_slides_presentation(
                     )
                     print(f"[Slides] Using single chart template with title: {title_text}")
                     print(f"[Slides]   Chart: {Path(current_charts[0]).name} -> {current_urls[0][:50]}...")
+                    if insight:
+                        print(f"[Slides]   ✓ Found AI insight for chart")
                     i += 1
                 
                 # Execute chart requests for this slide
