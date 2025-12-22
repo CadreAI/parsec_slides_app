@@ -168,7 +168,7 @@ def load_star_data(data_dir=None, star_data=None, cfg=None):
 
 def get_scopes(star_base, cfg):
     """Generate list of (scope_df, scope_label, folder_name) tuples"""
-    district_name = cfg.get("district_name", [])
+    district_name = cfg.get("district_display_name") or cfg.get("district_name", [])
     # Safely get district label - handle empty list or non-list types
     if isinstance(district_name, list) and len(district_name) > 0:
         district_label = district_name[0]

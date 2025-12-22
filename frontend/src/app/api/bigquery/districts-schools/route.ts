@@ -217,7 +217,7 @@ export async function GET(req: NextRequest) {
         if (nweaTableId) {
             // Check which columns exist in the table
             let hasLearningCenter = false
-            let hasDistrictName = false
+            let _hasDistrictName = false
             try {
                 const tableName = nweaTableId.split('.').pop()!
                 const [table] = await client.dataset(datasetId).table(tableName).getMetadata()
@@ -225,7 +225,7 @@ export async function GET(req: NextRequest) {
                 hasLearningCenter = fields.some(
                     (field: { name?: string }) => field.name?.toLowerCase() === 'learning_center' || field.name?.toLowerCase() === 'learningcenter'
                 )
-                hasDistrictName = fields.some(
+                _hasDistrictName = fields.some(
                     (field: { name?: string }) =>
                         field.name?.toLowerCase() === 'districtname' ||
                         field.name?.toLowerCase() === 'district_name' ||

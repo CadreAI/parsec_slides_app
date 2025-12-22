@@ -428,8 +428,25 @@ print(f"NWEA data loaded: {nwea_base.shape[0]:,} rows, {nwea_base.shape[1]} colu
 print(nwea_base["year"].value_counts().sort_index())
 print(nwea_base.columns.tolist())
 
-# Normalize district name for fallback in the title
-district_label = cfg.get("district_name", ["Districtwide"])[0]
+# Normalize district name for fallback in the title (allow display-only override)
+try:
+    _ddn = cfg.get("district_display_name")
+    _ddn0 = _ddn[0] if isinstance(_ddn, list) and _ddn else (_ddn if isinstance(_ddn, str) else None)
+    district_label = str(_ddn0).strip() if _ddn0 and str(_ddn0).strip() else cfg.get("district_name", ["Districtwide"])[0]
+except Exception:
+    district_label = cfg.get("district_name", ["Districtwide"])[0]
+
+# Optional display label for "(All Students)" variants (falls back to "{district_label} (All Students)")
+try:
+    _das = cfg.get("district_all_students_label")
+    if isinstance(_das, list) and _das and str(_das[0]).strip():
+        district_all_students_label = str(_das[0]).strip()
+    elif isinstance(_das, str) and _das.strip():
+        district_all_students_label = _das.strip()
+    else:
+        district_all_students_label = f"{district_label} (All Students)"
+except Exception:
+    district_all_students_label = f"{district_label} (All Students)"
 
 # Inspect categorical columns (quick QC) — expensive on large datasets.
 # Only run when preview/dev mode is enabled.
@@ -736,7 +753,9 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
 
     out_dir = CHARTS_DIR / folder
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_name = f"{scope_label}-section0_pred_vs_actual_{folder}.png"
+    # Keep naming consistent across scripts for chart split + analyzer.
+    safe_scope = scope_label.replace(" ", "_")
+    out_name = f"{safe_scope}_section0_pred_vs_actual.png"
     out_path = out_dir / out_name
     logger.info(f"[CHART] Generating chart: {out_path}")
     hf._save_and_render(fig, out_path)
@@ -776,7 +795,7 @@ _section0_schools = list(_iter_schools(nwea_base)) if _include_school_charts() e
 for raw in [None] + _section0_schools:
     if raw is None:
         scope_df = nwea_base
-        scope_label = cfg.get("district_name", ["Districtwide"])[0]
+        scope_label = district_label
         folder = "_district"
     else:
         scope_df = nwea_base[nwea_base["schoolname"] == raw].copy()
@@ -1323,13 +1342,13 @@ def plot_nwea_dual_subject_dashboard(
     # Use the first district key from settings if school_raw is None, else use school_raw
     # Normalize display label from YAML school_name_map
     if school_raw:
-        school_display = hf._safe_normalize_school_name(school_raw, cfg)
+        title_label = hf._safe_normalize_school_name(school_raw, cfg)
     else:
-        school_display = cfg.get("district_name", ["Districtwide"])[0]
-    district_label = school_display
+        # Use the configured district display label (module-level) when rendering districtwide charts
+        title_label = district_label
 
     fig.suptitle(
-        f"{district_label} • {window_filter} Year-to-Year Trends",
+        f"{title_label} • {window_filter} Year-to-Year Trends",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -1378,7 +1397,7 @@ def plot_nwea_dual_subject_dashboard(
 # ---------------------------------------------------------------------
 # Dual Subject District Dashboard
 # ---------------------------------------------------------------------
-scope_label = cfg.get("district_name", ["Districtwide"])[0]
+scope_label = district_label
 folder = "_district"
 
 plot_nwea_dual_subject_dashboard(
@@ -1465,11 +1484,7 @@ def plot_nwea_subject_dashboard_by_group(
     school_display = (
         hf._safe_normalize_school_name(school_raw, cfg) if school_raw else None
     )
-    title_label = (
-        cfg.get("district_name", ["District (All Students)"])[0]
-        if not school_display
-        else school_display
-    )
+    title_label = district_all_students_label if not school_display else school_display
 
     # Legacy group dashboard is a 2-column layout (Reading + Math). Respect frontend
     # subject filters by skipping if both aren't selected.
@@ -1840,7 +1855,7 @@ def _get_ethnicity_col(df: pd.DataFrame) -> str | None:
 
 # ---- District-level
 scope_df = nwea_base
-scope_label = cfg.get("district_name", ["Districtwide"])[0]
+scope_label = district_label
 
 _has_frontend_filters = bool(_selected_groups or _selected_races)
 
@@ -1988,11 +2003,7 @@ def plot_nwea_blended_dashboard(
     folder_name = (
         "_district" if school_display is None else school_display.replace(" ", "_")
     )
-    district_label = (
-        cfg.get("district_name", ["District (All Students)"])[0]
-        if not school_display
-        else school_display
-    )
+    district_label = district_all_students_label if not school_display else school_display
 
     # --- Friendly title label ---
     course_str_for_title = course_str
@@ -2599,7 +2610,7 @@ def plot_nwea_blended_dashboard(
     out_dir = charts_dir / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
     scope = scope_label or (
-        cfg.get("district_name", ["Districtwide"])[0]
+        district_label
         if school_raw is None
         else hf._safe_normalize_school_name(school_raw, cfg)
     )
@@ -2690,7 +2701,7 @@ def _run_scope(scope_df, scope_label, school_raw):
 
 
 # ---- Run for district ----
-_run_scope(_base.copy(), cfg.get("district_name", ["Districtwide"])[0], None)
+_run_scope(_base.copy(), district_label, None)
 
 # %%---- Run for schools ----
 if _include_school_charts():
@@ -2755,7 +2766,7 @@ def _prep_cgp_trend(df: pd.DataFrame, subject_str: str) -> pd.DataFrame:
         lambda x: hf._safe_normalize_school_name(x, cfg)
     )
     dist_rows = d.copy()
-    dist_rows["site_display"] = cfg.get("district_name", ["District (All Students)"])[0]
+    dist_rows["site_display"] = district_all_students_label
 
     both = pd.concat([d, dist_rows], ignore_index=True)
     has_cgi = "falltofallconditionalgrowthindex" in both.columns
@@ -2920,7 +2931,7 @@ def _save_cgp_chart(
     charts_dir = CHARTS_DIR
     folder_name = (
         "_district"
-        if scope_label == cfg.get("district_name", ["District (All Students)"])[0]
+        if scope_label == district_all_students_label
         else scope_label.replace(" ", "_")
     )
     out_dir = charts_dir / folder_name
@@ -3008,8 +3019,8 @@ def _run_cgp_dual_trend(scope_df, scope_label):
         d["site_display"] = d["schoolname"].apply(
             lambda x: hf._safe_normalize_school_name(x, cfg)
         )
-        if scope_label == cfg.get("district_name", ["District (All Students)"])[0]:
-            d["site_display"] = cfg.get("district_name", ["District (All Students)"])[0]
+        if scope_label == district_all_students_label:
+            d["site_display"] = district_all_students_label
         # Only keep rows matching this scope_label
         d = d[d["site_display"] == scope_label]
         # Now, for each time_label, get n
@@ -3064,7 +3075,6 @@ def _run_cgp_dual_trend(scope_df, scope_label):
 # DRIVER — District + School CGP Dual-Panel Dashboards
 # ---------------------------------------------------------------------
 
-district_label = cfg.get("district_name", ["Districtwide"])[0]
 _run_cgp_dual_trend(nwea_base, district_label)
 
 if _include_school_charts():
@@ -3411,7 +3421,7 @@ if _env_grades:
         _selected_grades = None
 
 # SECTION 5 DRIVER — Districtwide
-district_display = cfg.get("district_name", ["Districtwide"])[0]
+district_display = district_label
 d0 = nwea_base.copy()
 d0["year"] = pd.to_numeric(d0["year"], errors="coerce")
 d0["grade"] = pd.to_numeric(d0["grade"], errors="coerce")
@@ -3585,7 +3595,7 @@ def _save_cgp_chart(
     charts_dir = CHARTS_DIR
     folder_name = (
         "_district"
-        if scope_label == cfg.get("district_name", ["District (All Students)"])[0]
+        if scope_label == district_all_students_label
         else scope_label.replace(" ", "_")
     )
     out_dir = charts_dir / folder_name
@@ -3780,7 +3790,8 @@ def _plot_pred_vs_actual(scope_label, folder_name, results, preview=False):
 
     out_dir = CHARTS_DIR / folder_name
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6A_2025_pred_vs_actual_{folder_name}.png"
+    safe_scope = scope_label.replace(" ", "_")
+    out_path = out_dir / f"{safe_scope}_section6a_pred_vs_actual.png"
     logger.info(f"[CHART] Generating chart: {out_path}")
     hf._save_and_render(fig, out_path)
     logger.info(f"[CHART] Saved: {out_path}")
@@ -3864,7 +3875,8 @@ def _plot_projection_2026(scope_label, folder_name, results, preview=False):
 
     out_dir = CHARTS_DIR / folder_name
     out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f"section6B_2026_projection_{folder_name}.png"
+    safe_scope = scope_label.replace(" ", "_")
+    out_path = out_dir / f"{safe_scope}_section6b_projection.png"
     logger.info(f"[CHART] Generating chart: {out_path}")
     hf._save_and_render(fig, out_path)
     logger.info(f"[CHART] Saved: {out_path}")
@@ -3879,7 +3891,7 @@ _section6_schools = list(_iter_schools(nwea_base)) if _include_school_charts() e
 for raw in [None] + _section6_schools:
     if raw is None:
         scope_df = nwea_base.copy()
-        scope_label = cfg.get("district_name", ["Districtwide"])[0]
+        scope_label = district_label
         folder = "_district"
     else:
         scope_df = nwea_base[nwea_base["schoolname"] == raw].copy()

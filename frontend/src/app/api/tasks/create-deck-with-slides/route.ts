@@ -16,7 +16,7 @@ export async function POST(request: Request) {
         let token: string | null = null
         try {
             token = await getToken({ template: 'backend' })
-        } catch (error) {
+        } catch (_error) {
             // Template doesn't exist, fallback to default token
             console.log('[API Route /create-deck-with-slides] Backend template not found, using default token')
         }

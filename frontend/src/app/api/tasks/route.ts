@@ -16,7 +16,7 @@ export async function GET(request: Request) {
         let token: string | null = null
         try {
             token = await getToken({ template: 'backend' })
-        } catch (error) {
+        } catch (_error) {
             // Template doesn't exist, fallback to default token
             console.log('[API Route /tasks] Backend template not found, using default token')
         }
@@ -74,7 +74,7 @@ export async function DELETE(request: Request) {
         let token: string | null = null
         try {
             token = await getToken({ template: 'backend' })
-        } catch (error) {
+        } catch (_error) {
             console.log('[API Route DELETE /tasks] Backend template not found, using default token')
         }
         if (!token) {

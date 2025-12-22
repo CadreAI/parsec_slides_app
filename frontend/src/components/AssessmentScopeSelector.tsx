@@ -7,6 +7,7 @@ import { MultiSelect } from '@/components/ui/multi-select'
 import { useDistrictsAndSchools } from '@/hooks/useDistrictsAndSchools'
 import { getClusteredSchoolOptions, getDistrictOptions } from '@/utils/formHelpers'
 import { useEffect } from 'react'
+import { toast } from 'sonner'
 
 interface AssessmentScopeSelectorProps {
     assessmentId: string
@@ -56,6 +57,8 @@ export function AssessmentScopeSelector({
 
     // Detect if we actually have districts or if "districts" are really schools (charter school case)
     const hasActualDistricts = Object.keys(districtSchoolMap).length > 0
+    const scopeLabel = hasActualDistricts ? 'District' : 'Charter'
+    const aggregateLabel = hasActualDistricts ? 'Districtwide' : 'Charterwide'
 
     // Get district options
     const districtOptions = getDistrictOptions(availableDistricts, partnerName, partnerConfig)
@@ -108,7 +111,7 @@ export function AssessmentScopeSelector({
     const finalSchoolOptions = clusteredSchools.length > 0 ? clusteredSchoolOptions : schoolOptions
 
     const includeDistrictwide = scope.includeDistrictwide !== false // default true
-    const includeSchools = scope.includeSchools !== false // default true
+    const includeSchools = scope.includeSchools === true // default false
 
     // If clustering is active, user selects cluster labels. Expand them to raw school names for backend use.
     const resolveSelectedSchools = (selected: string[]): string[] => {
@@ -147,7 +150,7 @@ export function AssessmentScopeSelector({
                     }}
                     disabled={isLoadingDistrictsSchools}
                 >
-                    District only
+                    {scopeLabel} only
                 </Button>
                 <p className="text-xs text-gray-600">Skips all school charts for this assessment</p>
             </div>
@@ -155,7 +158,7 @@ export function AssessmentScopeSelector({
             {/* District Selection - Only show if we have actual districts */}
             {hasActualDistricts && (
                 <div className="space-y-2">
-                    <Label className="text-xs">District(s)</Label>
+                    <Label className="text-xs">District / Charter</Label>
                     <MultiSelect
                         options={districtOptions}
                         selected={scope.districts}
@@ -188,9 +191,9 @@ export function AssessmentScopeSelector({
                 />
                 <div className="flex-1">
                     <Label htmlFor={`${assessmentId}-includeDistrictwide`} className="cursor-pointer text-xs font-medium">
-                        Include Districtwide Aggregate
+                        Include {aggregateLabel} Aggregate
                     </Label>
-                    <p className="text-xs text-gray-600">Generate districtwide aggregated charts alongside any school charts</p>
+                    <p className="text-xs text-gray-600">Generate {aggregateLabel.toLowerCase()} aggregated charts alongside any school charts</p>
                 </div>
             </div>
 
@@ -225,12 +228,15 @@ export function AssessmentScopeSelector({
                         options={finalSchoolOptions}
                         selected={scope.schools}
                         onChange={(selected) => {
+                            const limited = selected.slice(0, 3)
                             onScopeChangeAction(assessmentId, {
                                 ...scope,
-                                schools: selected,
-                                resolvedSchools: resolveSelectedSchools(selected)
+                                schools: limited,
+                                resolvedSchools: resolveSelectedSchools(limited)
                             })
                         }}
+                        maxSelected={3}
+                        onMaxSelected={() => toast.warning('You can select up to 3 schools per assessment.')}
                         placeholder={
                             isLoadingDistrictsSchools
                                 ? 'Loading schools...'

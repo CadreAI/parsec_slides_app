@@ -13,6 +13,9 @@ interface MultiSelectProps {
     className?: string
     disabled?: boolean
     getDisplayLabel?: (option: string) => string
+    getOptionSubLabel?: (option: string) => string | undefined
+    maxSelected?: number
+    onMaxSelected?: (max: number) => void
 }
 
 export function MultiSelect({
@@ -22,7 +25,10 @@ export function MultiSelect({
     placeholder = 'Select options...',
     className,
     disabled = false,
-    getDisplayLabel
+    getDisplayLabel,
+    getOptionSubLabel,
+    maxSelected,
+    onMaxSelected
 }: MultiSelectProps) {
     const displayLabel = getDisplayLabel || ((option: string) => option)
     const [isOpen, setIsOpen] = React.useState(false)
@@ -45,6 +51,10 @@ export function MultiSelect({
         if (selected.includes(option)) {
             onChange(selected.filter((item) => item !== option))
         } else {
+            if (typeof maxSelected === 'number' && maxSelected > 0 && selected.length >= maxSelected) {
+                onMaxSelected?.(maxSelected)
+                return
+            }
             onChange([...selected, option])
         }
     }
@@ -54,8 +64,14 @@ export function MultiSelect({
             // Deselect all
             onChange([])
         } else {
-            // Select all
-            onChange([...options])
+            // Select all (respect maxSelected if provided)
+            if (typeof maxSelected === 'number' && maxSelected > 0) {
+                const next = options.slice(0, maxSelected)
+                if (options.length > maxSelected) onMaxSelected?.(maxSelected)
+                onChange(next)
+            } else {
+                onChange([...options])
+            }
         }
     }
 
@@ -99,7 +115,12 @@ export function MultiSelect({
                             <div key={option} className="hover:bg-accent flex items-center space-x-2 rounded-sm px-2 py-1.5">
                                 <Checkbox id={`multi-select-${option}`} checked={selected.includes(option)} onChange={() => handleToggle(option)} />
                                 <Label htmlFor={`multi-select-${option}`} className="flex-1 cursor-pointer font-normal">
-                                    {displayLabel(option)}
+                                    <span className="flex flex-col">
+                                        <span>{displayLabel(option)}</span>
+                                        {getOptionSubLabel?.(option) ? (
+                                            <span className="text-muted-foreground text-xs">{getOptionSubLabel(option)}</span>
+                                        ) : null}
+                                    </span>
                                 </Label>
                             </div>
                         ))}

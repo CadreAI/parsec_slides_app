@@ -191,9 +191,16 @@ export default function Dashboard() {
         }
     }, [startPolling, fetchDecks])
 
-    const formatDate = (dateString: string) => {
+    const formatDateTime = (dateString: string) => {
         const date = new Date(dateString)
-        return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+        if (Number.isNaN(date.getTime())) return dateString
+        return date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        })
     }
 
     const dismissTask = async (taskId: string) => {
@@ -404,7 +411,7 @@ export default function Dashboard() {
                                                     )}
                                                     <div className="flex items-center gap-1">
                                                         <Calendar className="h-4 w-4" />
-                                                        <span>{formatDate(deck.created_at)}</span>
+                                                        <span>{formatDateTime(deck.created_at)}</span>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center justify-end">

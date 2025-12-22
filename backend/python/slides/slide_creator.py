@@ -3,6 +3,7 @@ Google Slides creation module for Python backend
 Ports the slide creation logic from TypeScript to Python
 """
 import re
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -53,6 +54,22 @@ def extract_test_type(chart_path: str) -> Optional[str]:
             return 'iReady'
         elif 'star' in chart_name:
             return 'STAR'
+    
+    # Final fallback: infer from adjacent chart metadata JSON (preferred for newer sections)
+    try:
+        p = Path(chart_path)
+        meta_path = p.parent / f"{p.stem}_data.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding='utf-8'))
+            ct = str(meta.get('chart_type', '')).strip().lower()
+            if ct.startswith('nwea'):
+                return 'NWEA'
+            if ct.startswith('iready'):
+                return 'iReady'
+            if ct.startswith('star'):
+                return 'STAR'
+    except Exception:
+        pass
     return None
 
 
@@ -76,7 +93,11 @@ def get_section_title(test_type: str, section_num: str) -> str:
             '2': 'Student Group Performance Trends',
             '3': 'Overall + Cohort Trends',
             '4': 'Overall Growth Trends by Site',
-            '5': 'CGP/CGI Growth: Grade Trend + Backward Cohort'
+            '5': 'CGP/CGI Growth: Grade Trend + Backward Cohort',
+            '8': 'Window Compare by Student Group',
+            '9': 'Growth by School',
+            '10': 'Growth by Grade',
+            '11': 'Growth by Student Group',
         },
         'iReady': {
             '0': 'i-Ready vs CERS (Predicted vs Actual)',
@@ -85,7 +106,13 @@ def get_section_title(test_type: str, section_num: str) -> str:
             '2': 'Student Group Performance Trends',
             '3': 'Overall + Cohort Trends',
             '4': 'Winter i-Ready Mid/Above → % CERS Met/Exceeded',
-            '5': 'Growth Progress Toward Annual Goals'
+            '5': 'Growth Progress Toward Annual Goals',
+            '6': 'Window Compare by School',
+            '7': 'Window Compare by Grade',
+            '8': 'Window Compare by Student Group',
+            '9': 'Median Progress by School',
+            '10': 'Median Progress by Grade',
+            '11': 'Median Progress by Student Group',
         },
         'STAR': {
             '0': 'STAR vs CERS',
@@ -99,6 +126,145 @@ def get_section_title(test_type: str, section_num: str) -> str:
     
     test_titles = section_titles.get(test_type, {})
     return test_titles.get(section_num, f'Section {section_num}')
+
+
+def _section_major(section_str: Optional[str]) -> Optional[int]:
+    """Convert section like '8.1' to major section 8 (int)."""
+    if not section_str:
+        return None
+    try:
+        return int(float(section_str))
+    except Exception:
+        m = re.search(r'(\d+)', str(section_str))
+        return int(m.group(1)) if m else None
+
+
+def extract_section_title_from_chart(
+    chart_path: str, test_type: str, section_major: Optional[int]
+) -> Optional[str]:
+    """
+    Prefer a per-chart section title from adjacent metadata JSON if available.
+    Fallback to static mapping by test_type + section.
+    """
+    try:
+        p = Path(chart_path)
+        meta_path = p.parent / f"{p.stem}_data.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            st = meta.get("section_title")
+            if isinstance(st, str) and st.strip():
+                return st.strip()
+            sec = meta.get("section")
+            if sec is not None:
+                try:
+                    return get_section_title(test_type, str(int(float(sec))))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    if section_major is None:
+        return None
+    return get_section_title(test_type, str(section_major))
+
+
+def extract_section_major_from_chart(chart_path: str) -> Optional[int]:
+    """
+    Prefer section from chart metadata sidecar (`*_data.json`) if present,
+    otherwise fall back to filename parsing.
+    """
+    # 1) Try metadata JSON (most reliable)
+    try:
+        p = Path(chart_path)
+        meta_path = p.parent / f"{p.stem}_data.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            sec = meta.get("section")
+            if sec is not None:
+                return _section_major(str(sec))
+    except Exception:
+        pass
+
+    # 2) Fallback to filename
+    try:
+        return _section_major(extract_section_number(chart_path))
+    except Exception:
+        return None
+
+
+def _chart_subject_rank(chart_path: str) -> int:
+    """Stable subject ordering within a section (Reading/ELA first, then Math, then everything else)."""
+    name = Path(chart_path).stem.lower()
+    if "reading" in name or re.search(r"\bread\b", name) or "_ela" in name:
+        return 0
+    if "math" in name:
+        return 1
+    return 2
+
+
+def _chart_scope_rank(chart_path: str) -> int:
+    """District first, then everything else."""
+    p = Path(chart_path)
+    if "_district" in p.parts or p.name.lower().startswith("district_"):
+        return 0
+    return 1
+
+
+def _chart_grade_key(chart_path: str) -> int:
+    """Best-effort grade extraction for ordering (district charts may not have grades)."""
+    name = Path(chart_path).stem.lower()
+    m = re.search(r"grade(\d+)", name)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            pass
+    return 999
+
+
+def sort_charts_by_test_and_section(chart_paths: List[str]) -> List[str]:
+    """
+    Order charts so decks are not mixed across tests and sections run low→high:
+      - Group by test type (NWEA, iReady, STAR)
+      - Within a test type, sort by section major (0→11)
+      - Within a section, stable ordering by district-first, then scope/name, then grade, then subject
+    """
+    test_rank = {"NWEA": 0, "iReady": 1, "STAR": 2, "Assessment": 3}
+
+    def _meta(chart_path: str) -> dict:
+        try:
+            p = Path(chart_path)
+            meta_path = p.parent / f"{p.stem}_data.json"
+            if meta_path.exists():
+                return json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return {}
+
+    def _key(p: str):
+        meta = _meta(p)
+        tt = extract_test_type(p) or str(meta.get("test_type") or "Assessment")
+        sec_major = extract_section_major_from_chart(p)
+        try:
+            sec_minor = float(meta.get("section")) if meta.get("section") is not None else (
+                float(extract_section_number(p)) if extract_section_number(p) else 999.0
+            )
+        except Exception:
+            sec_minor = 999.0
+        scope_name = str(meta.get("scope") or "")
+        return (
+            test_rank.get(tt, 99),
+            tt,
+            sec_major if sec_major is not None else 999,
+            sec_minor,
+            _chart_scope_rank(p),
+            scope_name.lower(),
+            _chart_grade_key(p),
+            _chart_subject_rank(p),
+            Path(p).name.lower(),
+        )
+
+    return sorted(chart_paths, key=_key)
 
 
 def get_sections_for_test_type(chart_paths: List[str], test_type: str) -> List[str]:
@@ -599,6 +765,11 @@ def create_slides_presentation(
             print(f"[Chart Selection] ✓ Filtered charts by data quality: {original_count} → {filtered_count} (removed {len(filtered_out)} charts with no valuable data)")
         else:
             print(f"[Chart Selection] No charts to filter - using all {original_chart_count} charts")
+
+    # Deterministic ordering: group by test type, then section 0→11 (don't mix tests)
+    if normalized_charts:
+        normalized_charts = sort_charts_by_test_and_section(normalized_charts)
+        print(f"[Slides] Ordered charts by test type + section (0→11). First 3: {[Path(p).name for p in normalized_charts[:3]]}")
     
     # Extract parent folder ID
     parent_folder_id = extract_folder_id_from_url(drive_folder_url) if drive_folder_url else None
@@ -801,7 +972,7 @@ def create_slides_presentation(
         
         # Track previous test type and section for divider slides
         previous_test_type = None
-        previous_section = None
+        previous_section = None  # stores major section int
         
         i = 0
         processed_indices = set()  # Track which charts have been processed
@@ -918,101 +1089,60 @@ def create_slides_presentation(
             # else:
             #     print(f"[Slides] Processing charts at index {i}: {chart_names}")
             
-            # Check if we need to insert a divider slide (test type or section change)
-            current_test_type = extract_test_type(current_charts[0])
-            current_section = extract_section_number(current_charts[0])
-            
-            # Insert divider slide if test type changed
-            if previous_test_type is not None and current_test_type != previous_test_type:
-                print(f"[Divider] Test type changed from {previous_test_type} to {current_test_type}, inserting divider slide")
-                # Show only the current section for the new test type
-                if current_section:
-                    section_title = get_section_title(current_test_type, current_section)
-                    # Sanitize section number for object ID (replace periods with underscores)
-                    section_safe = str(current_section).replace('.', '_')
-                    divider_slide_id = f'divider_{current_test_type}_{section_safe}_{slide_index}'
-                    divider_requests = create_section_divider_slide_requests(
-                        slide_object_id=divider_slide_id,
-                        test_type=current_test_type,
-                        sections=[section_title],
-                        insertion_index=slide_index,
-                        theme_color=final_theme_color
+            # Divider slides: for new sections, insert once per SOLID section number (8/9/10/11),
+            # not for sub-sections like 8.1/8.2.
+            current_test_type = extract_test_type(current_charts[0]) or previous_test_type or "Assessment"
+            current_section_major = extract_section_major_from_chart(current_charts[0])
+
+            # Insert a divider once per SOLID (major) section number, i.e. treat 8.1/8.2 as section 8.
+            # We do this for all sections 0–11.
+            DIVIDER_SECTIONS = set(range(0, 12))
+            should_divide = (
+                current_section_major is not None
+                and current_section_major in DIVIDER_SECTIONS
+                and (
+                    previous_test_type != current_test_type
+                    or previous_section != current_section_major
+                )
+            )
+
+            if should_divide:
+                section_title = (
+                    extract_section_title_from_chart(
+                        current_charts[0], current_test_type, current_section_major
                     )
-                    # Insert the divider slide
-                    try:
-                        slides_service.presentations().batchUpdate(
-                            presentationId=presentation_id,
-                            body={'requests': divider_requests}
-                        ).execute()
-                        print(f"[Divider] ✓ Inserted divider slide for {current_test_type} - {section_title} at index {slide_index}")
-                        slide_index += 1
-                        # Refresh slides list after insertion
-                        updated_presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
-                        all_slides = updated_presentation.get('slides', [])
-                    except Exception as e:
-                        print(f"[Divider] ✗ Error inserting divider slide: {e}")
-            
-            # Insert divider slide if section changed within same test type
-            elif (previous_test_type == current_test_type and 
-                  previous_section is not None and 
-                  current_section is not None and 
-                  current_section != previous_section):
-                print(f"[Divider] Section changed from {previous_section} to {current_section} ({current_test_type}), inserting divider slide")
-                # Show only the current section
-                section_title = get_section_title(current_test_type, current_section)
-                # Replace periods in section number with underscores for valid object ID
-                section_safe = str(current_section).replace('.', '_')
-                divider_slide_id = f'divider_{current_test_type}_section_{section_safe}_{slide_index}'
+                    or get_section_title(current_test_type, str(current_section_major))
+                )
+                section_safe = str(current_section_major)
+                test_safe = str(current_test_type).replace(" ", "_")
+                divider_slide_id = f"divider_{test_safe}_section_{section_safe}_{slide_index}"
                 divider_requests = create_section_divider_slide_requests(
                     slide_object_id=divider_slide_id,
                     test_type=current_test_type,
                     sections=[section_title],
                     insertion_index=slide_index,
-                    theme_color=final_theme_color
+                    theme_color=final_theme_color,
                 )
-                # Insert the divider slide
                 try:
                     slides_service.presentations().batchUpdate(
                         presentationId=presentation_id,
-                        body={'requests': divider_requests}
+                        body={"requests": divider_requests},
                     ).execute()
-                    print(f"[Divider] ✓ Inserted divider slide for {current_test_type} - {section_title} at index {slide_index}")
+                    print(
+                        f"[Divider] ✓ Inserted divider slide for {current_test_type} - {section_title} at index {slide_index}"
+                    )
                     slide_index += 1
-                    # Refresh slides list after insertion
-                    updated_presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
-                    all_slides = updated_presentation.get('slides', [])
+                    updated_presentation = slides_service.presentations().get(
+                        presentationId=presentation_id
+                    ).execute()
+                    all_slides = updated_presentation.get("slides", [])
                 except Exception as e:
                     print(f"[Divider] ✗ Error inserting divider slide: {e}")
-            
-            # Insert divider slide at the start of a new test type (first time seeing it)
-            elif previous_test_type is None and current_test_type:
-                print(f"[Divider] Starting new test type {current_test_type}, inserting divider slide")
-                # Show only the current section
-                if current_section:
-                    section_title = get_section_title(current_test_type, current_section)
-                    # Sanitize section number for object ID (replace periods with underscores)
-                    section_safe = str(current_section).replace('.', '_')
-                    divider_slide_id = f'divider_{current_test_type}_start_{section_safe}_{slide_index}'
-                    divider_requests = create_section_divider_slide_requests(
-                        slide_object_id=divider_slide_id,
-                        test_type=current_test_type,
-                        sections=[section_title],
-                        insertion_index=slide_index,
-                        theme_color=final_theme_color
-                    )
-                    # Insert the divider slide
-                    try:
-                        slides_service.presentations().batchUpdate(
-                            presentationId=presentation_id,
-                            body={'requests': divider_requests}
-                        ).execute()
-                        print(f"[Divider] ✓ Inserted divider slide for {current_test_type} - {section_title} at index {slide_index}")
-                        slide_index += 1
-                        # Refresh slides list after insertion
-                        updated_presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
-                        all_slides = updated_presentation.get('slides', [])
-                    except Exception as e:
-                        print(f"[Divider] ✗ Error inserting divider slide: {e}")
+
+            # Update trackers (store major section only)
+            previous_test_type = current_test_type
+            if current_section_major is not None:
+                previous_section = current_section_major
             
             # Ensure we have enough slide slots. If we run out, append more blank slides (doubling strategy).
             if slide_index >= len(all_slides):
@@ -1464,8 +1594,16 @@ def create_slides_presentation(
                         raise
                 
                 # Update tracking variables for next iteration
+                # NOTE: Divider logic tracks major section via `current_section_major` above.
+                # `current_section` no longer exists here (it used to be the raw section string).
                 previous_test_type = current_test_type
-                previous_section = current_section
+                # Keep existing `previous_section` (major int) unless we can compute it from this chart.
+                try:
+                    _sec_major = extract_section_major_from_chart(current_charts[0])
+                    if _sec_major is not None:
+                        previous_section = _sec_major
+                except Exception:
+                    pass
                 
                 global_chart_index += len(current_urls)
                 slide_index += 1
@@ -1474,6 +1612,39 @@ def create_slides_presentation(
                 break
         
         # Note: We don't insert a final divider slide since each section already has its own divider when it starts
+    
+    # ===== DELETE UNUSED BLANK SLIDES =====
+    # After all charts are placed, delete any remaining blank slides
+    if slide_index < len(all_slides):
+        unused_slides = all_slides[slide_index:]
+        if unused_slides:
+            print(f"[Slides] Deleting {len(unused_slides)} unused blank slide(s) (indices {slide_index} to {len(all_slides)-1})...")
+            delete_requests = []
+            for unused_slide in unused_slides:
+                unused_slide_id = unused_slide.get('objectId')
+                if unused_slide_id:
+                    delete_requests.append({
+                        'deleteObject': {
+                            'objectId': unused_slide_id
+                        }
+                    })
+            
+            if delete_requests:
+                try:
+                    slides_service.presentations().batchUpdate(
+                        presentationId=presentation_id,
+                        body={"requests": delete_requests},
+                    ).execute()
+                    print(f"[Slides] ✓ Deleted {len(delete_requests)} unused slide(s)")
+                    
+                    # Refresh slide list after deletion
+                    updated_presentation = slides_service.presentations().get(
+                        presentationId=presentation_id
+                    ).execute()
+                    all_slides = updated_presentation.get("slides", [])
+                except Exception as e:
+                    print(f"[Slides] ✗ Error deleting unused slides: {e}")
+    # ===== END DELETE UNUSED SLIDES =====
     
     presentation_url = f'https://docs.google.com/presentation/d/{presentation_id}/edit'
     

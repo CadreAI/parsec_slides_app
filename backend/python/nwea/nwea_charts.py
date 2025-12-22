@@ -2038,12 +2038,12 @@ def generate_nwea_charts(
             print("\n[NWEA Router] Only Winter selected - returning early, skipping Fall/Spring chart generation.")
             return all_chart_paths
     
-    # Route to Spring module if Spring is selected
+    # Route to EOY runner if Spring is selected (covers Spring-only and Winter+Spring)
     if has_spring:
-        from .nwea_spring import generate_nwea_spring_charts
-        print("\n[NWEA Router] Spring detected - routing to nwea_spring.py...")
+        from .nwea_eoy_runner import generate_nwea_eoy_charts
+        print("\n[NWEA Router] Spring detected - routing to nwea_eoy.py (runner)...")
         try:
-            spring_charts = generate_nwea_spring_charts(
+            eoy_charts = generate_nwea_eoy_charts(
                 partner_name=partner_name,
                 output_dir=output_dir,
                 config=cfg,
@@ -2051,14 +2051,33 @@ def generate_nwea_charts(
                 data_dir=data_dir,
                 nwea_data=nwea_data
             )
-            if spring_charts:
-                all_chart_paths.extend(spring_charts)
-                print(f"[NWEA Router] Generated {len(spring_charts)} Spring charts")
+            if eoy_charts:
+                all_chart_paths.extend(eoy_charts)
+                print(f"[NWEA Router] Generated {len(eoy_charts)} EOY charts")
         except Exception as e:
-            print(f"[NWEA Router] Error generating Spring charts: {e}")
+            # Fallback: keep the lighter-weight Spring module for legacy partners if the EOY script fails
+            print(f"[NWEA Router] Error generating EOY charts (fallback to nwea_spring.py): {e}")
             if hf.DEV_MODE:
                 import traceback
                 traceback.print_exc()
+            try:
+                from .nwea_spring import generate_nwea_spring_charts
+                spring_charts = generate_nwea_spring_charts(
+                    partner_name=partner_name,
+                    output_dir=output_dir,
+                    config=cfg,
+                    chart_filters=chart_filters_check,
+                    data_dir=data_dir,
+                    nwea_data=nwea_data
+                )
+                if spring_charts:
+                    all_chart_paths.extend(spring_charts)
+                    print(f"[NWEA Router] Generated {len(spring_charts)} Spring charts (fallback)")
+            except Exception as e2:
+                print(f"[NWEA Router] Error generating Spring charts (fallback) as well: {e2}")
+                if hf.DEV_MODE:
+                    import traceback
+                    traceback.print_exc()
     
     # Route to Fall module if Fall is selected
     if has_fall:
