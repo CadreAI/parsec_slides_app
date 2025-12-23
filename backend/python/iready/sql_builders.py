@@ -167,12 +167,23 @@ def sql_iready(
     if not isinstance(schools, list):
         schools = []
     if schools:
-        school_col = _pick_col(["SchoolName", "School_Name", "School", "learning_center", "Learning_Center"])
-        if school_col:
-            school_expr = f"LOWER(CAST({school_col} AS STRING))"
-            like_clause = _sql_like_tokens_any(school_expr, schools) or _sql_like_any(school_expr, schools)
-            if like_clause:
-                where_conditions.append(like_clause)
+        # Check all possible school name columns and combine them with OR
+        school_col_candidates = ["SchoolName", "School_Name", "School", "learning_center", "Learning_Center"]
+        available_school_cols = [col for col in school_col_candidates if col.lower() in available_cols]
+        
+        if available_school_cols:
+            # Build OR clause for all available school columns
+            school_clauses = []
+            for school_col in available_school_cols:
+                school_expr = f"LOWER(CAST({school_col} AS STRING))"
+                like_clause = _sql_like_tokens_any(school_expr, schools) or _sql_like_any(school_expr, schools)
+                if like_clause:
+                    school_clauses.append(like_clause)
+            
+            if school_clauses:
+                # Combine all school column searches with OR
+                combined_school_clause = "(" + " OR ".join(school_clauses) + ")"
+                where_conditions.append(combined_school_clause)
     
     where_clause = " AND ".join(where_conditions)
     

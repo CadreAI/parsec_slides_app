@@ -200,8 +200,9 @@ CHARTS_DIR = Path(os.getenv("IREADY_MOY_CHARTS_DIR") or "../charts")
 #
 # Env vars (set by runner / backend):
 # - IREADY_MOY_SCOPE_MODE:
-#     - "district_only" (skip all school loops)
-#     - "selected_schools" (only loop selected schools; still include district)
+#     - "district_only" (skip all school loops, include district charts including sections 6-11)
+#     - "selected_schools" (only loop selected schools; still include district charts)
+#     - "schools_only" or "selected_schools_only" (only school charts, skip district sections 6-11)
 #     - default/other: district + all schools
 # - IREADY_MOY_SCHOOLS="School A,School B" (names can be raw or normalized)
 # ---------------------------------------------------------------------
@@ -214,6 +215,11 @@ if _env_schools:
 
 def _include_school_charts() -> bool:
     return _scope_mode not in ("district_only", "district")
+
+
+def _include_district_charts() -> bool:
+    """Return True unless user selected schools-only mode (no district)."""
+    return _scope_mode not in ("schools_only", "selected_schools_only")
 
 
 def _school_selected(raw_school: str) -> bool:
@@ -400,13 +406,23 @@ def run_section0_iready(
 
         subj = subject.upper()
 
-        # --- Filter for most recent academic year with Spring + CERS data ---
+        # --- Determine year column (handle both "academicyear" and "year") ---
+        year_col = None
+        if "academicyear" in d.columns:
+            year_col = "academicyear"
+        elif "year" in d.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 0: No year column found (academicyear or year)")
+            return None, None, None
+
+        # --- Filter for most recent academic year with Winter + CERS data ---
         valid_years = (
             d.loc[
                 (d["testwindow"].str.upper() == "WINTER")
                 & (d["cers_overall_performanceband"].notna())
                 & (d["enrolled"].astype(str) == "Enrolled")
-            ]["academicyear"]
+            ][year_col]
             .dropna()
             .unique()
         )
@@ -416,7 +432,7 @@ def run_section0_iready(
 
         last_year = max(valid_years)
         d = d[
-            (d["academicyear"] == last_year)
+            (d[year_col] == last_year)
             & (d["testwindow"].str.upper() == "WINTER")
             & (d["subject"].str.upper() == subj)
             & (d["cers_overall_performanceband"].notna())
@@ -611,8 +627,12 @@ def run_section0_iready(
                 ),
             )
 
-        # --- Chart title and save ---
-        year = next(iter(data_dict.values()))[1].get("year", "")
+        # --- Chart title and save - safely extract year from first subject ---
+        year = ""
+        for cross, metrics in data_dict.values():
+            if metrics is not None and isinstance(metrics, dict):
+                year = metrics.get("year", "")
+                break
         fig.suptitle(
             f"{scope_label} • Winter {year} • i-Ready Placement vs CAASPP Performance",
             fontsize=26,
@@ -684,10 +704,13 @@ def run_section0_iready(
 print("Running Section 0 batch...")
 
 # District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
+    folder = "_district"
+    run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
+else:
+    print("Skipping Section 0 district-level (schools-only mode)")
 
 # Site-level
 if _include_school_charts():
@@ -729,15 +752,24 @@ def run_section0_1_iready_fall_winter(
 
         subj = str(subject).upper()
 
-        # --- Restrict to current (max) academic year only ---
-        d["academicyear"] = pd.to_numeric(d.get("academicyear"), errors="coerce")
-        year = int(d["academicyear"].max())
+        # --- Restrict to current (max) academic year only - handle both "academicyear" and "year" ---
+        year_col = None
+        if "academicyear" in d.columns:
+            year_col = "academicyear"
+        elif "year" in d.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 0.1: No year column found (academicyear or year)")
+            return None, None
+        
+        d[year_col] = pd.to_numeric(d.get(year_col), errors="coerce")
+        year = int(d[year_col].max())
 
         win_order = ["Fall", "Winter"]
         
         
         base = d[
-            (d["academicyear"] == year)
+            (d[year_col] == year)
             & (d["subject"].astype(str).str.upper() == subj)
             & (d["domain"].astype(str) == "Overall")
         ].copy()
@@ -1048,8 +1080,12 @@ def run_section0_1_iready_fall_winter(
                 ),
             )
 
-        # Title + save
-        year = next(iter(data_dict.values()))[2].get("year", "")
+        # Title + save - safely extract year from first subject
+        year = ""
+        for pct_df, score_df, metrics in data_dict.values():
+            if metrics is not None and isinstance(metrics, dict):
+                year = metrics.get("year", "")
+                break
         fig.suptitle(
             f"{scope_label} • {year} • i-Ready Fall vs Winter Trends",
             fontsize=22,
@@ -1109,12 +1145,15 @@ def run_section0_1_iready_fall_winter(
 print("Running Section 0.1 batch...")
 
 # District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section0_1_iready_fall_winter(
-    scope_df, scope_label=scope_label, folder=folder, preview=False
-)
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
+    folder = "_district"
+    run_section0_1_iready_fall_winter(
+        scope_df, scope_label=scope_label, folder=folder, preview=False
+    )
+else:
+    print("Skipping Section 0.1 district-level (schools-only mode)")
 
 # Site-level
 if _include_school_charts():
@@ -1159,17 +1198,20 @@ if _env_grades:
         pass
 
 # ---- District-level (by grade) ----
-scope_label_district = district_label
-for g in sorted(_base0_1["student_grade"].dropna().unique()):
-    if int(g) not in _grade_whitelist0_1:
-        continue
-    df_g = _base0_1[_base0_1["student_grade"] == g].copy()
-    run_section0_1_iready_fall_winter(
-        df_g,
-        scope_label=f"{scope_label_district} • Grade {int(g)}",
-        folder="_district",
-        preview=False,
-    )
+if _include_district_charts():
+    scope_label_district = district_label
+    for g in sorted(_base0_1["student_grade"].dropna().unique()):
+        if int(g) not in _grade_whitelist0_1:
+            continue
+        df_g = _base0_1[_base0_1["student_grade"] == g].copy()
+        run_section0_1_iready_fall_winter(
+            df_g,
+            scope_label=f"{scope_label_district} • Grade {int(g)}",
+            folder="_district",
+            preview=False,
+        )
+else:
+    print("Skipping Section 0.1 grade-level district charts (schools-only mode)")
 
 # ---- Site-level (by grade) ----
 if _include_school_charts():
@@ -1626,21 +1668,24 @@ def plot_iready_dual_subject_dashboard(
 
 
 # ---------------------------------------------------------------------
-# DRIVER — Dual Subject i-Ready Dashboard (District + Site)
+# DRIVER — Dual Subject i-Ready Dashboard (District + Site) [SECTION 1]
 # ---------------------------------------------------------------------
 
 # ---- District-level ----
-scope_df = iready_base.copy()
-scope_label = district_label
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
 
-plot_iready_dual_subject_dashboard(
-    scope_df,
-    window_filter="Winter",
-    figsize=(16, 9),
-    school_raw=None,
-    scope_label=scope_label,
-    preview=True,  # or False for batch
-)
+    plot_iready_dual_subject_dashboard(
+        scope_df,
+        window_filter="Winter",
+        figsize=(16, 9),
+        school_raw=None,
+        scope_label=scope_label,
+        preview=True,  # or False for batch
+    )
+else:
+    print("Skipping Section 1 district-level (schools-only mode)")
 
 # ---- Site-level ----
 if _include_school_charts():
@@ -2049,46 +2094,50 @@ group_order = cfg.get("student_group_order", {})
 
 # Optional: restrict student-group dashboards based on frontend selection.
 # The runner passes selected groups as: IREADY_MOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
+# The runner passes selected races as: IREADY_MOY_RACE="Hispanic or Latino,White"
 _env_groups = os.getenv("IREADY_MOY_STUDENT_GROUPS")
-_selected_groups = []
-if _env_groups:
-    _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
-    print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
+_env_races = os.getenv("IREADY_MOY_RACE")
+
+# Parse student groups
+_selected_groups = None
+if _env_groups is not None:
+    if _env_groups.strip().upper() == "NONE":
+        _selected_groups = []
+    else:
+        _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
+        if _selected_groups:
+            print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
+
+# Parse races
+_selected_races = None
+if _env_races is not None:
+    if _env_races.strip().upper() == "NONE":
+        _selected_races = []
+    else:
+        _selected_races = [r.strip() for r in str(_env_races).split(",") if r.strip()]
+        if _selected_races:
+            print(f"[FILTER] Race selection from frontend: {_selected_races}")
 
 # ---- District-level ----
-scope_df = iready_base.copy()
-scope_label = district_label
+# Skip Section 2 entirely if no groups or races are selected
+_has_groups = _selected_groups is not None and len(_selected_groups) > 0
+_has_races = _selected_races is not None and len(_selected_races) > 0
 
-for group_name, group_def in sorted(
-    student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
-):
-    if group_def.get("type") == "all":
-        continue
-    if _selected_groups and group_name not in _selected_groups:
-        continue
-    plot_iready_subject_dashboard_by_group(
-        scope_df.copy(),
-        subject_str=None,
-        window_filter="Winter",
-        group_name=group_name,
-        group_def=group_def,
-        figsize=(16, 9),
-        school_raw=None,
-        scope_label=scope_label,
-    )
+if not _has_groups and not _has_races:
+    print("[FILTER] Section 2: Skipping (no student groups or races selected)")
+elif _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
 
-# ---- Site-level ----
-if _include_school_charts():
-    for school_col, raw_school in _iter_schools(iready_base):
-        scope_df = iready_base[iready_base[school_col] == raw_school].copy()
-        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-
+    # Selected student groups - only generate if groups are selected
+    if _has_groups:
         for group_name, group_def in sorted(
             student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
         ):
             if group_def.get("type") == "all":
                 continue
-            if _selected_groups and group_name not in _selected_groups:
+            # Only generate selected groups
+            if group_name not in _selected_groups:
                 continue
             plot_iready_subject_dashboard_by_group(
                 scope_df.copy(),
@@ -2097,9 +2146,76 @@ if _include_school_charts():
                 group_name=group_name,
                 group_def=group_def,
                 figsize=(16, 9),
-                school_raw=raw_school,
+                school_raw=None,
                 scope_label=scope_label,
             )
+
+    # Selected races - only generate if races are selected
+    if _has_races:
+        for race_name in _selected_races:
+            if race_name not in student_groups_cfg:
+                continue
+            race_def = student_groups_cfg[race_name]
+            if race_def.get("type") == "all":
+                continue
+            plot_iready_subject_dashboard_by_group(
+                scope_df.copy(),
+                subject_str=None,
+                window_filter="Winter",
+                group_name=race_name,
+                group_def=race_def,
+                figsize=(16, 9),
+                school_raw=None,
+                scope_label=scope_label,
+            )
+else:
+    print("Skipping Section 2 district-level (schools-only mode)")
+
+# ---- Site-level ----
+if _include_school_charts() and (_has_groups or _has_races):
+    for school_col, raw_school in _iter_schools(iready_base):
+        scope_df = iready_base[iready_base[school_col] == raw_school].copy()
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+
+        # Selected student groups - only generate if groups are selected
+        if _has_groups:
+            for group_name, group_def in sorted(
+                student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
+            ):
+                if group_def.get("type") == "all":
+                    continue
+                # Only generate selected groups
+                if group_name not in _selected_groups:
+                    continue
+                plot_iready_subject_dashboard_by_group(
+                    scope_df.copy(),
+                    subject_str=None,
+                    window_filter="Winter",
+                    group_name=group_name,
+                    group_def=group_def,
+                    figsize=(16, 9),
+                    school_raw=raw_school,
+                    scope_label=scope_label,
+                )
+
+        # Selected races - only generate if races are selected
+        if _has_races:
+            for race_name in _selected_races:
+                if race_name not in student_groups_cfg:
+                    continue
+                race_def = student_groups_cfg[race_name]
+                if race_def.get("type") == "all":
+                    continue
+                plot_iready_subject_dashboard_by_group(
+                    scope_df.copy(),
+                    subject_str=None,
+                    window_filter="Winter",
+                    group_name=race_name,
+                    group_def=race_def,
+                    figsize=(16, 9),
+                    school_raw=raw_school,
+                    scope_label=scope_label,
+                )
 
 
 # %% SECTION 3 — Overall + Cohort Trends (i-Ready)
@@ -2595,20 +2711,24 @@ if _env_grades2:
 
 # Only generate Section 3 if grades are selected
 if _selected_grades2:
-    scope_label = district_label
-    for g in sorted(_base["student_grade"].dropna().unique()):
-        if _selected_grades2 and int(g) not in _selected_grades2:
-            continue
-        for subj in ["ELA", "Math"]:
-            plot_iready_blended_dashboard(
-                _base.copy(),
-                subj,
-                int(g),
-                "Winter",
-                _anchor_year,
-                scope_label=scope_label,
-                preview=False,
-            )
+    # District-level
+    if _include_district_charts():
+        scope_label = district_label
+        for g in sorted(_base["student_grade"].dropna().unique()):
+            if _selected_grades2 and int(g) not in _selected_grades2:
+                continue
+            for subj in ["ELA", "Math"]:
+                plot_iready_blended_dashboard(
+                    _base.copy(),
+                    subj,
+                    int(g),
+                    "Winter",
+                    _anchor_year,
+                    scope_label=scope_label,
+                    preview=False,
+                )
+    else:
+        print("Skipping Section 3 district-level (schools-only mode)")
 
     if _include_school_charts():
         for school_col, raw_school in _iter_schools(_base):
@@ -2809,9 +2929,12 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
 # ---------------------------------------------------------------------
 print("Running Section 4 — Winter Mid/Above → CERS Met/Exceeded")
 
-scope_df = iready_base.copy()
-district_label = district_label
-_plot_mid_above_to_cers_faceted(scope_df, district_label, folder_name="_district")
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    district_label = district_label
+    _plot_mid_above_to_cers_faceted(scope_df, district_label, folder_name="_district")
+else:
+    print("Skipping Section 4 district-level (schools-only mode)")
 
 if _include_school_charts():
     for school_col, raw_school in _iter_schools(iready_base):
@@ -2875,10 +2998,19 @@ def run_section5_growth_progress_moy(
     def _prep_section5_subject(df, subject):
         d0 = df.copy()
 
-        # Current year only
-        d0["academicyear"] = pd.to_numeric(d0.get("academicyear"), errors="coerce")
-        year = int(d0["academicyear"].max())
-        d0 = d0[d0["academicyear"] == year].copy()
+        # Current year only - handle both "academicyear" and "year" column names
+        year_col = None
+        if "academicyear" in d0.columns:
+            year_col = "academicyear"
+        elif "year" in d0.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 5: No year column found (academicyear or year)")
+            return None
+        
+        d0[year_col] = pd.to_numeric(d0.get(year_col), errors="coerce")
+        year = int(d0[year_col].max())
+        d0 = d0[d0[year_col] == year].copy()
 
         # Grade filter: default K–8 only (9–12 typically do not have growth targets)
         if "student_grade" in d0.columns:
@@ -3304,8 +3436,12 @@ def run_section5_growth_progress_moy(
                 ),
             )
 
-        # Title + save
-        year = next(iter(metrics_by_subject.values())).get("year", "")
+        # Title + save - safely extract year from first non-None metrics
+        year = ""
+        for m in metrics_by_subject.values():
+            if m is not None and isinstance(m, dict):
+                year = m.get("year", "")
+                break
         fig.suptitle(
             f"{scope_label} • Winter {year} • Growth Progress Toward Annual Goals",
             fontsize=20,
@@ -3362,12 +3498,15 @@ def run_section5_growth_progress_moy(
 print("Running Section 5 batch...")
 
 # District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section5_growth_progress_moy(
-    scope_df, scope_label=scope_label, folder=folder, preview=False
-)
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
+    folder = "_district"
+    run_section5_growth_progress_moy(
+        scope_df, scope_label=scope_label, folder=folder, preview=False
+    )
+else:
+    print("Skipping Section 5 district-level (schools-only mode)")
 
 # Site-level
 if _include_school_charts():
@@ -3820,36 +3959,30 @@ def run_section8_fall_winter_by_student_group(
     print("\n>>> STARTING SECTION 8 <<<")
     scope_label = scope_label or district_label
 
-    # Editable include list (comment out to exclude)
-    # Names MUST match keys in cfg['student_groups']
-    included_groups = [
-        "All Students",
-        "English Learners",
-        "Students with Disabilities",
-        "Socioeconomically Disadvantaged",
-        "Hispanic or Latino",
-        "White",
-        # "Foster",
-        # "Homeless",
-        # "Black or African American",
-        # "Asian",
-        # "Filipino",
-        # "American Indian or Alaska Native",
-        # "Native Hawaiian or Pacific Islander",
-        # "Two or More Races",
-        # "Not Stated",
-    ]
-
     student_groups_cfg = cfg.get("student_groups", {})
-
     group_order_map = cfg.get("student_group_order", {})
+
+    # --- Section 8: Use only frontend-selected groups ---
+    # Build enabled set from frontend selections (no defaults)
+    enabled_set = set()
+    if _selected_groups is not None and len(_selected_groups) > 0:
+        enabled_set.update(_selected_groups)
+    if _selected_races is not None and len(_selected_races) > 0:
+        enabled_set.update(_selected_races)
+    
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
+    else:
+        print("[Section 8] No student groups or races selected, skipping")
+        return
 
     def _group_sort_key(g: str):
         # Default to 99 if not specified
         return (int(group_order_map.get(g, 99)), g)
 
     # Only keep groups that exist in config
-    included_groups = [g for g in included_groups if g in student_groups_cfg]
+    included_groups = [g for g in enabled_set if g in student_groups_cfg]
     included_groups = sorted(included_groups, key=_group_sort_key)
     if not included_groups:
         print("[Section 8] No included groups found in cfg['student_groups']")
@@ -3905,18 +4038,21 @@ def run_section8_fall_winter_by_student_group(
 # ---------------------------------------------------------------------
 # DRIVER — RUN SECTIONS 6–8 (District Only)
 # ---------------------------------------------------------------------
-print("Running Sections 6–8 (district-level only)...")
+if _include_district_charts():
+    print("Running Sections 6–8 (district-level only)...")
 
-_scope_df = iready_base.copy()
-_scope_label = district_label
+    _scope_df = iready_base.copy()
+    _scope_label = district_label
 
-run_section6_fall_winter_by_school(_scope_df, scope_label=_scope_label, preview=False)
-run_section7_fall_winter_by_grade(_scope_df, scope_label=_scope_label, preview=False)
-run_section8_fall_winter_by_student_group(
-    _scope_df, scope_label=_scope_label, preview=False, min_n=12
-)
+    run_section6_fall_winter_by_school(_scope_df, scope_label=_scope_label, preview=False)
+    run_section7_fall_winter_by_grade(_scope_df, scope_label=_scope_label, preview=False)
+    run_section8_fall_winter_by_student_group(
+        _scope_df, scope_label=_scope_label, preview=False, min_n=12
+    )
 
-print("Sections 6–8 complete.")
+    print("Sections 6–8 complete.")
+else:
+    print("Skipping Sections 6–8 (district-level charts not requested)")
 
 
 # %%
@@ -4518,33 +4654,22 @@ def plot_section11_median_progress_by_group(
     group_defs = cfg.get("student_groups", {})
     group_order_map = cfg.get("student_group_order", {})
 
-    # Included groups:
-    # - If the frontend selected Student Groups and/or Race/Ethnicity, the runner passes them
-    #   via IREADY_MOY_STUDENT_GROUPS, and we respect that here.
-    # - Otherwise, fall back to a default list (matches Section 8 conventions).
-    if isinstance(globals().get("_selected_groups"), list) and len(globals().get("_selected_groups")) > 0:
-        included_groups = list(globals().get("_selected_groups"))
+    # Use only frontend-selected groups (no defaults)
+    enabled_set = set()
+    if _selected_groups is not None and len(_selected_groups) > 0:
+        enabled_set.update(_selected_groups)
+    if _selected_races is not None and len(_selected_races) > 0:
+        enabled_set.update(_selected_races)
+    
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
     else:
-        included_groups = [
-            "All Students",
-            "English Learners",
-            "Students with Disabilities",
-            "Socioeconomically Disadvantaged",
-            "Hispanic or Latino",
-            "White",
-            # "Black or African American",
-            # "Asian",
-            # "Filipino",
-            # "American Indian or Alaska Native",
-            # "Native Hawaiian or Pacific Islander",
-            # "Two or More Races",
-            # "Not Stated",
-            # "Foster",
-            # "Homeless",
-        ]
+        print(f"[Section 11] No student groups or races selected, skipping {subj_label}")
+        return
 
     # Only keep groups that exist in config
-    included_groups = [g for g in included_groups if g in group_defs]
+    included_groups = [g for g in enabled_set if g in group_defs]
     if not included_groups:
         print("[Section 11] No included groups found in cfg['student_groups']")
         return
@@ -4614,19 +4739,22 @@ def plot_section11_median_progress_by_group(
 
 
 # --- DRIVER for Sections 9, 10, 11 (district-level only) ---
-print("Running Sections 9, 10, 11 (district-level winter median progress)...")
-scope_df = iready_base.copy()
-for subj in ["ELA", "Math"]:
-    plot_section9_median_progress_by_school(
-        scope_df, subj, district_label, preview=False
-    )
-    plot_section10_median_progress_by_grade(
-        scope_df, subj, district_label, preview=False
-    )
-    plot_section11_median_progress_by_group(
-        scope_df, subj, district_label, cfg, preview=False, min_n=12
-    )
-print("Sections 9, 10, 11 batch complete.")
+if _include_district_charts():
+    print("Running Sections 9, 10, 11 (district-level winter median progress)...")
+    scope_df = iready_base.copy()
+    for subj in ["ELA", "Math"]:
+        plot_section9_median_progress_by_school(
+            scope_df, subj, district_label, preview=False
+        )
+        plot_section10_median_progress_by_grade(
+            scope_df, subj, district_label, preview=False
+        )
+        plot_section11_median_progress_by_group(
+            scope_df, subj, district_label, cfg, preview=False, min_n=12
+        )
+    print("Sections 9, 10, 11 batch complete.")
+else:
+    print("Skipping Sections 9, 10, 11 (district-level charts not requested)")
 # %%
 
 

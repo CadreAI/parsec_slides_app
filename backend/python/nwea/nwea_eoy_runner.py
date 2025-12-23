@@ -88,7 +88,7 @@ def generate_nwea_eoy_charts(
     except Exception:
         pass
 
-    # Scope control (district_only vs district + schools vs selected schools).
+    # Scope control (district_only vs district + schools vs selected schools vs schools_only).
     # Prefer config.assessment_scopes['nwea'] if present.
     try:
         scopes = (config or {}).get("assessment_scopes") or {}
@@ -97,13 +97,20 @@ def generate_nwea_eoy_charts(
         include_schools = nwea_scope.get("includeSchools")
         include_districtwide = True if include_districtwide is None else bool(include_districtwide)
         include_schools = True if include_schools is None else bool(include_schools)
+        
+        # Priority order: schools_only > district_only > selected_schools > default (both)
+        if not include_districtwide and include_schools:
+            # Schools only - skip district charts entirely
+            env["NWEA_EOY_SCOPE_MODE"] = "schools_only"
+        elif include_districtwide and not include_schools:
+            # District only - skip school charts entirely
+            env["NWEA_EOY_SCOPE_MODE"] = "district_only"
+        
         schools = nwea_scope.get("schools") if include_schools else None
         if isinstance(schools, list) and schools:
             env["NWEA_EOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
-            if env.get("NWEA_EOY_SCOPE_MODE") != "district_only":
+            if env.get("NWEA_EOY_SCOPE_MODE") not in ("district_only", "schools_only"):
                 env["NWEA_EOY_SCOPE_MODE"] = "selected_schools"
-        if include_districtwide and not include_schools:
-            env["NWEA_EOY_SCOPE_MODE"] = "district_only"
     except Exception:
         pass
 

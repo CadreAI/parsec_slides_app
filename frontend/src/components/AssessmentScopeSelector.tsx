@@ -228,15 +228,15 @@ export function AssessmentScopeSelector({
                         options={finalSchoolOptions}
                         selected={scope.schools}
                         onChange={(selected) => {
-                            const limited = selected.slice(0, 3)
+                            const limited = selected.slice(0, 5)
                             onScopeChangeAction(assessmentId, {
                                 ...scope,
                                 schools: limited,
                                 resolvedSchools: resolveSelectedSchools(limited)
                             })
                         }}
-                        maxSelected={3}
-                        onMaxSelected={() => toast.warning('You can select up to 3 schools per assessment.')}
+                        maxSelected={5}
+                        onMaxSelected={() => toast.warning('You can select up to 5 schools per assessment.')}
                         placeholder={
                             isLoadingDistrictsSchools
                                 ? 'Loading schools...'

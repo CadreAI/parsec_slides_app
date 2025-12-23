@@ -186,7 +186,7 @@ export default function CreateSlide() {
                     const scope = scopes?.[aid]
                     if (!scope) continue
                     const includeDistrictwide = scope.includeDistrictwide !== false
-                    const includeSchools = scope.includeSchools !== false
+                    const includeSchools = scope.includeSchools === true // default false
                     const schools = Array.isArray(scope.resolvedSchools) && scope.resolvedSchools.length > 0 ? scope.resolvedSchools : scope.schools
                     if (!includeDistrictwide && includeSchools && Array.isArray(schools) && schools.length > 0) {
                         if (!schoolsByAssessment[aid]) schoolsByAssessment[aid] = new Set<string>()
@@ -429,7 +429,7 @@ export default function CreateSlide() {
                 return
             }
             const includeDistrictwide = scope.includeDistrictwide !== false
-            const includeSchools = scope.includeSchools !== false
+            const includeSchools = scope.includeSchools === true // default false
             // Must include districtwide and/or at least one school
             if (!includeDistrictwide && (!includeSchools || scope.schools.length === 0)) {
                 toast.error(`Please enable the aggregate and/or select at least one school for ${assessmentId}`)
@@ -491,7 +491,7 @@ export default function CreateSlide() {
                 if (scope) {
                     scope.districts.forEach((d) => aggregatedDistricts.add(d))
                     const includeDistrictwide = scope.includeDistrictwide !== false
-                    const includeSchools = scope.includeSchools !== false
+                    const includeSchools = scope.includeSchools === true // default false
                     if (includeSchools) {
                         const resolved = Array.isArray(scope.resolvedSchools) && scope.resolvedSchools.length > 0 ? scope.resolvedSchools : scope.schools
                         resolved.forEach((s) => aggregatedSchools.add(s))
@@ -570,13 +570,15 @@ export default function CreateSlide() {
             })
 
             // Scope controls for runner-based iReady scripts:
-            // - chartFilters.district_only: generate district charts only (skip all school loops)
+            // - chartFilters.district_only: generate district charts only (skip all school loops, includes sections 6-11)
+            // - chartFilters.schools_only: generate school charts only (skip district sections 6-11)
             // - chartFilters.schools: generate district + only these school charts
             const hasIready = selectedAssessmentIds.includes('iready')
             const ireadyScope = hasIready ? formData.assessmentScopes['iready'] : undefined
-            const ireadyIncludeDistrictwide = ireadyScope?.includeDistrictwide !== false
-            const ireadyIncludeSchools = ireadyScope?.includeSchools !== false
+            const ireadyIncludeDistrictwide = ireadyScope?.includeDistrictwide !== false // default true
+            const ireadyIncludeSchools = ireadyScope?.includeSchools === true // default false (match AssessmentScopeSelector)
             const ireadyDistrictOnly = Boolean(hasIready && ireadyIncludeDistrictwide && !ireadyIncludeSchools)
+            const ireadySchoolsOnly = Boolean(hasIready && !ireadyIncludeDistrictwide && ireadyIncludeSchools)
             const ireadyResolvedSchools =
                 hasIready && Array.isArray(ireadyScope?.resolvedSchools) && ireadyScope!.resolvedSchools!.length > 0
                     ? ireadyScope!.resolvedSchools
@@ -590,9 +592,21 @@ export default function CreateSlide() {
             // We keep this separate from iReady to avoid collisions when multiple assessments are selected.
             const hasNwea = selectedAssessmentIds.includes('nwea')
             const nweaScope = hasNwea ? formData.assessmentScopes['nwea'] : undefined
-            const nweaIncludeDistrictwide = nweaScope?.includeDistrictwide !== false
-            const nweaIncludeSchools = nweaScope?.includeSchools !== false
+            const nweaIncludeDistrictwide = nweaScope?.includeDistrictwide !== false // default true
+            const nweaIncludeSchools = nweaScope?.includeSchools === true // default false (match AssessmentScopeSelector)
             const nweaDistrictOnly = Boolean(hasNwea && nweaIncludeDistrictwide && !nweaIncludeSchools)
+            const nweaSchoolsOnly = Boolean(hasNwea && !nweaIncludeDistrictwide && nweaIncludeSchools)
+
+            // Scope controls for STAR scripts (Winter/Spring/Fall)
+            // Similar to iReady and NWEA, we pass includeDistrictwide and includeSchools flags
+            const hasStar = selectedAssessmentIds.includes('star')
+            const starScope = hasStar ? formData.assessmentScopes['star'] : undefined
+            const starIncludeDistrictwide = starScope?.includeDistrictwide !== false // default true
+            const starIncludeSchools = starScope?.includeSchools === true // default false
+            const starResolvedSchools =
+                hasStar && Array.isArray(starScope?.resolvedSchools) && starScope!.resolvedSchools!.length > 0 ? starScope!.resolvedSchools : starScope?.schools
+            const starSelectedSchools =
+                hasStar && starIncludeSchools && Array.isArray(starResolvedSchools) && starResolvedSchools.length > 0 ? starResolvedSchools : undefined
 
             const chartFilters = {
                 grades:
@@ -604,12 +618,13 @@ export default function CreateSlide() {
                                   return isNaN(parsed) ? null : parsed
                               })
                               .filter((g) => g !== null)
-                        : undefined,
+                        : [], // Send empty array instead of undefined so runner knows grades filter was used
                 years: formData.years.length > 0 ? formData.years.map((y) => parseInt(y)).filter((y) => !isNaN(y)) : undefined,
                 quarters: formData.quarters ? [formData.quarters] : undefined,
                 subjects: formData.subjects.length > 0 ? formData.subjects : undefined,
-                student_groups: formData.studentGroups.length > 0 ? formData.studentGroups : undefined,
-                race: formData.race.length > 0 ? formData.race : undefined,
+                // Only send student_groups/race if assessment supports them (indicates user had access to the filter)
+                student_groups: supportsStudentGroups ? (formData.studentGroups.length > 0 ? formData.studentGroups : []) : undefined,
+                race: supportsRace ? (formData.race.length > 0 ? formData.race : []) : undefined,
 
                 // Districtwide aggregate selection (any assessment)
                 // include_districtwide tells backend ingestion to avoid school-name SQL filters
@@ -618,9 +633,15 @@ export default function CreateSlide() {
 
                 // iReady scope selection (district vs schools)
                 district_only: ireadyDistrictOnly ? true : undefined,
+                schools_only: ireadySchoolsOnly ? true : undefined,
                 schools: ireadySelectedSchools,
                 // NWEA scope selection (district vs schools)
-                nwea_district_only: nweaDistrictOnly ? true : undefined
+                nwea_district_only: nweaDistrictOnly ? true : undefined,
+                nwea_schools_only: nweaSchoolsOnly ? true : undefined,
+                // STAR scope selection (district vs schools)
+                includeDistrictwide: hasStar ? starIncludeDistrictwide : undefined,
+                includeSchools: hasStar ? starIncludeSchools : undefined,
+                star_schools: starSelectedSchools
             }
 
             const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`
