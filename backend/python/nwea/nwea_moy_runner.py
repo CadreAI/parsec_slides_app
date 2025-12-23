@@ -88,7 +88,7 @@ def generate_nwea_winter_charts(
     except Exception:
         pass
 
-    # Scope control (district_only vs district + schools vs selected schools).
+    # Scope control (district_only vs district + schools vs selected schools vs schools_only).
     # Prefer config.assessment_scopes['nwea'] if present.
     try:
         scopes = (config or {}).get("assessment_scopes") or {}
@@ -97,39 +97,62 @@ def generate_nwea_winter_charts(
         include_schools = nwea_scope.get("includeSchools")
         include_districtwide = True if include_districtwide is None else bool(include_districtwide)
         include_schools = True if include_schools is None else bool(include_schools)
+        
+        # Priority order: schools_only > district_only > selected_schools > default (both)
+        if not include_districtwide and include_schools:
+            # Schools only - skip district charts entirely
+            env["NWEA_MOY_SCOPE_MODE"] = "schools_only"
+        elif include_districtwide and not include_schools:
+            # District only - skip school charts entirely
+            env["NWEA_MOY_SCOPE_MODE"] = "district_only"
+        
         schools = nwea_scope.get("schools") if include_schools else None
         if isinstance(schools, list) and schools:
             env["NWEA_MOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
-            if env.get("NWEA_MOY_SCOPE_MODE") != "district_only":
+            if env.get("NWEA_MOY_SCOPE_MODE") not in ("district_only", "schools_only"):
                 env["NWEA_MOY_SCOPE_MODE"] = "selected_schools"
-        if include_districtwide and not include_schools:
-            env["NWEA_MOY_SCOPE_MODE"] = "district_only"
     except Exception:
         pass
 
     # Pass selected student groups from frontend into the legacy script
     # Frontend uses chart_filters["student_groups"] (snake_case)
     try:
-        groups = (chart_filters or {}).get("student_groups") or []
-        if isinstance(groups, list) and groups:
-            env["NWEA_MOY_STUDENT_GROUPS"] = ",".join(str(g) for g in groups)
+        if "student_groups" in (chart_filters or {}):
+            groups = chart_filters.get("student_groups") or []
+            if isinstance(groups, list):
+                if groups:
+                    env["NWEA_MOY_STUDENT_GROUPS"] = ",".join(str(g) for g in groups)
+                else:
+                    # Explicitly set to empty - user selected no groups, so skip Section 2
+                    env["NWEA_MOY_STUDENT_GROUPS"] = "NONE"
     except Exception:
         pass
 
     # Pass selected race/ethnicity from frontend into the legacy script
     # Frontend uses chart_filters["race"] as an array of strings.
     try:
-        races = (chart_filters or {}).get("race") or []
-        if isinstance(races, list) and races:
-            env["NWEA_MOY_RACE"] = ",".join(str(r) for r in races if str(r).strip())
+        if "race" in (chart_filters or {}):
+            races = chart_filters.get("race") or []
+            if isinstance(races, list):
+                if races:
+                    env["NWEA_MOY_RACE"] = ",".join(str(r) for r in races if str(r).strip())
+                else:
+                    # Explicitly set to empty - user selected no races, so skip race charts in Section 2
+                    env["NWEA_MOY_RACE"] = "NONE"
     except Exception:
         pass
 
     # Pass selected grades from frontend into the legacy script (used for grade-level batches)
     try:
-        grades = (chart_filters or {}).get("grades") or []
-        if isinstance(grades, list) and grades:
-            env["NWEA_MOY_GRADES"] = ",".join(str(g) for g in grades)
+        # Check if grades filter was explicitly provided (even if empty)
+        if "grades" in (chart_filters or {}):
+            grades = chart_filters.get("grades") or []
+            if isinstance(grades, list):
+                if grades:
+                    env["NWEA_MOY_GRADES"] = ",".join(str(g) for g in grades)
+                else:
+                    # Explicitly set to empty - user selected no grades, so skip grade-based sections
+                    env["NWEA_MOY_GRADES"] = "NONE"
     except Exception:
         pass
 

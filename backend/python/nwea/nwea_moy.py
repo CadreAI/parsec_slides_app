@@ -458,6 +458,11 @@ def _include_school_charts() -> bool:
     return _scope_mode not in ("district_only", "district")
 
 
+def _include_district_charts() -> bool:
+    """Return False only when schools_only mode is active."""
+    return _scope_mode not in ("schools_only",)
+
+
 def _school_selected(raw_school: str) -> bool:
     """Match against raw school or normalized school display (case-insensitive)."""
     if not _selected_schools:
@@ -481,17 +486,22 @@ def _iter_schools(df: pd.DataFrame):
         yield rs
 
 # Optional: restrict grade-level dashboards based on frontend selection.
-# The runner passes selected grades as: NWEA_MOY_GRADES="3,4,5"
+# The runner passes selected grades as: NWEA_MOY_GRADES="3,4,5" or "NONE" (empty selection)
 _env_grades = os.getenv("NWEA_MOY_GRADES")
 _selected_grades = None
 if _env_grades:
-    try:
-        _parsed = {int(x.strip()) for x in str(_env_grades).split(",") if x.strip()}
-        if _parsed:
-            _selected_grades = _parsed
-            print(f"[FILTER] Grade selection from frontend: {sorted(_selected_grades)}")
-    except Exception:
-        _selected_grades = None
+    if _env_grades == "NONE":
+        # Explicitly no grades selected - set to empty set to skip grade-based sections
+        _selected_grades = set()
+        print(f"[FILTER] Grade selection from frontend: NONE (will skip grade-based sections)")
+    else:
+        try:
+            _parsed = {int(x.strip()) for x in str(_env_grades).split(",") if x.strip()}
+            if _parsed:
+                _selected_grades = _parsed
+                print(f"[FILTER] Grade selection from frontend: {sorted(_selected_grades)}")
+        except Exception:
+            _selected_grades = None
 
 # Inspect categorical columns (quick QC)
 cat_cols = [
@@ -863,7 +873,9 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
 
 # ---- RUN SECTION 0 ----
 _section0_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
-for raw in [None] + _section0_schools:
+# Build scope list: include district (None) only if not schools_only mode
+_section0_scopes = ([None] if _include_district_charts() else []) + _section0_schools
+for raw in _section0_scopes:
     if raw is None:
         scope_df = nwea_base.copy()
         scope_label = district_label
@@ -1424,14 +1436,15 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
 # ---------------------------------------------------------------------
 
 # District-level snapshot
-scope_label_01 = district_label
-plot_nwea_dual_subject_fall_winter_dashboard(
-    nwea_base.copy(),
-    figsize=(16, 9),
-    school_raw=None,
-    scope_label=scope_label_01,
-    preview=False,
-)
+if _include_district_charts():
+    scope_label_01 = district_label
+    plot_nwea_dual_subject_fall_winter_dashboard(
+        nwea_base.copy(),
+        figsize=(16, 9),
+        school_raw=None,
+        scope_label=scope_label_01,
+        preview=False,
+    )
 
 # Site-level snapshots
 if _include_school_charts():
@@ -2016,17 +2029,18 @@ def plot_nwea_dual_subject_dashboard(
 # ---------------------------------------------------------------------
 # Dual Subject District Dashboard
 # ---------------------------------------------------------------------
-scope_label = district_label
-folder = "_district"
+if _include_district_charts():
+    scope_label = district_label
+    folder = "_district"
 
-plot_nwea_dual_subject_dashboard(
-    nwea_base.copy(),
-    window_filter="Winter",
-    figsize=(16, 9),
-    school_raw=None,
-    scope_label=scope_label,  # <-- new param
-    preview=True,  # or False for batch
-)
+    plot_nwea_dual_subject_dashboard(
+        nwea_base.copy(),
+        window_filter="Winter",
+        figsize=(16, 9),
+        school_raw=None,
+        scope_label=scope_label,  # <-- new param
+        preview=True,  # or False for batch
+    )
 
 # ---------------------------------------------------------------------
 # Dual Subject Dashboard by School
@@ -2448,20 +2462,28 @@ student_groups_cfg = cfg.get("student_groups", {})
 group_order = cfg.get("student_group_order", {})
 
 # Optional: restrict student-group dashboards based on frontend selection.
-# The runner passes selected groups as: NWEA_MOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
+# The runner passes selected groups as: NWEA_MOY_STUDENT_GROUPS="English Learners,Students with Disabilities" or "NONE"
 _env_groups = os.getenv("NWEA_MOY_STUDENT_GROUPS")
-_selected_groups = []
+_selected_groups = None  # None = no filter used, [] = filter used but empty, [...] = specific groups
 if _env_groups:
-    _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
-    print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
+    if _env_groups == "NONE":
+        _selected_groups = []  # Empty list = skip Section 2
+        print(f"[FILTER] Student group selection from frontend: NONE (will skip Section 2)")
+    else:
+        _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
+        print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
 
 # Optional: restrict race/ethnicity dashboards based on frontend selection.
-# The runner passes selected races as: NWEA_MOY_RACE="Hispanic or Latino,White"
+# The runner passes selected races as: NWEA_MOY_RACE="Hispanic or Latino,White" or "NONE"
 _env_race = os.getenv("NWEA_MOY_RACE")
-_selected_races = []
+_selected_races = None  # None = no filter used, [] = filter used but empty, [...] = specific races
 if _env_race:
-    _selected_races = [r.strip() for r in str(_env_race).split(",") if r.strip()]
-    print(f"[FILTER] Race/Ethnicity selection from frontend: {_selected_races}")
+    if _env_race == "NONE":
+        _selected_races = []  # Empty list = skip race charts
+        print(f"[FILTER] Race/Ethnicity selection from frontend: NONE (will skip race charts)")
+    else:
+        _selected_races = [r.strip() for r in str(_env_race).split(",") if r.strip()]
+        print(f"[FILTER] Race/Ethnicity selection from frontend: {_selected_races}")
 
 
 def _get_ethnicity_col(df: pd.DataFrame) -> str | None:
@@ -2471,97 +2493,49 @@ def _get_ethnicity_col(df: pd.DataFrame) -> str | None:
     return None
 
 # ---- District-level
-scope_df = nwea_base.copy()
-scope_label = district_label
+# Skip Section 2 entirely if no groups or races are selected
+_has_groups = _selected_groups is not None and len(_selected_groups) > 0
+_has_races = _selected_races is not None and len(_selected_races) > 0
 
-_has_frontend_filters = bool(_selected_groups or _selected_races)
+if not _has_groups and not _has_races:
+    print("[FILTER] Section 2: Skipping (no student groups or races selected)")
+else:
+    if _include_district_charts():
+        scope_df = nwea_base.copy()
+        scope_label = district_label
 
-# Selected student groups
-for group_name, group_def in sorted(
-    student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
-):
-    if group_def.get("type") == "all":
-        continue
-    if _has_frontend_filters and group_name not in _selected_groups:
-        continue
-    plot_nwea_subject_dashboard_by_group(
-        scope_df.copy(),
-        subject_str=None,
-        window_filter="Winter",
-        group_name=group_name,
-        group_def=group_def,
-        figsize=(16, 9),
-        school_raw=None,
-        scope_label=scope_label,
-    )
+        # Selected student groups - only generate if groups are selected
+        if _has_groups:
+            for group_name, group_def in sorted(
+                student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
+            ):
+                if group_def.get("type") == "all":
+                    continue
+                # Only generate selected groups
+                if group_name not in _selected_groups:
+                    continue
+                plot_nwea_subject_dashboard_by_group(
+                    scope_df.copy(),
+                    subject_str=None,
+                    window_filter="Winter",
+                    group_name=group_name,
+                    group_def=group_def,
+                    figsize=(16, 9),
+                    school_raw=None,
+                    scope_label=scope_label,
+                )
 
-# Selected races (may not exist as keys in student_groups_cfg when options are dynamic)
-if _selected_races:
-    eth_col = _get_ethnicity_col(scope_df)
-    if not eth_col:
-        logger.info(
-            "[CHART] Section 2: race filters provided but no ethnicity/race column found; skipping race charts"
-        )
-    else:
-        for race_name in _selected_races:
-            # Prefer config mapping if it exists (allows synonyms), otherwise exact match on column.
-            mapped = student_groups_cfg.get(race_name) if isinstance(student_groups_cfg, dict) else None
-            if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
-                race_def = mapped
-            else:
-                race_def = {"column": eth_col, "in": [race_name]}
-            plot_nwea_subject_dashboard_by_group(
-                scope_df.copy(),
-                subject_str=None,
-                window_filter="Winter",
-                group_name=race_name,
-                group_def=race_def,
-                figsize=(16, 9),
-                school_raw=None,
-                scope_label=scope_label,
-            )
-
-# ---- Site-level
-if _include_school_charts():
-    for raw_school in _iter_schools(nwea_base):
-        before_school = len(nwea_base)
-        scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
-        logger.info(f"[FILTER] Section 2: After school filter '{raw_school}': {len(scope_df):,} rows (removed {before_school - len(scope_df):,})")
-        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-
-        # Selected student groups
-        for group_name, group_def in sorted(
-            student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
-        ):
-            if group_def.get("type") == "all":
-                continue
-            if _has_frontend_filters and group_name not in _selected_groups:
-                continue
-            plot_nwea_subject_dashboard_by_group(
-                scope_df.copy(),
-                subject_str=None,
-                window_filter="Winter",
-                group_name=group_name,
-                group_def=group_def,
-                figsize=(16, 9),
-                school_raw=raw_school,
-                scope_label=scope_label,
-            )
-
-        # Selected races
-        if _selected_races:
+        # Selected races - only generate if races are selected
+        if _has_races:
             eth_col = _get_ethnicity_col(scope_df)
             if not eth_col:
                 logger.info(
-                    f"[CHART] Section 2: race filters provided but no ethnicity/race column found for school '{raw_school}'; skipping race charts"
+                    "[CHART] Section 2: race filters provided but no ethnicity/race column found; skipping race charts"
                 )
             else:
                 for race_name in _selected_races:
-                    mapped = (
-                        student_groups_cfg.get(race_name)
-                        if isinstance(student_groups_cfg, dict)
-                        else None
-                    )
+                    # Prefer config mapping if it exists (allows synonyms), otherwise exact match on column.
+                    mapped = student_groups_cfg.get(race_name) if isinstance(student_groups_cfg, dict) else None
                     if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
                         race_def = mapped
                     else:
@@ -2572,10 +2546,68 @@ if _include_school_charts():
                         window_filter="Winter",
                         group_name=race_name,
                         group_def=race_def,
+                            figsize=(16, 9),
+                            school_raw=None,
+                            scope_label=scope_label,
+                        )
+
+# ---- Site-level
+if _include_school_charts():
+    for raw_school in _iter_schools(nwea_base):
+        before_school = len(nwea_base)
+        scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
+        logger.info(f"[FILTER] Section 2: After school filter '{raw_school}': {len(scope_df):,} rows (removed {before_school - len(scope_df):,})")
+        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+
+        # Selected student groups - only generate if groups are selected
+        if _has_groups:
+            for group_name, group_def in sorted(
+                student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
+            ):
+                if group_def.get("type") == "all":
+                    continue
+                # Only generate selected groups
+                if group_name not in _selected_groups:
+                    continue
+            plot_nwea_subject_dashboard_by_group(
+                scope_df.copy(),
+                subject_str=None,
+                window_filter="Winter",
+                group_name=group_name,
+                group_def=group_def,
                         figsize=(16, 9),
                         school_raw=raw_school,
                         scope_label=scope_label,
                     )
+
+            # Selected races - only generate if races are selected
+            if _has_races:
+                eth_col = _get_ethnicity_col(scope_df)
+                if not eth_col:
+                    logger.info(
+                        f"[CHART] Section 2: race filters provided but no ethnicity/race column found for school '{raw_school}'; skipping race charts"
+                    )
+                else:
+                    for race_name in _selected_races:
+                        mapped = (
+                            student_groups_cfg.get(race_name)
+                            if isinstance(student_groups_cfg, dict)
+                            else None
+                        )
+                        if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
+                            race_def = mapped
+                        else:
+                            race_def = {"column": eth_col, "in": [race_name]}
+                        plot_nwea_subject_dashboard_by_group(
+                            scope_df.copy(),
+                            subject_str=None,
+                            window_filter="Winter",
+                            group_name=race_name,
+                            group_def=race_def,
+                figsize=(16, 9),
+                school_raw=raw_school,
+                scope_label=scope_label,
+            )
 
 
 # %% SECTION 3 - Overall + Cohort Trends
@@ -3275,52 +3307,57 @@ def plot_nwea_blended_dashboard(
 
 
 # ---- Combined DRIVER for Section 3 ----
-_base = nwea_base.copy()
-_base["year"] = pd.to_numeric(_base["year"], errors="coerce")
-_base["grade"] = pd.to_numeric(_base["grade"], errors="coerce")
-
-
-def _run_scope(scope_df, scope_label, school_raw):
-    if scope_df["year"].notna().any():
-        anchor_year = int(scope_df["year"].max())
-    else:
-        anchor_year = None
-    for g in sorted(scope_df["grade"].dropna().unique()):
-        try:
-            g_int = int(g)
-        except Exception:
-            continue
-        if _selected_grades is not None and g_int not in _selected_grades:
-            continue
-        subjects_to_generate = _requested_subjects(["Reading", "Mathematics"])
-        for subject_str in subjects_to_generate:
-            if filter_nwea_subject_rows(scope_df, subject_str).empty:
-                logger.info(
-                    f"[CHART] Section 3: skipping subject '{subject_str}' for Grade {g_int} (no matching rows)"
-                )
+# Skip Section 3 entirely if grades were filtered and none were selected
+if _selected_grades is not None and len(_selected_grades) == 0:
+    print("[FILTER] Section 3: Skipping (no grades selected)")
+else:
+    _base = nwea_base.copy()
+    _base["year"] = pd.to_numeric(_base["year"], errors="coerce")
+    _base["grade"] = pd.to_numeric(_base["grade"], errors="coerce")
+    
+    
+    def _run_scope(scope_df, scope_label, school_raw):
+        if scope_df["year"].notna().any():
+            anchor_year = int(scope_df["year"].max())
+        else:
+            anchor_year = None
+        for g in sorted(scope_df["grade"].dropna().unique()):
+            try:
+                g_int = int(g)
+            except Exception:
                 continue
-            plot_nwea_blended_dashboard(
-                scope_df.copy(),
-                course_str=subject_str,
-                current_grade=g_int,
-                window_filter="Winter",
-                cohort_year=anchor_year,
-                figsize=(16, 9),
-                school_raw=school_raw,
-                preview=False,
-                scope_label=scope_label,
-            )
-
-
-# ---- Run for district ----
-_run_scope(_base.copy(), district_label, None)
-
-# %%---- Run for schools ----
-if _include_school_charts():
-    for raw in _iter_schools(_base):
-        site_df = _base[_base["schoolname"] == raw].copy()
-        scope_label = hf._safe_normalize_school_name(raw, cfg)
-        _run_scope(site_df, scope_label, raw)
+            if _selected_grades is not None and g_int not in _selected_grades:
+                continue
+            subjects_to_generate = _requested_subjects(["Reading", "Mathematics"])
+            for subject_str in subjects_to_generate:
+                if filter_nwea_subject_rows(scope_df, subject_str).empty:
+                    logger.info(
+                        f"[CHART] Section 3: skipping subject '{subject_str}' for Grade {g_int} (no matching rows)"
+                    )
+                    continue
+                plot_nwea_blended_dashboard(
+                    scope_df.copy(),
+                    course_str=subject_str,
+                    current_grade=g_int,
+                    window_filter="Winter",
+                    cohort_year=anchor_year,
+                    figsize=(16, 9),
+                    school_raw=school_raw,
+                    preview=False,
+                    scope_label=scope_label,
+                )
+    
+    
+    # ---- Run for district ----
+        if _include_district_charts():
+            _run_scope(_base.copy(), district_label, None)
+    
+    # %%---- Run for schools ----
+    if _include_school_charts():
+        for raw in _iter_schools(_base):
+            site_df = _base[_base["schoolname"] == raw].copy()
+            scope_label = hf._safe_normalize_school_name(raw, cfg)
+            _run_scope(site_df, scope_label, raw)
 
 
 # %% SECTION 4 — Overall Growth Trends by Site (CGP + CGI)
@@ -3705,7 +3742,8 @@ def _run_cgp_dual_trend(scope_df, scope_label):
 # DRIVER — District + School CGP Dual-Panel Dashboards
 # ---------------------------------------------------------------------
 
-_run_cgp_dual_trend(nwea_base.copy(), district_label)
+if _include_district_charts():
+    _run_cgp_dual_trend(nwea_base.copy(), district_label)
 
 if _include_school_charts():
     for raw_school in _iter_schools(nwea_base):
@@ -3715,6 +3753,7 @@ if _include_school_charts():
         scope_label = hf._safe_normalize_school_name(raw_school, cfg)
         _run_cgp_dual_trend(scope_df, scope_label)
 
+# ---- Section 4 complete ----
 
 # %% SECTION 5 — CGP/CGI Growth: Grade Trend + Backward Cohort (Unmatched)
 # ---------------------------------------------------------------------
@@ -4058,84 +4097,90 @@ def _plot_cgp_dual_facet(
         plt.show()
 
 
-# SECTION 5 DRIVER — Districtwide
-district_display = district_label
-d0 = nwea_base.copy()
-d0["year"] = pd.to_numeric(d0["year"], errors="coerce")
-d0["grade"] = pd.to_numeric(d0["grade"], errors="coerce")
-grades = sorted(d0["grade"].dropna().unique())
-if _selected_grades is not None:
-    grades = [g for g in grades if int(g) in _selected_grades]
-subjects = _requested_core_subjects()
-preview = False  # or True for interactive preview
-
-for grade in grades:
-    try:
-        grade = int(grade)
-    except Exception:
-        continue
-    if _selected_grades is not None and int(grade) not in _selected_grades:
-        continue
-    for subject in subjects:
-        overall_df = _prep_cgp_by_grade(d0, subject, grade)
-        if overall_df.empty:
-            continue
-        anchor_year = int(d0[d0["grade"] == grade]["year"].max())
-        cohort_rows = []
-        for offset in range(3, -1, -1):
-            yr = anchor_year - offset
-            gr = grade - offset
-            if gr < 0:
+# %% SECTION 5 — CGP/CGI Growth: Grade Trend + Backward Cohort (Unmatched)
+# Skip Section 5 entirely if grades were filtered and none were selected
+if _selected_grades is not None and len(_selected_grades) == 0:
+    print("[FILTER] Section 5: Skipping (no grades selected)")
+else:
+    # SECTION 5 DRIVER — Districtwide
+    if _include_district_charts():
+        district_display = district_label
+        d0 = nwea_base.copy()
+        d0["year"] = pd.to_numeric(d0["year"], errors="coerce")
+        d0["grade"] = pd.to_numeric(d0["grade"], errors="coerce")
+        grades = sorted(d0["grade"].dropna().unique())
+        if _selected_grades is not None:
+            grades = [g for g in grades if int(g) in _selected_grades]
+        subjects = _requested_core_subjects()
+        preview = False  # or True for interactive preview
+        
+        for grade in grades:
+            try:
+                grade = int(grade)
+            except Exception:
                 continue
-            d = d0.copy()
-            d = d[
-                (d["year"] == yr)
-                & (d["grade"] == gr)
-                & (d["testwindow"].str.upper() == "WINTER")
-            ]
-            if "teststartdate" in d.columns:
-                d = d.sort_values("teststartdate").drop_duplicates(
-                    subset=["uniqueidentifier", "year", "grade", "course", "subject"],
-                    keep="last",
+            if _selected_grades is not None and int(grade) not in _selected_grades:
+                continue
+            for subject in subjects:
+                overall_df = _prep_cgp_by_grade(d0, subject, grade)
+                if overall_df.empty:
+                    continue
+                anchor_year = int(d0[d0["grade"] == grade]["year"].max())
+                cohort_rows = []
+                for offset in range(3, -1, -1):
+                    yr = anchor_year - offset
+                    gr = grade - offset
+                    if gr < 0:
+                        continue
+                    d = d0.copy()
+                    d = d[
+                        (d["year"] == yr)
+                        & (d["grade"] == gr)
+                        & (d["testwindow"].str.upper() == "WINTER")
+                    ]
+                    if "teststartdate" in d.columns:
+                        d = d.sort_values("teststartdate").drop_duplicates(
+                            subset=["uniqueidentifier", "year", "grade", "course", "subject"],
+                            keep="last",
+                        )
+                    if subject.lower() == "mathematics":
+                        d = d[d["course"] == "Math K-12"]
+                    else:
+                        d = d[d["course"].str.contains("read", case=False, na=False)]
+                    d = d.dropna(
+                        subset=[
+                            "falltowinterconditionalgrowthpercentile",
+                            "falltowinterconditionalgrowthindex",
+                        ]
+                    )
+                    if d.empty:
+                        continue
+                    cohort_rows.append(
+                        {
+                            "gr": gr,
+                            "yr": yr,
+                            "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                            "median_cgp": d["falltowinterconditionalgrowthpercentile"].median(),
+                            "mean_cgi": d["falltowinterconditionalgrowthindex"].mean(),
+                        }
+                    )
+                if not cohort_rows:
+                    continue
+                cohort_df = pd.DataFrame(cohort_rows)
+                cohort_df = cohort_df.sort_values(["gr", "yr"])
+                ordered_labels = cohort_df["time_label"].tolist()
+                cohort_df["time_label"] = pd.Categorical(
+                    cohort_df["time_label"], categories=ordered_labels, ordered=True
                 )
-            if subject.lower() == "mathematics":
-                d = d[d["course"] == "Math K-12"]
-            else:
-                d = d[d["course"].str.contains("read", case=False, na=False)]
-            d = d.dropna(
-                subset=[
-                    "falltowinterconditionalgrowthpercentile",
-                    "falltowinterconditionalgrowthindex",
-                ]
-            )
-            if d.empty:
-                continue
-            cohort_rows.append(
-                {
-                    "gr": gr,
-                    "yr": yr,
-                    "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
-                    "median_cgp": d["falltowinterconditionalgrowthpercentile"].median(),
-                    "mean_cgi": d["falltowinterconditionalgrowthindex"].mean(),
-                }
-            )
-        if not cohort_rows:
-            continue
-        cohort_df = pd.DataFrame(cohort_rows)
-        cohort_df = cohort_df.sort_values(["gr", "yr"])
-        ordered_labels = cohort_df["time_label"].tolist()
-        cohort_df["time_label"] = pd.Categorical(
-            cohort_df["time_label"], categories=ordered_labels, ordered=True
-        )
-        _plot_cgp_dual_facet(
-            overall_df,
-            cohort_df,
-            grade,
-            subject,
-            scope_label=district_display,
-            preview=preview,
-        )
-
+                _plot_cgp_dual_facet(
+                    overall_df,
+                    cohort_df,
+                    grade,
+                    subject,
+                    scope_label=district_display,
+                    preview=preview,
+                )
+        
 # %% SECTION 5 DRIVER — By School
 all_schools = list(_iter_schools(nwea_base)) if _include_school_charts() else []
 grades = sorted(nwea_base["grade"].dropna().unique())
@@ -4589,36 +4634,39 @@ def _plot_section6_fall_winter_by_school(
 
 
 # ---- RUN SECTION 6 (district only) ----
-try:
-    district_label_06 = district_label
+if _include_district_charts():
+    try:
+        district_label_06 = district_label
 
-    # Reading / ELA
-    pct_ela, year_ela, schools_ela = _prep_section6_fall_winter_by_school(
-        nwea_base.copy(),
-        subject_str="Reading",
-    )
-    _plot_section6_fall_winter_by_school(
-        pct_ela,
-        subject_title="Reading",
-        target_year=year_ela,
-        school_order=schools_ela,
-        preview=False,
-    )
+        # Reading / ELA
+        pct_ela, year_ela, schools_ela = _prep_section6_fall_winter_by_school(
+            nwea_base.copy(),
+            subject_str="Reading",
+        )
+        _plot_section6_fall_winter_by_school(
+            pct_ela,
+            subject_title="Reading",
+            target_year=year_ela,
+            school_order=schools_ela,
+            preview=False,
+        )
 
-    # Math
-    pct_math, year_math, schools_math = _prep_section6_fall_winter_by_school(
-        nwea_base.copy(),
-        subject_str="Math",
-    )
-    _plot_section6_fall_winter_by_school(
-        pct_math,
-        subject_title="Math",
-        target_year=year_math,
-        school_order=schools_math,
-        preview=False,
-    )
-except Exception as e:
-    print(f"[Section 6] ERROR: {e}")
+        # Math
+        pct_math, year_math, schools_math = _prep_section6_fall_winter_by_school(
+            nwea_base.copy(),
+            subject_str="Math",
+        )
+        _plot_section6_fall_winter_by_school(
+            pct_math,
+            subject_title="Math",
+            target_year=year_math,
+            school_order=schools_math,
+            preview=False,
+        )
+    except Exception as e:
+        print(f"[Section 6] ERROR: {e}")
+else:
+    print("[Section 6] Skipping (district-level charts not requested)")
 
 
 # %% SECTION 7 — District Fall vs Winter by Grade (ELA + Math)
@@ -4935,34 +4983,37 @@ def _plot_section7_fall_winter_by_grade(
 
 
 # ---- RUN SECTION 7 (district only) ----
-try:
-    # Reading / ELA
-    pct_ela_g, year_ela_g, grades_ela = _prep_section7_fall_winter_by_grade(
-        nwea_base.copy(),
-        subject_str="Reading",
-    )
-    _plot_section7_fall_winter_by_grade(
-        pct_ela_g,
-        subject_title="Reading",
-        target_year=year_ela_g,
-        grade_order=grades_ela,
-        preview=False,
-    )
+if _include_district_charts():
+    try:
+        # Reading / ELA
+        pct_ela_g, year_ela_g, grades_ela = _prep_section7_fall_winter_by_grade(
+            nwea_base.copy(),
+            subject_str="Reading",
+        )
+        _plot_section7_fall_winter_by_grade(
+            pct_ela_g,
+            subject_title="Reading",
+            target_year=year_ela_g,
+            grade_order=grades_ela,
+            preview=False,
+        )
 
-    # Math
-    pct_math_g, year_math_g, grades_math = _prep_section7_fall_winter_by_grade(
-        nwea_base.copy(),
-        subject_str="Math",
-    )
-    _plot_section7_fall_winter_by_grade(
-        pct_math_g,
-        subject_title="Math",
-        target_year=year_math_g,
-        grade_order=grades_math,
-        preview=False,
-    )
-except Exception as e:
-    print(f"[Section 7] ERROR: {e}")
+        # Math
+        pct_math_g, year_math_g, grades_math = _prep_section7_fall_winter_by_grade(
+            nwea_base.copy(),
+            subject_str="Math",
+        )
+        _plot_section7_fall_winter_by_grade(
+            pct_math_g,
+            subject_title="Math",
+            target_year=year_math_g,
+            grade_order=grades_math,
+            preview=False,
+        )
+    except Exception as e:
+        print(f"[Section 7] ERROR: {e}")
+else:
+    print("[Section 7] Skipping (district-level charts not requested)")
 
 # %% SECTION 8 — District Fall vs Winter by Student Group (ELA + Math)
 # ---------------------------------------------------------------------
@@ -5021,31 +5072,17 @@ def _prep_section8_fall_winter_by_student_group(df: pd.DataFrame, subject_str: s
     student_groups_cfg = cfg.get("student_groups", {})
     group_order_map = cfg.get("student_group_order", {})
 
-    # --- Section 8: Choose which student groups to include ---
-    # Tip: comment/uncomment lines in the list below.
-    # Names must match keys in cfg['student_groups'] (except "All Students", which is always allowed).
-    ENABLED_GROUPS = [
-        "All Students",
-        "Socioeconomically Disadvantaged",  # SED
-        "Students with Disabilities",  # SWD
-        "English Learners",  # EL
-        "Foster",
-        "Homeless",
-        "White",
-        "Hispanic",
-        # --- Optional groups (uncomment to include) ---
-        # "African American",
-        # "American Indian",
-        # "Asian",
-        # "Filipino",
-        # "Pacific Islander",
-        # "Two or More Races",
-        # "Long-Term EL",
-        # "EL Only",
-        # "Non-EL",
-    ]
-
-    enabled_set = set(ENABLED_GROUPS) if ENABLED_GROUPS is not None else None
+    # --- Section 8: Use only frontend-selected groups ---
+    # Build enabled set from frontend selections (no defaults)
+    enabled_set = set()
+    if _selected_groups is not None and len(_selected_groups) > 0:
+        enabled_set.update(_selected_groups)
+    if _selected_races is not None and len(_selected_races) > 0:
+        enabled_set.update(_selected_races)
+    
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
 
     frames = []
 
@@ -5321,34 +5358,44 @@ def _plot_section8_fall_winter_by_student_group(
 
 
 # ---- RUN SECTION 8 (district only) ----
-try:
-    pct_ela_grp, year_ela_grp, groups_ela = _prep_section8_fall_winter_by_student_group(
-        nwea_base.copy(),
-        subject_str="Reading",
-    )
-    _plot_section8_fall_winter_by_student_group(
-        pct_ela_grp,
-        subject_title="Reading",
-        target_year=year_ela_grp,
-        group_order=groups_ela,
-        preview=False,
-    )
+if _include_district_charts():
+    # Skip Section 8 entirely if no groups or races are selected
+    _has_groups_s8 = _selected_groups is not None and len(_selected_groups) > 0
+    _has_races_s8 = _selected_races is not None and len(_selected_races) > 0
 
-    pct_math_grp, year_math_grp, groups_math = (
-        _prep_section8_fall_winter_by_student_group(
-            nwea_base.copy(),
-            subject_str="Math",
-        )
-    )
-    _plot_section8_fall_winter_by_student_group(
-        pct_math_grp,
-        subject_title="Math",
-        target_year=year_math_grp,
-        group_order=groups_math,
-        preview=False,
-    )
-except Exception as e:
-    print(f"[Section 8] ERROR: {e}")
+    if not _has_groups_s8 and not _has_races_s8:
+        print("[FILTER] Section 8: Skipping (no student groups or races selected)")
+    else:
+        try:
+            pct_ela_grp, year_ela_grp, groups_ela = _prep_section8_fall_winter_by_student_group(
+                nwea_base.copy(),
+                subject_str="Reading",
+            )
+            _plot_section8_fall_winter_by_student_group(
+                pct_ela_grp,
+                subject_title="Reading",
+                target_year=year_ela_grp,
+                group_order=groups_ela,
+                preview=False,
+            )
+
+            pct_math_grp, year_math_grp, groups_math = (
+                _prep_section8_fall_winter_by_student_group(
+                    nwea_base.copy(),
+                    subject_str="Math",
+                )
+            )
+            _plot_section8_fall_winter_by_student_group(
+                pct_math_grp,
+                subject_title="Math",
+                target_year=year_math_grp,
+                group_order=groups_math,
+                preview=False,
+            )
+        except Exception as e:
+            print(f"[Section 8] ERROR: {e}")
+else:
+    print("[Section 8] Skipping (district-level charts not requested)")
 
 
 # %%
@@ -5813,26 +5860,33 @@ def _run_section10_growth_by_grade():
 
 
 def _run_section11_growth_by_student_group():
+    # Skip Section 11 entirely if no groups or races are selected
+    _has_groups_s11 = _selected_groups is not None and len(_selected_groups) > 0
+    _has_races_s11 = _selected_races is not None and len(_selected_races) > 0
+    
+    if not _has_groups_s11 and not _has_races_s11:
+        print("[FILTER] Section 11: Skipping (no student groups or races selected)")
+        return
+    
     d0, _ = _filter_winter_latest_year(nwea_base.copy())
     if d0.empty:
         print("[Section 11] No Winter data")
         return
 
-    # Defaults (matches i-Ready defaults)
-    DEFAULT_GROUPS = [
-        "All Students",
-        "Students with Disabilities",
-        "Socioeconomically Disadvantaged",
-        "English Learners",
-        "Hispanic",
-        "White",
-    ]
-
     # Build a working set of rows for the enabled groups
     student_groups_cfg = cfg.get("student_groups", {})
     group_order_map = cfg.get("student_group_order", {})
 
-    enabled_set = set(DEFAULT_GROUPS)
+    # Use only frontend-selected groups (no defaults)
+    enabled_set = set()
+    if _selected_groups is not None and len(_selected_groups) > 0:
+        enabled_set.update(_selected_groups)
+    if _selected_races is not None and len(_selected_races) > 0:
+        enabled_set.update(_selected_races)
+    
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
 
     frames = []
 
@@ -5921,10 +5975,13 @@ def _run_section11_growth_by_student_group():
 # ---------------------------------------------------------------------
 # RUN Sections 9–11 (district only)
 # ---------------------------------------------------------------------
-try:
-    _run_section9_growth_by_school()
-    _run_section10_growth_by_grade()
-    _run_section11_growth_by_student_group()
-except Exception as e:
-    print(f"[Sections 9–11] ERROR: {e}")
+if _include_district_charts():
+    try:
+        _run_section9_growth_by_school()
+        _run_section10_growth_by_grade()
+        _run_section11_growth_by_student_group()
+    except Exception as e:
+        print(f"[Sections 9–11] ERROR: {e}")
+else:
+    print("[Sections 9–11] Skipping (district-level charts not requested)")
 #########################################################################
