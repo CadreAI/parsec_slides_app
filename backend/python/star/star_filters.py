@@ -109,17 +109,25 @@ def should_generate_student_group(group_name, filters):
     student_groups_filter = filters.get("student_groups")
     race_filter = filters.get("race")
     
-    # If both filters are empty/None, generate all
-    if (student_groups_filter is None or len(student_groups_filter) == 0) and \
-       (race_filter is None or len(race_filter) == 0):
+    # If both filters are None (not used), generate all
+    if student_groups_filter is None and race_filter is None:
         return True
     
+    # If either filter is an empty list (filter used but nothing selected), skip this group
+    # unless the group is explicitly in one of the filter arrays
+    has_groups = student_groups_filter is not None and len(student_groups_filter) > 0
+    has_races = race_filter is not None and len(race_filter) > 0
+    
+    # If no groups or races selected at all, skip
+    if not has_groups and not has_races:
+        return False
+    
     # Check if this group is in student_groups filter
-    if student_groups_filter and group_name in student_groups_filter:
+    if has_groups and group_name in student_groups_filter:
         return True
     
     # Check if this group is in race filter (race groups are also in student_groups config)
-    if race_filter and group_name in race_filter:
+    if has_races and group_name in race_filter:
         return True
     
     # If filters are specified but this group is not in either, don't generate
@@ -128,8 +136,22 @@ def should_generate_student_group(group_name, filters):
 
 def should_generate_grade(grade, filters):
     """Check if a grade-specific chart should be generated"""
-    if not filters or filters.get("grades") is None or len(filters.get("grades", [])) == 0:
-        return True  # Generate all if no filter
+    if not filters:
+        return True  # Generate all if no filters object
+    
+    # Check if grades filter was explicitly provided
+    if "grades" not in filters:
+        return True  # Generate all if grades key doesn't exist (filter not used)
+    
+    grades_filter = filters.get("grades")
+    
+    # If grades is None, treat as "no filter" (generate all)
+    if grades_filter is None:
+        return True
+    
+    # If grades is an empty list, user selected nothing - generate NO grades
+    if isinstance(grades_filter, list) and len(grades_filter) == 0:
+        return False
     
     # Normalize grade value (handle "K" as 0, -1 as pre-k)
     try:
@@ -141,7 +163,7 @@ def should_generate_grade(grade, filters):
         else:
             grade_val = int(float(grade_str))
             # -1 represents pre-k
-        return grade_val in filters["grades"]
+        return grade_val in grades_filter
     except:
         return False
 

@@ -597,6 +597,17 @@ export default function CreateSlide() {
             const nweaDistrictOnly = Boolean(hasNwea && nweaIncludeDistrictwide && !nweaIncludeSchools)
             const nweaSchoolsOnly = Boolean(hasNwea && !nweaIncludeDistrictwide && nweaIncludeSchools)
 
+            // Scope controls for STAR scripts (Winter/Spring/Fall)
+            // Similar to iReady and NWEA, we pass includeDistrictwide and includeSchools flags
+            const hasStar = selectedAssessmentIds.includes('star')
+            const starScope = hasStar ? formData.assessmentScopes['star'] : undefined
+            const starIncludeDistrictwide = starScope?.includeDistrictwide !== false // default true
+            const starIncludeSchools = starScope?.includeSchools === true // default false
+            const starResolvedSchools =
+                hasStar && Array.isArray(starScope?.resolvedSchools) && starScope!.resolvedSchools!.length > 0 ? starScope!.resolvedSchools : starScope?.schools
+            const starSelectedSchools =
+                hasStar && starIncludeSchools && Array.isArray(starResolvedSchools) && starResolvedSchools.length > 0 ? starResolvedSchools : undefined
+
             const chartFilters = {
                 grades:
                     formData.grades.length > 0
@@ -626,7 +637,11 @@ export default function CreateSlide() {
                 schools: ireadySelectedSchools,
                 // NWEA scope selection (district vs schools)
                 nwea_district_only: nweaDistrictOnly ? true : undefined,
-                nwea_schools_only: nweaSchoolsOnly ? true : undefined
+                nwea_schools_only: nweaSchoolsOnly ? true : undefined,
+                // STAR scope selection (district vs schools)
+                includeDistrictwide: hasStar ? starIncludeDistrictwide : undefined,
+                includeSchools: hasStar ? starIncludeSchools : undefined,
+                star_schools: starSelectedSchools
             }
 
             const presentationTitle = formData.deckName.trim() || `Slide Deck - ${formData.partnerName || 'Untitled'}`

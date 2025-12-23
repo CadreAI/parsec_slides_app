@@ -72,39 +72,61 @@ def _perform_clustering_llm_call(
     district_context = f" in {district_name} district" if district_name else ""
     schools_list = "\n".join([f"- {school}" for school in schools])
 
-    clustering_prompt = f"""You are a school name clustering assistant. Your job is to group school names that represent the same physical school but have different suffixes or variants.
+    clustering_prompt = f"""You are a school name clustering assistant. Your job is to group school names ONLY when they represent the EXACT SAME physical school with different grade level suffixes.
 
 Schools{district_context}:
 {schools_list}
 
-Common patterns to cluster:
-1. Same base name with different grade levels (e.g., "Classical Academy MS", "Classical Academy HS", "Classical Academy Elementary")
-2. Same base name with different campuses (e.g., "Lincoln School North", "Lincoln School South")
-3. Same base name with different programs (e.g., "Washington Charter TK-8", "Washington Charter High School")
+ONLY cluster when ALL of these conditions are met:
+1. The school names are IDENTICAL except for grade level indicators at the END
+2. Grade level indicators are: "MS", "HS", "Middle School", "High School", "Elementary", "Elementary School", "K-8", "TK-8", "6-8", "9-12"
+3. Everything before the grade level indicator must be EXACTLY the same
 
-Rules:
-- Group schools ONLY if they clearly represent the same school with different variants
-- Keep the base/common name as the cluster name (remove grade level suffixes)
-- Do NOT cluster schools that are actually different schools
-- If a school has no variants, it becomes its own cluster
-- Preserve original school names exactly in the arrays
+DO NOT cluster (keep as separate schools):
+- Schools with ANY city/location names (Chico, Paradise, etc.)
+- Schools with "Charter" vs "Charter School" (different names)
+- Schools with ANY descriptive words after the base name (even if they look similar)
+- Schools with directional indicators (North, South, East, West)
+- Schools with "(Historic Data)" suffix
+- When in doubt, DO NOT cluster
+
+Example 1 (SHOULD cluster - only grade levels differ):
+Input: ["Lincoln Elementary School", "Lincoln Middle School", "Lincoln High School"]
+Output:
+{{
+    "clusters": {{
+        "Lincoln": ["Lincoln Elementary School", "Lincoln Middle School", "Lincoln High School"]
+    }}
+}}
+
+Example 2 (SHOULD NOT cluster - different names beyond grade levels):
+Input: ["Achieve Charter Chico", "Achieve Charter Paradise", "Achieve Charter High School"]
+Output:
+{{
+    "clusters": {{
+        "Achieve Charter Chico": ["Achieve Charter Chico"],
+        "Achieve Charter Paradise": ["Achieve Charter Paradise"],
+        "Achieve Charter High School": ["Achieve Charter High School"]
+    }}
+}}
+
+Example 3 (SHOULD NOT cluster - "Charter" vs "Charter School"):
+Input: ["Achieve Charter", "Achieve Charter School"]
+Output:
+{{
+    "clusters": {{
+        "Achieve Charter": ["Achieve Charter"],
+        "Achieve Charter School": ["Achieve Charter School"]
+    }}
+}}
+
+Be VERY conservative. If there's ANY difference beyond simple grade level suffixes, keep schools separate.
 
 Respond with a JSON object:
 {{
     "clusters": {{
-        "Base School Name 1": ["Original School Name 1", "Original School Name 2"],
-        "Base School Name 2": ["Original School Name 3"],
+        "Cluster Name": ["School 1", "School 2"],
         ...
-    }}
-}}
-
-Example:
-Input schools: ["Classical Academy Middle School", "Classical Academy High School", "Other School"]
-Output:
-{{
-    "clusters": {{
-        "Classical Academy": ["Classical Academy Middle School", "Classical Academy High School"],
-        "Other School": ["Other School"]
     }}
 }}"""
 
@@ -156,100 +178,54 @@ Output:
 
 def cluster_schools(schools: List[str], district_name: Optional[str] = None) -> Dict:
     """
-    Cluster school names that represent the same school into groups
+    Return schools as individual clusters (no combining/clustering)
+    Just formats them nicely for output
 
     Args:
-        schools: List of school names to cluster
-        district_name: Optional district name for context
+        schools: List of school names to format
+        district_name: Optional district name for context (informational only)
 
     Returns:
         Dict with:
-            - clusters: Dict[str, List[str]] - cluster name mapped to original school names
-            - school_to_cluster: Dict[str, str] - original school name mapped to cluster name
-            - source: str - 'llm' or 'identity' (fallback)
+            - clusters: Dict[str, List[str]] - each school is its own cluster
+            - school_to_cluster: Dict[str, str] - identity mapping
+            - source: str - 'identity'
 
     Example:
         Input: ["Classical Academy MS", "Classical Academy HS", "Other School"]
         Output: {
             "clusters": {
-                "Classical Academy": ["Classical Academy MS", "Classical Academy HS"],
+                "Classical Academy MS": ["Classical Academy MS"],
+                "Classical Academy HS": ["Classical Academy HS"],
                 "Other School": ["Other School"]
             },
             "school_to_cluster": {
-                "Classical Academy MS": "Classical Academy",
-                "Classical Academy HS": "Classical Academy",
+                "Classical Academy MS": "Classical Academy MS",
+                "Classical Academy HS": "Classical Academy HS",
                 "Other School": "Other School"
             },
-            "source": "llm"
+            "source": "identity"
         }
     """
-    # Handle empty or single school case
+    # Handle empty case
     if not schools or len(schools) == 0:
         return {"clusters": {}, "school_to_cluster": {}, "source": "identity"}
 
-    if len(schools) == 1:
-        school = schools[0]
-        return {
-            "clusters": {school: [school]},
-            "school_to_cluster": {school: school},
-            "source": "identity",
-        }
-
-    # If no OpenAI client available, return identity mapping
-    if OpenAI is None:
-        print("[School Clusterer] OpenAI not available, using identity mapping")
-        return _create_identity_mapping(schools, "identity")
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("[School Clusterer] OpenAI API key not found, using identity mapping")
-        return _create_identity_mapping(schools, "identity")
-
-    client = OpenAI(api_key=api_key)
-
-    # Try clustering with retry on validation failure
-    max_attempts = 2
-    for attempt in range(max_attempts):
-        try:
-            result_data = _perform_clustering_llm_call(client, schools, district_name)
-            result_data["source"] = "llm"
-
-            # Validate the result
-            try:
-                _validate_clustering_result(result_data, schools)
-
-                # Validation passed
-                cluster_count = len(result_data["clusters"])
-                reduction = len(schools) - cluster_count
-                attempt_msg = f" (attempt {attempt + 1})" if attempt > 0 else ""
-                print(
-                    f"[School Clusterer] Clustered {len(schools)} schools into {cluster_count} groups (reduced by {reduction}){attempt_msg}"
-                )
-                return result_data
-
-            except ValueError as validation_error:
-                if attempt < max_attempts - 1:
-                    print(
-                        f"[School Clusterer] Validation failed on attempt {attempt + 1}: {validation_error}, retrying..."
-                    )
-                    continue
-                else:
-                    print(
-                        f"[School Clusterer] Validation failed after {max_attempts} attempts: {validation_error}, using identity mapping"
-                    )
-                    return _create_identity_mapping(schools, "identity")
-
-        except Exception as e:
-            if attempt < max_attempts - 1:
-                print(
-                    f"[School Clusterer] Error on attempt {attempt + 1}: {e}, retrying..."
-                )
-                continue
-            else:
-                print(
-                    f"[School Clusterer] Error clustering schools after {max_attempts} attempts: {e}, using identity mapping"
-                )
-                return _create_identity_mapping(schools, "identity")
+    # Create identity mapping (each school is its own cluster)
+    result = _create_identity_mapping(schools, "identity")
+    
+    # Output all schools in a nice format
+    print(f"\n[School Clusterer] === Schools List ===")
+    if district_name:
+        print(f"  District: {district_name}")
+    print(f"  Total Schools: {len(schools)}\n")
+    
+    for school_name in sorted(schools):
+        print(f"  • {school_name}")
+    
+    print(f"\n[School Clusterer] ========================\n")
+    
+    return result
 
 
 def _create_identity_mapping(schools: List[str], source: str = "identity") -> Dict:

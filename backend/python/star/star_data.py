@@ -168,13 +168,28 @@ def load_star_data(data_dir=None, star_data=None, cfg=None):
 
 def get_scopes(star_base, cfg):
     """Generate list of (scope_df, scope_label, folder_name) tuples"""
-    district_name = cfg.get("district_display_name") or cfg.get("district_name", [])
-    # Safely get district label - handle empty list or non-list types
-    if isinstance(district_name, list) and len(district_name) > 0:
-        district_label = district_name[0]
-    elif isinstance(district_name, str):
-        district_label = district_name
-    else:
+    # Normalize district name for display (prioritize district_display_name, allow display-only override)
+    # This matches the NWEA pattern for handling district labels from frontend
+    try:
+        _ddn = cfg.get("district_display_name")
+        _ddn0 = _ddn[0] if isinstance(_ddn, list) and _ddn else (_ddn if isinstance(_ddn, str) else None)
+        district_label = str(_ddn0).strip() if _ddn0 and str(_ddn0).strip() else None
+    except Exception:
+        district_label = None
+    
+    # Fallback to district_name if district_display_name is not set
+    if not district_label:
+        try:
+            _dn = cfg.get("district_name", [])
+            if isinstance(_dn, list) and len(_dn) > 0:
+                district_label = str(_dn[0]).strip()
+            elif isinstance(_dn, str) and _dn.strip():
+                district_label = _dn.strip()
+        except Exception:
+            pass
+    
+    # Final fallback
+    if not district_label:
         district_label = "Districtwide"
     
     scopes = []
@@ -182,15 +197,28 @@ def get_scopes(star_base, cfg):
     # Check if district scope should be included
     selected_schools = cfg.get("selected_schools", [])
     include_district = cfg.get("include_district_scope", True)
+    schools_only = cfg.get("schools_only", False)
     
-    # For STAR: If only one school is selected, skip district charts (similar to iReady)
-    if selected_schools and len(selected_schools) == 1:
+    print(f"[get_scopes DEBUG] include_district_scope from cfg: {include_district}")
+    print(f"[get_scopes DEBUG] schools_only from cfg: {schools_only}")
+    print(f"[get_scopes DEBUG] selected_schools from cfg: {selected_schools}")
+    
+    # For STAR: Skip district if schools_only mode is enabled
+    if schools_only:
         include_district = False
-        print(f"[Scope Filter] Only one school selected - skipping district charts for STAR")
+        print(f"[get_scopes] schools_only mode - skipping district charts for STAR")
+    # Respect the include_district_scope setting from star_winter.py
+    elif not include_district:
+        print(f"[get_scopes] include_district_scope=False - skipping district charts")
+    
+    print(f"[get_scopes DEBUG] Final include_district: {include_district}")
     
     # District scope
     if include_district:
         scopes.append((star_base.copy(), district_label, "_district"))
+        print(f"[get_scopes] Added district scope: {district_label}")
+    else:
+        print(f"[get_scopes] Skipped district scope")
     
     # School scopes
     school_col = "school_name" if "school_name" in star_base.columns else "schoolname"

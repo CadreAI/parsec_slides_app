@@ -918,13 +918,21 @@ def plot_section_1_2(df, scope_label, folder, output_dir, chart_filters=None, sc
     df["__grade_int"] = pd.to_numeric(df[grade_col], errors="coerce")
     grades = df["__grade_int"].dropna().astype(int).sort_values().unique().tolist()
     
+    # Debug logging for grade filters
+    print(f"[Section 1.2 DEBUG] chart_filters: {chart_filters}")
+    if chart_filters:
+        print(f"[Section 1.2 DEBUG] grades filter: {chart_filters.get('grades')}")
+    print(f"[Section 1.2 DEBUG] Available grades in data: {grades}")
+    
     chart_paths = []
     for grade in grades:
         df_grade = df[df["__grade_int"] == grade].copy()
         if df_grade.empty:
             continue
         if chart_filters and not should_generate_grade(grade, chart_filters):
+            print(f"[Section 1.2 DEBUG] Skipping grade {grade} (filtered out)")
             continue
+        print(f"[Section 1.2 DEBUG] Generating chart for grade {grade}")
         path = plot_section_1_2_for_grade_dual_subject(
             df_grade, scope_label, folder, output_dir, grade, school_raw, preview
         )
@@ -3062,27 +3070,49 @@ def plot_section_8_performance_by_group_winter(
     output_dir: str,
     subject_str: str,
     cfg: dict = None,
+    selected_groups: list = None,
+    selected_races: list = None,
     preview: bool = False,
 ) -> str | None:
     """District-level: Fall vs Winter performance by student group"""
     student_groups_cfg = cfg.get("student_groups", {}) if cfg else {}
+    group_order = cfg.get("student_group_order", {}) if cfg else {}
     
-    # Default group list
-    STAR_GROUPS_DEFAULT = [
-        "All Students",
-        "Students with Disabilities",
-        "Socioeconomically Disadvantaged",
-        "English Learners",
-        "Hispanic",
-        "White",
-    ]
+    # Build enabled set from frontend selections (matching iready/star_moy pattern)
+    enabled_set = set()
+    if selected_groups is not None and len(selected_groups) > 0:
+        enabled_set.update(selected_groups)
+    if selected_races is not None and len(selected_races) > 0:
+        enabled_set.update(selected_races)
     
-    # Build working group list
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
+        print(f"[Section 8] Using frontend-selected groups/races: {sorted(enabled_set)}")
+    else:
+        # No frontend selection - use default list for backward compatibility
+        STAR_GROUPS_DEFAULT = [
+            "All Students",
+            "Students with Disabilities",
+            "Socioeconomically Disadvantaged",
+            "English Learners",
+            "Hispanic",
+            "White",
+        ]
+        enabled_set = set(STAR_GROUPS_DEFAULT)
+        print(f"[Section 8] No frontend selection; using defaults: {sorted(enabled_set)}")
+    
+    # Build working group list limited to cfg keys
     star_group_keys = []
-    for g in STAR_GROUPS_DEFAULT:
+    for g in enabled_set:
         k = _resolve_group_key(g, student_groups_cfg)
         if k is not None:
             star_group_keys.append(k)
+    
+    # Sort by group order defined in config
+    def _group_sort_key(g: str):
+        return (int(group_order.get(g, 99)), g)
+    star_group_keys = sorted(star_group_keys, key=_group_sort_key)
     
     if not star_group_keys:
         print(f"[Section 8] Skipped {subject_str} (student_groups not configured)")
@@ -3208,27 +3238,49 @@ def plot_section_11_sgp_by_group_winter(
     subject_str: str,
     sgp_vector: str = "FALL_WINTER",
     cfg: dict = None,
+    selected_groups: list = None,
+    selected_races: list = None,
     preview: bool = False,
 ) -> str | None:
     """District-level: SGP by student group"""
     student_groups_cfg = cfg.get("student_groups", {}) if cfg else {}
+    group_order = cfg.get("student_group_order", {}) if cfg else {}
     
-    # Default group list
-    STAR_GROUPS_DEFAULT = [
-        "All Students",
-        "Students with Disabilities",
-        "Socioeconomically Disadvantaged",
-        "English Learners",
-        "Hispanic",
-        "White",
-    ]
+    # Build enabled set from frontend selections (matching iready/star_moy pattern)
+    enabled_set = set()
+    if selected_groups is not None and len(selected_groups) > 0:
+        enabled_set.update(selected_groups)
+    if selected_races is not None and len(selected_races) > 0:
+        enabled_set.update(selected_races)
     
-    # Build working group list
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
+        print(f"[Section 11] Using frontend-selected groups/races: {sorted(enabled_set)}")
+    else:
+        # No frontend selection - use default list for backward compatibility
+        STAR_GROUPS_DEFAULT = [
+            "All Students",
+            "Students with Disabilities",
+            "Socioeconomically Disadvantaged",
+            "English Learners",
+            "Hispanic",
+            "White",
+        ]
+        enabled_set = set(STAR_GROUPS_DEFAULT)
+        print(f"[Section 11] No frontend selection; using defaults: {sorted(enabled_set)}")
+    
+    # Build working group list limited to cfg keys
     star_group_keys = []
-    for g in STAR_GROUPS_DEFAULT:
+    for g in enabled_set:
         k = _resolve_group_key(g, student_groups_cfg)
         if k is not None:
             star_group_keys.append(k)
+    
+    # Sort by group order defined in config
+    def _group_sort_key(g: str):
+        return (int(group_order.get(g, 99)), g)
+    star_group_keys = sorted(star_group_keys, key=_group_sort_key)
     
     if not star_group_keys:
         print(f"[Section 11] Skipped {subject_str} (student_groups not configured)")
@@ -3306,6 +3358,133 @@ def main(star_data=None):
     
     chart_filters = cfg.get("chart_filters", {})
     
+    # ---------------------------------------------------------------------
+    # Scope filtering: district_only vs schools_only vs both
+    # Parse from chart_filters (similar to iready_moy pattern)
+    # ---------------------------------------------------------------------
+    print(f"[Scope Filter DEBUG] Full chart_filters: {chart_filters}")
+    
+    _scope_mode = None
+    _selected_schools = []
+    
+    try:
+        cf = chart_filters or {}
+        
+        print(f"[Scope Filter DEBUG] district_only: {cf.get('district_only')}")
+        print(f"[Scope Filter DEBUG] schools_only: {cf.get('schools_only')}")
+        print(f"[Scope Filter DEBUG] schools: {cf.get('schools')}")
+        print(f"[Scope Filter DEBUG] star_schools: {cf.get('star_schools')}")
+        print(f"[Scope Filter DEBUG] includeDistrictwide: {cf.get('includeDistrictwide')}")
+        print(f"[Scope Filter DEBUG] includeSchools: {cf.get('includeSchools')}")
+        
+        # Check for district_only flag (legacy)
+        if bool(cf.get("district_only")) is True:
+            _scope_mode = "district_only"
+            print(f"[Scope Filter] district_only mode enabled")
+        
+        # Check for schools_only flag (legacy)
+        elif bool(cf.get("schools_only")) is True:
+            _scope_mode = "schools_only"
+            print(f"[Scope Filter] schools_only mode enabled")
+        
+        # NEW: Check includeDistrictwide and includeSchools flags (modern frontend pattern)
+        include_districtwide = cf.get("includeDistrictwide")
+        include_schools = cf.get("includeSchools")
+        
+        # If these flags are explicitly set, use them to determine mode
+        if include_districtwide is not None or include_schools is not None:
+            # Default values match frontend defaults
+            include_districtwide = include_districtwide if include_districtwide is not None else True
+            include_schools = include_schools if include_schools is not None else False
+            
+            if include_districtwide and not include_schools:
+                _scope_mode = "district_only"
+                print(f"[Scope Filter] district_only mode (includeDistrictwide=true, includeSchools=false)")
+            elif not include_districtwide and include_schools:
+                _scope_mode = "schools_only"
+                print(f"[Scope Filter] schools_only mode (includeDistrictwide=false, includeSchools=true)")
+            elif include_districtwide and include_schools:
+                _scope_mode = "both"
+                print(f"[Scope Filter] both mode (includeDistrictwide=true, includeSchools=true)")
+            else:
+                # Both false - this shouldn't happen but default to district
+                _scope_mode = "district_only"
+                print(f"[Scope Filter] WARNING: Both flags false, defaulting to district_only")
+        
+        # Check for specific schools selection (try star_schools first, then fall back to schools)
+        schools = cf.get("star_schools") or cf.get("schools") or []
+        if isinstance(schools, list) and len(schools) > 0:
+            _selected_schools = [str(s).strip() for s in schools if str(s).strip()]
+            if not _scope_mode:  # Only set if no explicit mode was set
+                _scope_mode = "selected_schools"
+            print(f"[Scope Filter] Selected schools: {_selected_schools}")
+    except Exception as e:
+        print(f"[Scope Filter] Error parsing scope filters: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Helper functions for scope filtering
+    def _include_district_charts() -> bool:
+        """Return True if district-level charts should be generated"""
+        if _scope_mode == "schools_only":
+            return False
+        return True  # district_only, selected_schools, or default (both)
+    
+    def _include_school_charts() -> bool:
+        """Return True if school-level charts should be generated"""
+        if _scope_mode == "district_only":
+            return False
+        return True  # schools_only, selected_schools, or default (both)
+    
+    print(f"[Scope Filter] Mode: {_scope_mode or 'default (both)'}, Include District: {_include_district_charts()}, Include Schools: {_include_school_charts()}")
+    
+    # ---------------------------------------------------------------------
+    # Parse student group and race filters for Sections 8 & 11
+    # ---------------------------------------------------------------------
+    _selected_groups = None
+    _selected_races = None
+    
+    try:
+        cf = chart_filters or {}
+        
+        # Parse student groups filter
+        if "student_groups" in cf:
+            groups = cf.get("student_groups") or []
+            if isinstance(groups, list):
+                if len(groups) == 0:
+                    _selected_groups = []  # Explicitly empty - skip sections 8/11
+                    print(f"[Group Filter] student_groups=[] - will skip Sections 8/11")
+                else:
+                    _selected_groups = [str(g).strip() for g in groups if str(g).strip()]
+                    print(f"[Group Filter] Selected student groups: {_selected_groups}")
+        
+        # Parse races filter
+        if "race" in cf:
+            races = cf.get("race") or []
+            if isinstance(races, list):
+                if len(races) == 0:
+                    _selected_races = []  # Explicitly empty
+                    print(f"[Group Filter] race=[] - no races selected")
+                else:
+                    _selected_races = [str(r).strip() for r in races if str(r).strip()]
+                    print(f"[Group Filter] Selected races: {_selected_races}")
+    except Exception as e:
+        print(f"[Group Filter] Error parsing group filters: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Determine if Sections 8/11 should be generated
+    _has_groups = _selected_groups is not None and len(_selected_groups) > 0
+    _has_races = _selected_races is not None and len(_selected_races) > 0
+    _skip_sections_8_11 = (_selected_groups is not None or _selected_races is not None) and not _has_groups and not _has_races
+    
+    if _skip_sections_8_11:
+        print(f"[Group Filter] Sections 8/11 will be SKIPPED (no groups or races selected)")
+    elif _has_groups or _has_races:
+        print(f"[Group Filter] Sections 8/11 will generate for {len(_selected_groups or []) + len(_selected_races or [])} group(s)/race(s)")
+    else:
+        print(f"[Group Filter] No group filter provided - Sections 8/11 will use defaults")
+    
     # Load data
     if star_data is not None:
         star_base = load_star_data(star_data=star_data, cfg=cfg)
@@ -3317,8 +3496,23 @@ def main(star_data=None):
     # Always use Winter for this module
     selected_quarters = ["Winter"]
     
+    # Update cfg with scope filtering settings for get_scopes
+    cfg["schools_only"] = (_scope_mode == "schools_only")
+    cfg["include_district_scope"] = _include_district_charts()
+    if _selected_schools:
+        cfg["selected_schools"] = _selected_schools
+    elif _scope_mode == "district_only":
+        cfg["selected_schools"] = []  # Empty list = no school charts
+    
+    print(f"[Scope Filter DEBUG] cfg['schools_only'] = {cfg.get('schools_only')}")
+    print(f"[Scope Filter DEBUG] cfg['include_district_scope'] = {cfg.get('include_district_scope')}")
+    print(f"[Scope Filter DEBUG] cfg['selected_schools'] = {cfg.get('selected_schools')}")
+    
     # Get scopes
     scopes = get_scopes(star_base, cfg)
+    print(f"[Scope Filter DEBUG] get_scopes returned {len(scopes)} scope(s):")
+    for scope_df, scope_label, folder in scopes:
+        print(f"  - {scope_label} (folder: {folder})")
     
     chart_paths = []
     
@@ -3414,81 +3608,110 @@ def main(star_data=None):
     
     # Section 1.3: Fall → Winter Performance Progression by Student Group (dual-subject dashboard)
     print("\n[Section 1.3] Generating Fall → Winter Performance Progression by Student Group...")
-    student_groups_cfg = cfg.get("student_groups", {})
-    group_order = cfg.get("student_group_order", {})
     
-    # Limit number of groups if max_student_groups filter is set
-    max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
-    sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 999))
-    groups_to_plot = sorted_groups[:max_groups]
+    # Skip section if filters were used but nothing selected
+    student_groups_filter = chart_filters.get("student_groups")
+    race_filter = chart_filters.get("race")
+    has_groups = student_groups_filter is not None and len(student_groups_filter) > 0
+    has_races = race_filter is not None and len(race_filter) > 0
     
-    for scope_df, scope_label, folder in scopes:
-        for group_name, group_def in groups_to_plot:
-            if group_def.get("type") == "all":
-                continue
-            # Check if this student group should be generated based on filters
-            if not should_generate_student_group(group_name, chart_filters):
-                continue
-            try:
-                chart_path = plot_section_1_3_for_group_dual_subject(
-                    scope_df,
-                    scope_label,
-                    folder,
-                    args.output_dir,
-                    group_name,
-                    group_def,
-                    school_raw=None if folder == "_district" else scope_label,
-                    preview=hf.DEV_MODE
-                )
-                if chart_path:
-                    chart_paths.append(chart_path)
-            except Exception as e:
-                print(f"Error generating Section 1.3 chart for {scope_label} ({group_name}): {e}")
-                if hf.DEV_MODE:
-                    import traceback
-                    traceback.print_exc()
-                continue
+    if (student_groups_filter is not None or race_filter is not None) and not has_groups and not has_races:
+        print("[FILTER] Section 1.3: Skipping (no student groups or races selected)")
+    else:
+        student_groups_cfg = cfg.get("student_groups", {})
+        group_order = cfg.get("student_group_order", {})
+        
+        # Limit number of groups if max_student_groups filter is set
+        max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
+        sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 999))
+        groups_to_plot = sorted_groups[:max_groups]
+        
+        for scope_df, scope_label, folder in scopes:
+            for group_name, group_def in groups_to_plot:
+                if group_def.get("type") == "all":
+                    continue
+                # Check if this student group should be generated based on filters
+                if not should_generate_student_group(group_name, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_section_1_3_for_group_dual_subject(
+                        scope_df,
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        group_name,
+                        group_def,
+                        school_raw=None if folder == "_district" else scope_label,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 1.3 chart for {scope_label} ({group_name}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
     
     # Section 2: Student Group Performance Trends (Winter) - dual-subject dashboard
     print("\n[Section 2] Generating Student Group Performance Trends (Winter)...")
     
-    # Limit number of groups if max_student_groups filter is set
-    max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
-    sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99))
-    groups_to_plot = sorted_groups[:max_groups]
-    
-    for scope_df, scope_label, folder in scopes:
-        for group_name, group_def in groups_to_plot:
-            if group_def.get("type") == "all":
-                continue
-            # Check if this student group should be generated based on filters
-            if not should_generate_student_group(group_name, chart_filters):
-                continue
-            try:
-                chart_path = plot_star_subject_dashboard_by_group_winter(
-                    scope_df,
-                    scope_label,
-                    folder,
-                    args.output_dir,
-                    window_filter="Winter",
-                    group_name=group_name,
-                    group_def=group_def,
-                    cfg=cfg,
-                    preview=hf.DEV_MODE
-                )
-                if chart_path:
-                    chart_paths.append(chart_path)
-            except Exception as e:
-                print(f"Error generating Section 2 chart for {scope_label} ({group_name}): {e}")
-                if hf.DEV_MODE:
-                    import traceback
-                    traceback.print_exc()
-                continue
+    # Skip section if filters were used but nothing selected
+    if (student_groups_filter is not None or race_filter is not None) and not has_groups and not has_races:
+        print("[FILTER] Section 2: Skipping (no student groups or races selected)")
+    else:
+        # Limit number of groups if max_student_groups filter is set
+        max_groups = chart_filters.get("max_student_groups", 10)  # Default limit
+        sorted_groups = sorted(student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99))
+        groups_to_plot = sorted_groups[:max_groups]
+        
+        for scope_df, scope_label, folder in scopes:
+            for group_name, group_def in groups_to_plot:
+                if group_def.get("type") == "all":
+                    continue
+                # Check if this student group should be generated based on filters
+                if not should_generate_student_group(group_name, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_star_subject_dashboard_by_group_winter(
+                        scope_df,
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        window_filter="Winter",
+                        group_name=group_name,
+                        group_def=group_def,
+                        cfg=cfg,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error generating Section 2 chart for {scope_label} ({group_name}): {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
+                    continue
     
     # Section 3: Overall + Cohort Trends (Winter)
     print("\n[Section 3] Generating Overall + Cohort Trends (Winter)...")
-    selected_grades = chart_filters.get("grades", [])
-    if not selected_grades:
+    
+    # Check if grades filter was explicitly provided (even if empty)
+    selected_grades = None
+    if "grades" in chart_filters:
+        # Filter was used
+        grades_from_filter = chart_filters.get("grades")
+        if isinstance(grades_from_filter, list):
+            if len(grades_from_filter) == 0:
+                # Filter used but no grades selected - skip section
+                print("[FILTER] Section 3: Skipping (no grades selected)")
+                selected_grades = []
+            else:
+                # Filter used with specific grades
+                selected_grades = grades_from_filter
+    
+    # If no filter was used (selected_grades is still None), generate all available grades
+    if selected_grades is None:
         # Query all available grades from data (no hardcoded limit)
         grade_col = "grade" if "grade" in star_base.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in star_base.columns else "studentgrade")
         if grade_col in star_base.columns:
@@ -3500,37 +3723,44 @@ def main(star_data=None):
             # Fallback: use all grades from Pre-K to 12
             selected_grades = list(range(-1, 13))
     
-    anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
-    
+    # Get subjects outside the grade filter check - needed for Section 5 even if Section 3 is skipped
     subjects_to_plot = _requested_star_subjects(chart_filters)
-    for scope_df, scope_label, folder in scopes:
-        for subj in subjects_to_plot:
-            if not should_generate_subject(subj, chart_filters):
-                continue
-            for grade in selected_grades:
-                if not should_generate_grade(grade, chart_filters):
+    
+    # Only generate charts if we have grades to process
+    if len(selected_grades) == 0:
+        # Skip section entirely
+        pass
+    else:
+        anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
+        
+        for scope_df, scope_label, folder in scopes:
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
                     continue
-                try:
-                    chart_path = plot_star_blended_dashboard_winter(
-                        scope_df.copy(),
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subj,
-                        current_grade=grade,
-                        window_filter="Winter",
-                        cohort_year=anchor_year,
-                        cfg=cfg,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj}: {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
+                    try:
+                        chart_path = plot_star_blended_dashboard_winter(
+                            scope_df.copy(),
+                            scope_label,
+                            folder,
+                            args.output_dir,
+                            subject_str=subj,
+                            current_grade=grade,
+                            window_filter="Winter",
+                            cohort_year=anchor_year,
+                            cfg=cfg,
+                            preview=hf.DEV_MODE
+                        )
+                        if chart_path:
+                            chart_paths.append(chart_path)
+                    except Exception as e:
+                        print(f"Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj}: {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
     
     # Section 4: Overall Growth Trends by Site (Winter) - Dual Subject
     print("\n[Section 4] Generating Overall Growth Trends by Site (Winter)...")
@@ -3559,33 +3789,38 @@ def main(star_data=None):
     
     # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort (Winter)
     print("\n[Section 5] Generating STAR SGP Growth (Winter)...")
-    for scope_df, scope_label, folder in scopes:
-        for subj in subjects_to_plot:
-            if not should_generate_subject(subj, chart_filters):
-                continue
-            for grade in selected_grades:
-                if not should_generate_grade(grade, chart_filters):
+    
+    # Skip Section 5 if no grades are selected
+    if len(selected_grades) == 0:
+        print("[FILTER] Section 5: Skipping (no grades selected)")
+    else:
+        for scope_df, scope_label, folder in scopes:
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
                     continue
-                try:
-                    chart_path = plot_star_sgp_growth_winter(
-                        scope_df.copy(),
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subj,
-                        current_grade=grade,
-                        window_filter="Winter",
-                        cfg=cfg,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj}: {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
+                    try:
+                        chart_path = plot_star_sgp_growth_winter(
+                            scope_df.copy(),
+                            scope_label,
+                            folder,
+                            args.output_dir,
+                            subject_str=subj,
+                            current_grade=grade,
+                            window_filter="Winter",
+                            cfg=cfg,
+                            preview=hf.DEV_MODE
+                        )
+                        if chart_path:
+                            chart_paths.append(chart_path)
+                    except Exception as e:
+                        print(f"Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj}: {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
     
     # Section 6: Performance by School (Fall vs Winter)
     print("\n[Section 6] Generating Performance by School (Fall vs Winter)...")
@@ -3641,29 +3876,34 @@ def main(star_data=None):
     
     # Section 8: Performance by Student Group (Fall vs Winter)
     print("\n[Section 8] Generating Performance by Student Group (Fall vs Winter)...")
-    for scope_df, scope_label, folder in scopes:
-        if folder != "_district":  # District-level only
-            continue
-        for subject in subjects_to_plot:
-            if not should_generate_subject(subject, chart_filters):
+    if _skip_sections_8_11:
+        print("[Section 8] Skipping (no student groups or races selected)")
+    else:
+        for scope_df, scope_label, folder in scopes:
+            if folder != "_district":  # District-level only
                 continue
-            try:
-                chart_path = plot_section_8_performance_by_group_winter(
-                    scope_df.copy(),
-                    scope_label,
-                    folder,
-                    args.output_dir,
-                    subject_str=subject,
-                    cfg=cfg,
-                    preview=hf.DEV_MODE
-                )
-                if chart_path:
-                    chart_paths.append(chart_path)
-            except Exception as e:
-                print(f"Error Section 8 {subject}: {e}")
-                if hf.DEV_MODE:
-                    import traceback
-                    traceback.print_exc()
+            for subject in subjects_to_plot:
+                if not should_generate_subject(subject, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_section_8_performance_by_group_winter(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subject,
+                        cfg=cfg,
+                        selected_groups=_selected_groups,
+                        selected_races=_selected_races,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error Section 8 {subject}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
     
     # Section 9: SGP by School (Fall→Winter)
     print("\n[Section 9] Generating SGP by School (Fall→Winter)...")
@@ -3721,30 +3961,35 @@ def main(star_data=None):
     
     # Section 11: SGP by Student Group (Fall→Winter)
     print("\n[Section 11] Generating SGP by Student Group (Fall→Winter)...")
-    for scope_df, scope_label, folder in scopes:
-        if folder != "_district":  # District-level only
-            continue
-        for subject in subjects_to_plot:
-            if not should_generate_subject(subject, chart_filters):
+    if _skip_sections_8_11:
+        print("[Section 11] Skipping (no student groups or races selected)")
+    else:
+        for scope_df, scope_label, folder in scopes:
+            if folder != "_district":  # District-level only
                 continue
-            try:
-                chart_path = plot_section_11_sgp_by_group_winter(
-                    scope_df.copy(),
-                    scope_label,
-                    folder,
-                    args.output_dir,
-                    subject_str=subject,
-                    sgp_vector="FALL_WINTER",
-                    cfg=cfg,
-                    preview=hf.DEV_MODE
-                )
-                if chart_path:
-                    chart_paths.append(chart_path)
-            except Exception as e:
-                print(f"Error Section 11 {subject}: {e}")
-                if hf.DEV_MODE:
-                    import traceback
-                    traceback.print_exc()
+            for subject in subjects_to_plot:
+                if not should_generate_subject(subject, chart_filters):
+                    continue
+                try:
+                    chart_path = plot_section_11_sgp_by_group_winter(
+                        scope_df.copy(),
+                        scope_label,
+                        folder,
+                        args.output_dir,
+                        subject_str=subject,
+                        sgp_vector="FALL_WINTER",
+                        cfg=cfg,
+                        selected_groups=_selected_groups,
+                        selected_races=_selected_races,
+                        preview=hf.DEV_MODE
+                    )
+                    if chart_path:
+                        chart_paths.append(chart_path)
+                except Exception as e:
+                    print(f"Error Section 11 {subject}: {e}")
+                    if hf.DEV_MODE:
+                        import traceback
+                        traceback.print_exc()
     
     return chart_paths
 

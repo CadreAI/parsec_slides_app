@@ -4796,8 +4796,23 @@ def main(star_data=None):
     
     # Section 3: Overall + Cohort Trends (Spring)
     print("\n[Section 3] Generating Overall + Cohort Trends (Spring)...")
-    selected_grades = chart_filters.get("grades", [])
-    if not selected_grades:
+    
+    # Check if grades filter was explicitly provided (even if empty)
+    selected_grades = None
+    if "grades" in chart_filters:
+        # Filter was used
+        grades_from_filter = chart_filters.get("grades")
+        if isinstance(grades_from_filter, list):
+            if len(grades_from_filter) == 0:
+                # Filter used but no grades selected - skip section
+                print("[FILTER] Section 3: Skipping (no grades selected)")
+                selected_grades = []
+            else:
+                # Filter used with specific grades
+                selected_grades = grades_from_filter
+    
+    # If no filter was used (selected_grades is still None), generate all available grades
+    if selected_grades is None:
         # Query all available grades from data (no hardcoded limit)
         grade_col = "grade" if "grade" in star_base.columns else ("gradelevelwhenassessed" if "gradelevelwhenassessed" in star_base.columns else "studentgrade")
         if grade_col in star_base.columns:
@@ -4809,37 +4824,43 @@ def main(star_data=None):
             # Fallback: use all grades from Pre-K to 12
             selected_grades = list(range(-1, 13))
     
-    anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
+    # subjects_to_plot already defined before Section 2 - no need to redefine
     
-    # subjects_to_plot already defined before Section 2
-    for scope_df, scope_label, folder in scopes:
-        for subj in subjects_to_plot:
-            if not should_generate_subject(subj, chart_filters):
-                continue
-            for grade in selected_grades:
-                if not should_generate_grade(grade, chart_filters):
+    # Only generate charts if we have grades to process
+    if len(selected_grades) == 0:
+        # Skip section entirely
+        pass
+    else:
+        anchor_year = int(star_base["academicyear"].max()) if "academicyear" in star_base.columns else None
+        
+        for scope_df, scope_label, folder in scopes:
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
                     continue
-                try:
-                    chart_path = plot_star_blended_dashboard_spring(
-                        scope_df.copy(),
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subj,
-                        current_grade=grade,
-                        window_filter="Spring",
-                        cohort_year=anchor_year,
-                        cfg=cfg,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj}: {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
+                    try:
+                        chart_path = plot_star_blended_dashboard_spring(
+                            scope_df.copy(),
+                            scope_label,
+                            folder,
+                            args.output_dir,
+                            subject_str=subj,
+                            current_grade=grade,
+                            window_filter="Spring",
+                            cohort_year=anchor_year,
+                            cfg=cfg,
+                            preview=hf.DEV_MODE
+                        )
+                        if chart_path:
+                            chart_paths.append(chart_path)
+                    except Exception as e:
+                        print(f"Error generating Section 3 chart for {scope_label} - Grade {grade} - {subj}: {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
     
     # Section 4: Overall Growth Trends by Site (Spring) - Dual Subject
     print("\n[Section 4] Generating Overall Growth Trends by Site (Spring)...")
@@ -4868,33 +4889,38 @@ def main(star_data=None):
     
     # Section 5: STAR SGP Growth - Grade Trend + Backward Cohort (Spring)
     print("\n[Section 5] Generating STAR SGP Growth (Spring)...")
-    for scope_df, scope_label, folder in scopes:
-        for subj in subjects_to_plot:
-            if not should_generate_subject(subj, chart_filters):
-                continue
-            for grade in selected_grades:
-                if not should_generate_grade(grade, chart_filters):
+    
+    # Skip Section 5 if no grades are selected
+    if len(selected_grades) == 0:
+        print("[FILTER] Section 5: Skipping (no grades selected)")
+    else:
+        for scope_df, scope_label, folder in scopes:
+            for subj in subjects_to_plot:
+                if not should_generate_subject(subj, chart_filters):
                     continue
-                try:
-                    chart_path = plot_star_sgp_growth_spring(
-                        scope_df.copy(),
-                        scope_label,
-                        folder,
-                        args.output_dir,
-                        subject_str=subj,
-                        current_grade=grade,
-                        window_filter="Spring",
-                        cfg=cfg,
-                        preview=hf.DEV_MODE
-                    )
-                    if chart_path:
-                        chart_paths.append(chart_path)
-                except Exception as e:
-                    print(f"Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj}: {e}")
-                    if hf.DEV_MODE:
-                        import traceback
-                        traceback.print_exc()
-                    continue
+                for grade in selected_grades:
+                    if not should_generate_grade(grade, chart_filters):
+                        continue
+                    try:
+                        chart_path = plot_star_sgp_growth_spring(
+                            scope_df.copy(),
+                            scope_label,
+                            folder,
+                            args.output_dir,
+                            subject_str=subj,
+                            current_grade=grade,
+                            window_filter="Spring",
+                            cfg=cfg,
+                            preview=hf.DEV_MODE
+                        )
+                        if chart_path:
+                            chart_paths.append(chart_path)
+                    except Exception as e:
+                        print(f"Error generating Section 5 chart for {scope_label} - Grade {grade} - {subj}: {e}")
+                        if hf.DEV_MODE:
+                            import traceback
+                            traceback.print_exc()
+                        continue
     
     # Section 6: Performance by School (Winter vs Spring)
     print("\n[Section 6] Generating Performance by School (Winter vs Spring)...")

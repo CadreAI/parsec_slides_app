@@ -406,13 +406,23 @@ def run_section0_iready(
 
         subj = subject.upper()
 
-        # --- Filter for most recent academic year with Spring + CERS data ---
+        # --- Determine year column (handle both "academicyear" and "year") ---
+        year_col = None
+        if "academicyear" in d.columns:
+            year_col = "academicyear"
+        elif "year" in d.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 0: No year column found (academicyear or year)")
+            return None, None, None
+
+        # --- Filter for most recent academic year with Winter + CERS data ---
         valid_years = (
             d.loc[
                 (d["testwindow"].str.upper() == "WINTER")
                 & (d["cers_overall_performanceband"].notna())
                 & (d["enrolled"].astype(str) == "Enrolled")
-            ]["academicyear"]
+            ][year_col]
             .dropna()
             .unique()
         )
@@ -422,7 +432,7 @@ def run_section0_iready(
 
         last_year = max(valid_years)
         d = d[
-            (d["academicyear"] == last_year)
+            (d[year_col] == last_year)
             & (d["testwindow"].str.upper() == "WINTER")
             & (d["subject"].str.upper() == subj)
             & (d["cers_overall_performanceband"].notna())
@@ -617,8 +627,12 @@ def run_section0_iready(
                 ),
             )
 
-        # --- Chart title and save ---
-        year = next(iter(data_dict.values()))[1].get("year", "")
+        # --- Chart title and save - safely extract year from first subject ---
+        year = ""
+        for cross, metrics in data_dict.values():
+            if metrics is not None and isinstance(metrics, dict):
+                year = metrics.get("year", "")
+                break
         fig.suptitle(
             f"{scope_label} • Winter {year} • i-Ready Placement vs CAASPP Performance",
             fontsize=26,
@@ -738,15 +752,24 @@ def run_section0_1_iready_fall_winter(
 
         subj = str(subject).upper()
 
-        # --- Restrict to current (max) academic year only ---
-        d["academicyear"] = pd.to_numeric(d.get("academicyear"), errors="coerce")
-        year = int(d["academicyear"].max())
+        # --- Restrict to current (max) academic year only - handle both "academicyear" and "year" ---
+        year_col = None
+        if "academicyear" in d.columns:
+            year_col = "academicyear"
+        elif "year" in d.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 0.1: No year column found (academicyear or year)")
+            return None, None
+        
+        d[year_col] = pd.to_numeric(d.get(year_col), errors="coerce")
+        year = int(d[year_col].max())
 
         win_order = ["Fall", "Winter"]
         
         
         base = d[
-            (d["academicyear"] == year)
+            (d[year_col] == year)
             & (d["subject"].astype(str).str.upper() == subj)
             & (d["domain"].astype(str) == "Overall")
         ].copy()
@@ -1057,8 +1080,12 @@ def run_section0_1_iready_fall_winter(
                 ),
             )
 
-        # Title + save
-        year = next(iter(data_dict.values()))[2].get("year", "")
+        # Title + save - safely extract year from first subject
+        year = ""
+        for pct_df, score_df, metrics in data_dict.values():
+            if metrics is not None and isinstance(metrics, dict):
+                year = metrics.get("year", "")
+                break
         fig.suptitle(
             f"{scope_label} • {year} • i-Ready Fall vs Winter Trends",
             fontsize=22,
@@ -2971,10 +2998,19 @@ def run_section5_growth_progress_moy(
     def _prep_section5_subject(df, subject):
         d0 = df.copy()
 
-        # Current year only
-        d0["academicyear"] = pd.to_numeric(d0.get("academicyear"), errors="coerce")
-        year = int(d0["academicyear"].max())
-        d0 = d0[d0["academicyear"] == year].copy()
+        # Current year only - handle both "academicyear" and "year" column names
+        year_col = None
+        if "academicyear" in d0.columns:
+            year_col = "academicyear"
+        elif "year" in d0.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 5: No year column found (academicyear or year)")
+            return None
+        
+        d0[year_col] = pd.to_numeric(d0.get(year_col), errors="coerce")
+        year = int(d0[year_col].max())
+        d0 = d0[d0[year_col] == year].copy()
 
         # Grade filter: default K–8 only (9–12 typically do not have growth targets)
         if "student_grade" in d0.columns:
@@ -3400,8 +3436,12 @@ def run_section5_growth_progress_moy(
                 ),
             )
 
-        # Title + save
-        year = next(iter(metrics_by_subject.values())).get("year", "")
+        # Title + save - safely extract year from first non-None metrics
+        year = ""
+        for m in metrics_by_subject.values():
+            if m is not None and isinstance(m, dict):
+                year = m.get("year", "")
+                break
         fig.suptitle(
             f"{scope_label} • Winter {year} • Growth Progress Toward Annual Goals",
             fontsize=20,
