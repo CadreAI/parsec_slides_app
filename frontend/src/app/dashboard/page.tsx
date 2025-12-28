@@ -1,7 +1,7 @@
 'use client'
 
 import { SignOutButton } from '@clerk/nextjs'
-import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Plus, X } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Plus, X, StopCircle } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 
@@ -234,6 +234,78 @@ export default function Dashboard() {
         }
     }
 
+    const abortTask = async (taskId: string, event: React.MouseEvent) => {
+        event.stopPropagation()
+
+        if (!confirm('Are you sure you want to abort this task? This will stop the generation process.')) {
+            return
+        }
+
+        try {
+            const response = await fetch(`/api/tasks/abort/${taskId}`, {
+                method: 'POST'
+            })
+
+            if (response.ok) {
+                console.log('[Dashboard] Successfully aborted task:', taskId)
+
+                // Update task status to show it was aborted
+                setTasks((prevTasks) =>
+                    prevTasks.map((task) =>
+                        task.celery_task_id === taskId
+                            ? {
+                                  ...task,
+                                  status: 'FAILURE',
+                                  error_message: 'Task aborted by user'
+                              }
+                            : task
+                    )
+                )
+
+                // Clear any polling for this task
+                const intervalToStop = pollingRefs.current.get(taskId)
+                if (intervalToStop) {
+                    clearInterval(intervalToStop)
+                    pollingRefs.current.delete(taskId)
+                }
+            } else {
+                const data = await response.json()
+                console.error('[Dashboard] Failed to abort task:', data.error)
+                alert(`Failed to abort task: ${data.error}`)
+            }
+        } catch (error) {
+            console.error('[Dashboard] Error aborting task:', error)
+            alert('Failed to abort task. Please try again.')
+        }
+    }
+
+    const deleteDeck = async (deckId: string, event: React.MouseEvent) => {
+        event.stopPropagation() // Prevent card click
+
+        if (!confirm('Are you sure you want to delete this deck? This action cannot be undone.')) {
+            return
+        }
+
+        try {
+            const response = await fetch(`/api/decks/${deckId}`, {
+                method: 'DELETE'
+            })
+
+            if (response.ok) {
+                console.log('[Dashboard] Successfully deleted deck:', deckId)
+                // Remove from UI
+                setDecks((prevDecks) => prevDecks.filter((d) => d.id !== deckId))
+            } else {
+                const data = await response.json()
+                console.error('[Dashboard] Failed to delete deck:', data.error)
+                alert(`Failed to delete deck: ${data.error}`)
+            }
+        } catch (error) {
+            console.error('[Dashboard] Error deleting deck:', error)
+            alert('Failed to delete deck. Please try again.')
+        }
+    }
+
     // Sort and paginate decks
     const sortedDecks = useMemo(() => {
         const sorted = [...decks].sort((a, b) => {
@@ -331,19 +403,37 @@ export default function Dashboard() {
                                                     : 'border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20'
                                             }`}
                                         >
-                                            {task.status === 'FAILURE' && (
+                                            <div className="absolute right-2 top-2 flex gap-1.5">
+                                                {/* Show Abort button for active tasks (PENDING/STARTED) */}
+                                                {['PENDING', 'STARTED'].includes(task.status) && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0 text-orange-600 hover:bg-orange-100 hover:text-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/30"
+                                                        onClick={(e) => abortTask(task.celery_task_id, e)}
+                                                        title="Abort task"
+                                                    >
+                                                        <StopCircle className="h-5 w-5" />
+                                                    </Button>
+                                                )}
+                                                {/* Always show Delete button */}
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
-                                                    className="absolute right-2 top-2 h-6 w-6 p-0 text-red-600 hover:bg-red-100 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/30"
+                                                    className={`h-8 w-8 p-0 ${
+                                                        task.status === 'FAILURE'
+                                                            ? 'text-red-600 hover:bg-red-100 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/30'
+                                                            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800'
+                                                    }`}
                                                     onClick={() => dismissTask(task.celery_task_id)}
+                                                    title="Delete task"
                                                 >
-                                                    <X className="h-4 w-4" />
+                                                    <X className="h-5 w-5" />
                                                 </Button>
-                                            )}
+                                            </div>
                                             <CardHeader>
                                                 <div className="flex items-start justify-between">
-                                                    <div className="flex-1">
+                                                    <div className="flex-1 pr-14">
                                                         <CardTitle className="flex items-center gap-2 text-base">
                                                             {task.status === 'PENDING' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
                                                             {task.status === 'STARTED' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
@@ -368,11 +458,16 @@ export default function Dashboard() {
                                                         >
                                                             {task.status === 'PENDING' && 'Waiting'}
                                                             {task.status === 'STARTED' && 'Generating...'}
-                                                            {task.status === 'FAILURE' && 'Failed'}
+                                                            {task.status === 'FAILURE' &&
+                                                                (task.error_message === 'Task aborted by user' ? 'Aborted' : 'Failed')}
                                                         </span>
                                                     </div>
                                                     {task.status === 'FAILURE' && (
-                                                        <p className="text-xs text-red-600 dark:text-red-400">Generation failed. Please try again.</p>
+                                                        <p className="text-xs text-red-600 dark:text-red-400">
+                                                            {task.error_message === 'Task aborted by user'
+                                                                ? 'Task aborted by user.'
+                                                                : 'Generation failed. Please try again.'}
+                                                        </p>
                                                     )}
                                                 </div>
                                             </CardContent>
@@ -383,16 +478,24 @@ export default function Dashboard() {
                                 {paginatedDecks.map((deck) => (
                                     <Card
                                         key={deck.id}
-                                        className="cursor-pointer transition-shadow hover:shadow-lg"
+                                        className="relative cursor-pointer transition-shadow hover:shadow-lg"
                                         onClick={() => {
                                             if (deck.presentation_url) {
                                                 window.open(deck.presentation_url, '_blank')
                                             }
                                         }}
                                     >
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="absolute right-2 top-2 h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+                                            onClick={(e) => deleteDeck(deck.id, e)}
+                                        >
+                                            <X className="h-5 w-5" />
+                                        </Button>
                                         <CardHeader>
                                             <div className="flex items-start justify-between">
-                                                <div className="flex-1">
+                                                <div className="flex-1 pr-8">
                                                     <CardTitle>{deck.title}</CardTitle>
                                                     {deck.description && <CardDescription className="mt-2">{deck.description}</CardDescription>}
                                                 </div>
