@@ -8,6 +8,34 @@ from pathlib import Path
 import warnings
 import logging
 
+
+# ---------------------------------------------------------------------
+# Grade Label Formatting
+# ---------------------------------------------------------------------
+def format_grade_label(grade):
+    """
+    Format grade number for display in charts.
+    Grade 0 -> "K" (Kindergarten)
+    Grade -1 -> "TK"
+    All others -> int(grade)
+    
+    Args:
+        grade: Grade number (can be float or int)
+        
+    Returns:
+        str: Formatted grade (e.g., "K", "TK", "3", "8")
+    """
+    try:
+        grade_num = int(float(grade))
+        if grade_num == 0:
+            return "K"
+        elif grade_num == -1:
+            return "TK"
+        else:
+            return str(grade_num)
+    except (ValueError, TypeError):
+        return str(grade)
+
 # Default to non-interactive (batch) unless a caller flips it.
 DEV_MODE = False
 

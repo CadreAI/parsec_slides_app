@@ -48,7 +48,7 @@ def ingest_nwea(
 
     def _is_placeholder_district(name: str) -> bool:
         s = str(name or "").strip().lower()
-        return s in {"districtwide", "district", "district (all students)"}
+        return s in {"districtwide", "district", "district"}
 
     # Map config-level filters to chart_filters if not already set
     # Frontend may send district_name and selected_schools at config level

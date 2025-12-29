@@ -501,7 +501,7 @@ def _cfg_first(cfg_obj: dict, key: str, default: str) -> str:
 # District label (charter datasets may not have a district column; still produce an "all schools" aggregate)
 # Allow a display-only override that does NOT affect filtering / school matching.
 district_label = _cfg_first(cfg, "district_display_name", _cfg_first(cfg, "district_name", "District"))
-district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label} (All Students)")
+district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label}")
 
 
 def _is_district_scope(scope_label: str | None) -> bool:
@@ -2294,7 +2294,7 @@ def plot_nwea_subject_dashboard_by_group(
         else:
             min_ns.append(0)
     # If either panel fails min_n, skip
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(
             f"[group {group_name}] skipped (<12 students in one or both subjects) in {title_label}"
         )
@@ -2860,7 +2860,7 @@ def plot_nwea_blended_dashboard(
             year_str_prev = str(year - 1)[-2:]
             year_str_curr = str(year)[-2:]
             label_full = (
-                f"Gr {int(grade)} \u2022 Spring {year_str_prev}-{year_str_curr}"
+                f"Gr {hf.format_grade_label(grade)} \u2022 Spring {year_str_prev}-{year_str_curr}"
             )
             cohort_slice["cohort_label"] = label_full
             cohort_rows.append(cohort_slice)
@@ -3339,7 +3339,7 @@ def plot_nwea_blended_dashboard(
 
     # Main title
     fig.suptitle(
-        f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
+        f"{district_label} • Grade {hf.format_grade_label(current_grade)} • {course_str_for_title}",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -3354,7 +3354,7 @@ def plot_nwea_blended_dashboard(
         district_label if school_raw is None else hf._safe_normalize_school_name(school_raw, cfg)
     )
     out_name = (
-        f"{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_"
+        f"{scope.replace(' ', '_')}_section3_grade{hf.format_grade_label(current_grade)}_"
         f"{course_str.lower().replace(' ', '_')}_Spring_trends.png"
     )
     out_path = out_dir / out_name
@@ -3766,7 +3766,7 @@ def _run_cgp_dual_trend(scope_df, scope_label):
     gs = fig.add_gridspec(nrows=3, ncols=ncols, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     fig.suptitle(
-        f"{scope_label} • Conditional Growth (All Students)",
+        f"{scope_label} • Conditional Growth",
         fontsize=20,
         fontweight="bold",
         y=0.99,
@@ -4324,7 +4324,7 @@ if _include_district_charts():
                     {
                         "gr": gr,
                         "yr": yr,
-                        "time_label": f"Gr {int(gr)} • {end_window.title()} {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                        "time_label": f"Gr {hf.format_grade_label(gr)} • {end_window.title()} {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
                         "median_cgp": d[cgp_col].median(),
                         "mean_cgi": (d[cgi_col].mean() if cgi_col else np.nan),
                     }
@@ -4417,7 +4417,7 @@ for raw_school in all_schools:
                     {
                         "gr": gr,
                         "yr": yr,
-                        "time_label": f"Gr {int(gr)} • {end_window.title()} {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                        "time_label": f"Gr {hf.format_grade_label(gr)} • {end_window.title()} {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
                         "median_cgp": d[cgp_col].median(),
                         "mean_cgi": (d[cgi_col].mean() if cgi_col else np.nan),
                     }
@@ -4708,7 +4708,7 @@ def _plot_section6_window_compare_by_school(
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -5058,7 +5058,7 @@ def _plot_section7_window_compare_by_grade(
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -5450,7 +5450,7 @@ def _plot_section8_window_compare_by_student_group(
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )

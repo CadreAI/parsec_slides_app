@@ -421,7 +421,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     """Plot dashboard filtered to one student group"""
     d0 = df.copy()
     school_display = hf._safe_normalize_school_name(school_raw, cfg) if school_raw else None
-    title_label = cfg.get("district_name", ["District (All Students)"])[0] if not school_display else school_display
+    title_label = cfg.get("district_name", ["District"])[0] if not school_display else school_display
     
     subjects = ["Reading", "Mathematics"]
     subject_titles = ["Reading", "Mathematics"]
@@ -474,7 +474,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         else:
             min_ns.append(0)
     
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(f"[group {group_name}] skipped (<12 students in one or both subjects) in {title_label}")
         return
     
@@ -770,7 +770,7 @@ def _prep_nwea_matched_cohort_by_grade(df, course_str, current_grade, window_fil
         
         year_str_prev = str(year - 1)[-2:]
         year_str_curr = str(year)[-2:]
-        label_full = f"Gr {int(grade)} • Fall {year_str_prev}-{year_str_curr}"
+        label_full = f"Gr {hf.format_grade_label(grade)} • Fall {year_str_prev}-{year_str_curr}"
         cohort_slice["cohort_label"] = label_full
         cohort_rows.append(cohort_slice)
         ordered_labels.append(label_full)
@@ -845,7 +845,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     """Produce blended dashboard: Overall Trends (left) + Cohort Trends (right)"""
     school_display = hf._safe_normalize_school_name(school_raw, cfg) if school_raw else None
     folder_name = "_district" if school_display is None else school_display.replace(" ", "_")
-    district_label = cfg.get("district_name", ["District (All Students)"])[0] if not school_display else school_display
+    district_label = cfg.get("district_name", ["District"])[0] if not school_display else school_display
     
     course_str_for_title = "Math" if "math" in str(course_str).strip().casefold() else course_str
     
@@ -1079,7 +1079,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                 ha="center", va="center", wrap=True, usetex=False,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.6))
     
-    fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
+    fig.suptitle(f"{district_label} • Grade {hf.format_grade_label(current_grade)} • {course_str_for_title}",
                 fontsize=20, fontweight="bold", y=1)
     
     charts_dir = Path(output_dir)
@@ -1088,7 +1088,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     scope = scope_label or (cfg.get("district_name", ["Districtwide"])[0] if school_raw is None else hf._safe_normalize_school_name(school_raw, cfg))
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
-    out_name = f"{prefix}{scope.replace(' ', '_')}_NWEA_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope.replace(' ', '_')}_NWEA_section3_grade{hf.format_grade_label(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     # Print absolute path as string for reliable parsing
@@ -1150,7 +1150,7 @@ def _prep_cgp_trend(df, subject_str, cfg):
     d["site_display"] = d["schoolname"].apply(lambda x: hf._safe_normalize_school_name(x, cfg))
     
     dist_rows = d.copy()
-    dist_rows["site_display"] = cfg.get("district_name", ["District (All Students)"])[0]
+    dist_rows["site_display"] = cfg.get("district_name", ["District"])[0]
     both = pd.concat([d, dist_rows], ignore_index=True)
     
     has_cgi = "falltofallconditionalgrowthindex" in both.columns
@@ -1283,7 +1283,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
     fig = plt.figure(figsize=(16, 9), dpi=300)
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
-    fig.suptitle(f"{scope_label} • Fall→Fall Growth (All Students)", fontsize=20, fontweight="bold", y=0.99)
+    fig.suptitle(f"{scope_label} • Fall→Fall Growth", fontsize=20, fontweight="bold", y=0.99)
     
     axes = []
     comparison_data = {}  # Store comparison data for each subject
@@ -1333,8 +1333,8 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
         d["year_short"] = d["year"].apply(_short_year)
         d["time_label"] = d["testwindow"].astype(str).str.title() + " " + d["year_short"]
         d["site_display"] = d["schoolname"].apply(lambda x: hf._safe_normalize_school_name(x, cfg))
-        if scope_label == cfg.get("district_name", ["District (All Students)"])[0]:
-            d["site_display"] = cfg.get("district_name", ["District (All Students)"])[0]
+        if scope_label == cfg.get("district_name", ["District"])[0]:
+            d["site_display"] = cfg.get("district_name", ["District"])[0]
         d = d[d["site_display"] == scope_label]
         
         n_map = d.groupby("time_label")["uniqueidentifier"].nunique().reset_index().rename(columns={"uniqueidentifier": "n"})
@@ -1377,7 +1377,7 @@ def _run_cgp_dual_trend(scope_df, scope_label, output_dir, cfg, preview=False, s
                         bbox=dict(boxstyle="round,pad=0.8", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=1.0))
     
     charts_dir = Path(output_dir)
-    folder_name = "_district" if scope_label == cfg.get("district_name", ["District (All Students)"])[0] else scope_label.replace(" ", "_")
+    folder_name = "_district" if scope_label == cfg.get("district_name", ["District"])[0] else scope_label.replace(" ", "_")
     out_dir = charts_dir / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_scope = scope_label.replace(" ", "_")

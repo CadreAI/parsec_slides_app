@@ -1151,7 +1151,7 @@ def _run_section5_spring(nwea_base, cfg, output_dir, scopes):
                         continue
                     cohort_rows.append({
                         "gr": gr, "yr": yr,
-                        "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                        "time_label": f"Gr {hf.format_grade_label(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
                         "median_cgp": d[cgp_col].median(),
                         "mean_cgi": (d[cgi_col].mean() if cgi_col else np.nan),
                     })
@@ -1528,7 +1528,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
         else:
             min_ns.append(0)
     
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(f"[group {group_name}] skipped (<12 students in one or both subjects) in {title_label}")
         return
     
@@ -1775,7 +1775,7 @@ def _prep_nwea_matched_cohort_by_grade(df, course_str, current_grade, window_fil
         
         year_str_prev = str(year - 1)[-2:]
         year_str_curr = str(year)[-2:]
-        label_full = f"Gr {int(grade)} • Fall {year_str_prev}-{year_str_curr}"
+        label_full = f"Gr {hf.format_grade_label(grade)} • Fall {year_str_prev}-{year_str_curr}"
         cohort_slice["cohort_label"] = label_full
         cohort_rows.append(cohort_slice)
         ordered_labels.append(label_full)
@@ -2094,7 +2094,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
                 ha="center", va="center", wrap=True, usetex=False,
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
-    fig.suptitle(f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
+    fig.suptitle(f"{district_label} • Grade {hf.format_grade_label(current_grade)} • {course_str_for_title}",
                 fontsize=24, fontweight="bold", y=1)
     
     charts_dir = Path(output_dir)
@@ -2103,7 +2103,7 @@ def plot_nwea_blended_dashboard(df, course_str, current_grade, window_filter, co
     scope = scope_label or (cfg.get("district_name", ["Districtwide"])[0] if school_raw is None else hf._safe_normalize_school_name(school_raw, cfg))
     # Add prefix to make district vs school charts more noticeable
     prefix = "DISTRICT_" if school_raw is None else "SCHOOL_"
-    out_name = f"{prefix}{scope.replace(' ', '_')}_NWEA_section3_grade{int(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
+    out_name = f"{prefix}{scope.replace(' ', '_')}_NWEA_section3_grade{hf.format_grade_label(current_grade)}_{course_str.lower().replace(' ', '_')}_{window_filter.lower()}_trends.png"
     out_path = out_dir / out_name
     hf._save_and_render(fig, out_path, dev_mode=preview)
     # Print absolute path as string for reliable parsing

@@ -195,7 +195,7 @@ def _cfg_first(cfg_obj: dict, key: str, default: str) -> str:
 
 
 district_label = _cfg_first(cfg, "district_display_name", _cfg_first(cfg, "district_name", "District"))
-district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label} (All Students)")
+district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label} ")
 
 # Base charts directory (overrideable by runner)
 CHARTS_DIR = Path(os.getenv("IREADY_BOY_CHARTS_DIR") or "../charts")
@@ -1249,7 +1249,7 @@ def plot_iready_subject_dashboard_by_group(
             n_map = {}
         n_maps.append(n_map)
     # If either panel fails min_n, skip
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(
             f"[group {group_name}] skipped (<12 students in one or both subjects) in {title_label}"
         )
@@ -1598,7 +1598,7 @@ def _prep_iready_matched_cohort_by_grade(
         tmp = tmp.groupby("uniqueidentifier", as_index=False).tail(1)
 
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • Fall {y_prev}-{y_curr}"
+        label = f"Gr {hf.format_grade_label(gr)} • Fall {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)
@@ -1978,7 +1978,7 @@ def plot_iready_blended_dashboard(
     )
 
     fig.suptitle(
-        f"{scope_label} • Grade {int(current_grade)} • {subject_str} • {window_filter}",
+        f"{scope_label} • Grade {hf.format_grade_label(current_grade)} • {subject_str} • {window_filter}",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -1988,7 +1988,7 @@ def plot_iready_blended_dashboard(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = (
         out_dir
-        / f"{scope_label.replace(' ','_')}_section3_iready_grade{int(current_grade)}_{subject_str}_{window_filter.lower()}_trends.png"
+        / f"{scope_label.replace(' ','_')}_section3_iready_grade{hf.format_grade_label(current_grade)}_{subject_str}_{window_filter.lower()}_trends.png"
     )
     hf._save_and_render(fig, out_path)
     _write_chart_data(
@@ -2040,7 +2040,9 @@ if _env_grades:
 # Only generate Section 3 if grades are selected
 if _selected_grades:
     scope_label = district_label
-    for g in sorted(_base["student_grade"].dropna().unique()):
+    # Sort grades numerically (not as strings)
+    grades_to_process = sorted(_base["student_grade"].dropna().unique(), key=lambda x: float(x))
+    for g in grades_to_process:
         if _selected_grades and int(g) not in _selected_grades:
             continue
         for subj in ["ELA", "Math"]:
@@ -2061,7 +2063,9 @@ if _selected_grades:
             site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
             anchor = int(site_df["academicyear"].max())
             scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-            for g in sorted(site_df["student_grade"].dropna().unique()):
+            # Sort grades numerically (not as strings)
+            grades_to_process = sorted(site_df["student_grade"].dropna().unique(), key=lambda x: float(x))
+            for g in grades_to_process:
                 if _selected_grades and int(g) not in _selected_grades:
                     continue
                 for subj in ["ELA", "Math"]:
@@ -2928,7 +2932,7 @@ def run_section8_fall_winter_by_student_group(
     df_scope,
     scope_label=None,
     preview=False,
-    min_n=12,
+    min_n=1,
 ):
     print("\n>>> STARTING SECTION 8 <<<")
     scope_label = scope_label or district_label
@@ -3026,7 +3030,7 @@ _scope_label = district_label
 run_section6_fall_winter_by_school(_scope_df, scope_label=_scope_label, preview=False)
 run_section7_fall_winter_by_grade(_scope_df, scope_label=_scope_label, preview=False)
 run_section8_fall_winter_by_student_group(
-    _scope_df, scope_label=_scope_label, preview=False, min_n=12
+    _scope_df, scope_label=_scope_label, preview=False, min_n=1
 )
 
 print("Sections 6–8 complete.")
@@ -3519,7 +3523,8 @@ def plot_section10_median_progress_by_grade(
         .reset_index()
     )
 
-    grade_order_num = sorted(grp["student_grade"].dropna().unique().tolist())
+    # Sort grades numerically (not as strings)
+    grade_order_num = sorted(grp["student_grade"].dropna().unique().tolist(), key=lambda x: float(x))
     grade_order = ["K" if int(g) == 0 else str(int(g)) for g in grade_order_num]
 
     # Map numeric grades to labels
@@ -3674,7 +3679,7 @@ for subj in ["ELA", "Math"]:
         scope_df, subj, district_label, preview=False
     )
     plot_section11_median_progress_by_group(
-        scope_df, subj, district_label, cfg, preview=False, min_n=12
+        scope_df, subj, district_label, cfg, preview=False, min_n=1
     )
 print("Sections 9, 10, 11 batch complete.")
 # %%
