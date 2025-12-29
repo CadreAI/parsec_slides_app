@@ -168,7 +168,20 @@ iready_base.columns = iready_base.columns.str.strip().str.lower()
 print(
     f"IREADY data loaded: {iready_base.shape[0]:,} rows, {iready_base.shape[1]} columns"
 )
-print(iready_base["year"].value_counts().sort_index())
+
+if "year" not in iready_base.columns:
+    for cand in ["academicyear", "academic_year", "academic year"]:
+        if cand in iready_base.columns:
+            iready_base["year"] = iready_base[cand]
+            break
+
+if "year" in iready_base.columns:
+    try:
+        print(pd.to_numeric(iready_base["year"], errors="coerce").value_counts().sort_index())
+    except Exception:
+        print(iready_base["year"].value_counts().sort_index())
+else:
+    print("[WARN] No `year` or `academicyear` column found; skipping year distribution print.")
 print(iready_base.columns.tolist())
 
 # Normalize district name for fallback in the title
@@ -233,6 +246,11 @@ def _get_eoy_compare_windows() -> list[str]:
 
 def _include_school_charts() -> bool:
     return _scope_mode not in ("district_only", "district")
+
+
+def _include_district_charts() -> bool:
+    """Return True unless user selected schools-only mode (no district)."""
+    return _scope_mode not in ("schools_only", "selected_schools_only")
 
 
 def _school_selected(raw_school: str) -> bool:
@@ -419,12 +437,22 @@ def run_section0_iready(
 
         subj = subject.upper()
 
+        year_col = None
+        if "academicyear" in d.columns:
+            year_col = "academicyear"
+        elif "year" in d.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 0: No year column found (academicyear or year)")
+            return None, None, None
+
         # --- Filter for most recent academic year with Spring + CERS data ---
         valid_years = (
             d.loc[
                 (d["testwindow"].str.upper() == "SPRING")
-                & (d["cers_overall_performanceband"].notna())
-            ]["academicyear"]
+                      & (d["cers_overall_performanceband"].notna())
+                & (d["enrolled"].astype(str) == "Enrolled")
+            ][year_col]
             .dropna()
             .unique()
         )
@@ -434,7 +462,7 @@ def run_section0_iready(
 
         last_year = max(valid_years)
         d = d[
-            (d["academicyear"] == last_year)
+            (d[year_col] == last_year)
             & (d["testwindow"].str.upper() == "SPRING")
             & (d["subject"].str.upper() == subj)
             & (d["cers_overall_performanceband"].notna())
@@ -702,10 +730,13 @@ def run_section0_iready(
 print("Running Section 0 batch...")
 
 # District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
+    folder = "_district"
+    run_section0_iready(scope_df, scope_label=scope_label, folder=folder, preview=False)
+else:
+    print("Skipping Section 0 district-level (schools-only mode)")
 
 # Site-level
 if _include_school_charts():
@@ -748,77 +779,183 @@ def run_section0_1_iready_fall_winter_spring(
 
         subj = str(subject).upper()
 
-        # --- Restrict to current (max) academic year only ---
-        d["academicyear"] = pd.to_numeric(d.get("academicyear"), errors="coerce")
-        year = int(d["academicyear"].max())
+        # --- Restrict to current (max) academic year only - handle both "academicyear" and "year" ---
+        year_col = None
+        if "academicyear" in d.columns:
+            year_col = "academicyear"
+        elif "year" in d.columns:
+            year_col = "year"
+        else:
+            print(f"[ERROR] Section 0.1: No year column found (academicyear or year)")
+            return None, None
+        
+        d[year_col] = pd.to_numeric(d.get(year_col), errors="coerce")
+        year = int(d[year_col].max())
 
-        d = d[
-            (d["academicyear"] == year)
-            & (d["testwindow"].astype(str).str.title().isin(win_order))
+        base = d[
+            (d[year_col] == year)
             & (d["subject"].astype(str).str.upper() == subj)
             & (d["domain"].astype(str) == "Overall")
-            & (d["enrolled"].astype(str) == "Enrolled")
-            & (d["relative_placement"].notna())
         ].copy()
 
-        if d.empty:
+        if base.empty:
             print(f"[WARN] No qualifying rows for Section 0.1 ({subj}, {year})")
             return None, None
 
         # Ensure scale_score numeric
-        d["scale_score"] = pd.to_numeric(d.get("scale_score"), errors="coerce")
+        base["scale_score"] = pd.to_numeric(base.get("scale_score"), errors="coerce")
 
-        # --- Placement % by window ---
-        counts = (
-            d.groupby(["testwindow", "relative_placement"])
-            .size()
-            .rename("n")
-            .reset_index()
-        )
-        totals = d.groupby("testwindow").size().rename("N_total").reset_index()
-        pct_df = counts.merge(totals, on="testwindow", how="left")
-        pct_df["pct"] = 100 * pct_df["n"] / pct_df["N_total"]
+        # Normalize testwindow to title case for consistency
+        base["testwindow"] = base["testwindow"].astype(str).str.title()
 
-        pct_df["testwindow"] = pct_df["testwindow"].astype(str).str.title()
-        pct_df = pct_df[pct_df["testwindow"].isin(win_order)].copy()
-
-        # Ensure all placements exist for stacking
-        all_idx = pd.MultiIndex.from_product(
-            [win_order, hf.IREADY_ORDER], names=["testwindow", "relative_placement"]
-        )
-        pct_df = (
-            pct_df.set_index(["testwindow", "relative_placement"])
-            .reindex(all_idx)
-            .reset_index()
-        )
-        pct_df["pct"] = pct_df["pct"].fillna(0)
-        pct_df["n"] = pct_df["n"].fillna(0)
-        pct_df["N_total"] = pct_df.groupby("testwindow")["N_total"].transform(
-            lambda s: s.ffill().bfill()
-        )
-
-        # --- Avg scale score by window ---
-        score_df = (
-            d.dropna(subset=["scale_score"])
-            .groupby(d["testwindow"].astype(str).str.title())["scale_score"]
-            .mean()
-            .reindex(win_order)
-            .rename("avg_score")
-            .reset_index()
-            .rename(columns={"testwindow": "window"})
-        )
-
-        # Compute diff (end - start) for the selected compare windows
-        start_w = win_order[0]
-        end_w = win_order[-1]
-        start_val = score_df.loc[score_df["window"] == start_w, "avg_score"]
-        end_val = score_df.loc[score_df["window"] == end_w, "avg_score"]
-        if len(start_val) == 0 or len(end_val) == 0:
-            diff = np.nan
+        # Choose dedupe sort column once
+        if "completion_date" in base.columns:
+            base["completion_date"] = pd.to_datetime(
+                base["completion_date"], errors="coerce"
+            )
+            sort_col = "completion_date"
+        elif "teststartdate" in base.columns:
+            base["teststartdate"] = pd.to_datetime(
+                base["teststartdate"], errors="coerce"
+            )
+            sort_col = "teststartdate"
         else:
-            diff = float(end_val.iloc[0]) - float(start_val.iloc[0])
+            base["_row_order"] = np.arange(len(base))
+            sort_col = "_row_order"
 
-        metrics = {"year": year, "diff": diff, "start_window": start_w, "end_window": end_w}
+        def _window_df(win_label: str) -> pd.DataFrame:
+            """Extract deduplicated data for a single window."""
+            w = base[
+                (base["testwindow"] == win_label)
+                & (base["enrolled"].astype(str) == "Enrolled")
+            ].copy()
+            if w.empty:
+                return w
+            if "uniqueidentifier" in w.columns:
+                w = w.sort_values(["uniqueidentifier", sort_col])
+                w = w.groupby("uniqueidentifier", as_index=False).tail(1)
+            return w
+
+        # Extract each window independently from the same base (deduplicated per window)
+        window_dfs = {win: _window_df(win) for win in win_order}
+
+        # Build N_total per window (COUNT DISTINCT uniqueidentifier)
+        def _n_total(wdf: pd.DataFrame) -> int:
+            if wdf is None or wdf.empty:
+                return 0
+            if "uniqueidentifier" in wdf.columns:
+                return int(wdf["uniqueidentifier"].nunique())
+            return int(len(wdf))
+
+        totals_map = {win: _n_total(window_dfs[win]) for win in win_order}
+
+        # Build placement counts per window (COUNT DISTINCT uniqueidentifier)
+        def _counts_by_place(wdf: pd.DataFrame) -> dict:
+            if wdf is None or wdf.empty:
+                return {}
+            w2 = wdf[wdf["relative_placement"].notna()].copy()
+            if w2.empty:
+                return {}
+            if "uniqueidentifier" in w2.columns:
+                s = w2.groupby("relative_placement")["uniqueidentifier"].nunique()
+            else:
+                s = w2.groupby("relative_placement").size()
+            return {k: int(v) for k, v in s.to_dict().items()}
+
+        window_counts = {win: _counts_by_place(window_dfs[win]) for win in win_order}
+
+        # Assemble pct_df with a complete grid (all windows x all placements)
+        rows = []
+        for win in win_order:
+            N = int(totals_map.get(win, 0))
+            counts_map = window_counts.get(win, {})
+            for rp in hf.IREADY_ORDER:
+                n = int(counts_map.get(rp, 0))
+                pct = 0 if N == 0 else (100 * n / N)
+                rows.append(
+                    {
+                        "testwindow": win,
+                        "relative_placement": rp,
+                        "n": n,
+                        "N_total": N,
+                        "pct": pct,
+                    }
+                )
+        pct_df = pd.DataFrame(rows)
+
+        # --- Avg scale score by window (computed from each window df independently) ---
+        score_rows = []
+        for win in win_order:
+            wdf = window_dfs[win]
+            if wdf is None or wdf.empty:
+                score_rows.append({"window": win, "avg_score": np.nan})
+                continue
+            avg = wdf.dropna(subset=["scale_score"])["scale_score"].mean()
+            score_rows.append({"window": win, "avg_score": avg})
+        score_df = pd.DataFrame(score_rows)
+
+        # Cleanup helper column if created
+        if "_row_order" in base.columns:
+            # base is a temp; nothing else to do
+            pass
+
+        # --- Insight metrics (comparing first and last windows) ---
+        if len(win_order) >= 2:
+            t_prev = win_order[0]
+            t_curr = win_order[-1]
+
+            def pct_for(buckets, tlabel):
+                return pct_df[
+                    (pct_df["testwindow"] == tlabel)
+                    & (pct_df["relative_placement"].isin(buckets))
+                ]["pct"].sum()
+
+            # Placement buckets
+            hi_curr = pct_for(hf.IREADY_HIGH_GROUP, t_curr)
+            hi_prev = pct_for(hf.IREADY_HIGH_GROUP, t_prev)
+            lo_curr = pct_for(hf.IREADY_LOW_GROUP, t_curr)
+            lo_prev = pct_for(hf.IREADY_LOW_GROUP, t_prev)
+            high_curr = pct_for(["Mid/Above"], t_curr)
+            high_prev = pct_for(["Mid/Above"], t_prev)
+
+            # Avg scale score deltas
+            prev_val = score_df.loc[score_df["window"] == t_prev, "avg_score"]
+            curr_val = score_df.loc[score_df["window"] == t_curr, "avg_score"]
+            if len(prev_val) == 0 or len(curr_val) == 0:
+                score_now = np.nan
+                score_delta = np.nan
+            else:
+                score_now = float(curr_val.iloc[0])
+                score_delta = float(curr_val.iloc[0]) - float(prev_val.iloc[0])
+
+            metrics = {
+                "year": year,
+                "t_prev": t_prev,
+                "t_curr": t_curr,
+                "hi_now": hi_curr,
+                "hi_delta": hi_curr - hi_prev,
+                "lo_now": lo_curr,
+                "lo_delta": lo_curr - lo_prev,
+                "score_now": score_now,
+                "score_delta": score_delta,
+                "high_now": high_curr,
+                "high_delta": high_curr - high_prev,
+            }
+        else:
+            metrics = {
+                "year": year,
+                "t_prev": None,
+                "t_curr": None,
+                "hi_now": None,
+                "hi_delta": None,
+                "lo_now": None,
+                "lo_delta": None,
+                "score_now": None,
+                "score_delta": None,
+                "high_now": None,
+                "high_delta": None,
+            }
+
         return pct_df, score_df, metrics
 
     def _plot_section0_1(scope_label, folder, data_dict, preview=False):
@@ -883,9 +1020,9 @@ def run_section0_1_iready_fall_winter_spring(
                             fontsize=10,
                             fontweight="bold",
                             color=(
-                                "white"
+                                "#111111"
                                 if cat in ["3+ Below", "Mid/Above", "Early On"]
-                                else "#333"
+                                else "#111111"
                             ),
                         )
                 bottom += vals
@@ -946,9 +1083,9 @@ def run_section0_1_iready_fall_winter_spring(
             # --- Row 3: Insight box (diff Winter - Fall) ---
             ax_bot = fig.add_subplot(gs[2, i])
             ax_bot.axis("off")
-            diff = metrics.get("diff", np.nan)
-            sw = metrics.get("start_window", win_order[0])
-            ew = metrics.get("end_window", win_order[-1])
+            diff = metrics.get("score_delta", np.nan)
+            sw = metrics.get("t_prev", "Winter")
+            ew = metrics.get("t_curr", "Spring")
             diff_str = "NA" if pd.isna(diff) else f"{diff:+.1f}"
             insight_text = f"Change in Avg Scale Score {sw} to {ew}:\n{diff_str}"
             ax_bot.text(
@@ -1037,12 +1174,15 @@ def run_section0_1_iready_fall_spring(
 print("Running Section 0.1 batch...")
 
 # District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section0_1_iready_fall_spring(
-    scope_df, scope_label=scope_label, folder=folder, preview=False
-)
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
+    folder = "_district"
+    run_section0_1_iready_fall_spring(
+        scope_df, scope_label=scope_label, folder=folder, preview=False
+    )
+else:
+    print("Skipping Section 0.1 district-level (schools-only mode)")
 
 # Site-level
 if _include_school_charts():
@@ -1087,19 +1227,22 @@ if _env_grades:
         pass
 
 # ---- District-level (by grade) ----
-scope_label_district = district_label
-# Sort grades numerically (not as strings)
-grades_to_process = sorted(_base0_1["student_grade"].dropna().unique(), key=lambda x: float(x))
-for g in grades_to_process:
-    if int(g) not in _grade_whitelist0_1:
-        continue
-    df_g = _base0_1[_base0_1["student_grade"] == g].copy()
-    run_section0_1_iready_fall_spring(
-        df_g,
-        scope_label=f"{scope_label_district} • Grade {hf.format_grade_label(g)}",
-        folder="_district",
-        preview=False,
-    )
+if _include_district_charts():
+    scope_label_district = district_label
+    # Sort grades numerically (not as strings)
+    grades_to_process = sorted(_base0_1["student_grade"].dropna().unique(), key=lambda x: float(x))
+    for g in grades_to_process:
+        if int(g) not in _grade_whitelist0_1:
+            continue
+        df_g = _base0_1[_base0_1["student_grade"] == g].copy()
+        run_section0_1_iready_fall_spring(
+            df_g,
+            scope_label=f"{scope_label_district} • Grade {hf.format_grade_label(g)}",
+            folder="_district",
+            preview=False,
+        )
+else:
+    print("Skipping Section 0.1 grade-level district charts (schools-only mode)")
 
 # ---- Site-level (by grade) ----
 if _include_school_charts():
@@ -1441,6 +1584,7 @@ def plot_iready_dual_subject_dashboard(
                     )
 
                 high_delta = _bucket_delta("Mid/Above", pct_df)
+                early_on_delta = _bucket_delta("Early On", pct_df)
                 lo_delta = sum(
                     _bucket_delta(b, pct_df) for b in ["3+ Below", "2 Below"]
                 )
@@ -1449,6 +1593,7 @@ def plot_iready_dual_subject_dashboard(
                 lines = [
                     "Comparisons based on the current and previous year:\n\n"
                     rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts",
                     rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
                     rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
@@ -1462,9 +1607,9 @@ def plot_iready_dual_subject_dashboard(
             "\n".join(lines),
             ha="center",
             va="center",
-            fontsize=11,
+            fontsize=9,
             color="#333",
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#bbb"),
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#bbb"),
         )
 
     # --- Draw panels for both subjects ---
@@ -1562,17 +1707,20 @@ def plot_iready_dual_subject_dashboard(
 # ---------------------------------------------------------------------
 
 # ---- District-level ----
-scope_df = iready_base.copy()
-scope_label = district_label
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
 
-plot_iready_dual_subject_dashboard(
-    scope_df,
-    window_filter="Spring",
-    figsize=(16, 9),
-    school_raw=None,
-    scope_label=scope_label,
-    preview=True,  # or False for batch
-)
+    plot_iready_dual_subject_dashboard(
+        scope_df,
+        window_filter="Spring",
+        figsize=(16, 9),
+        school_raw=None,
+        scope_label=scope_label,
+        preview=True,  # or False for batch
+    )
+else:
+    print("Skipping Section 1 district-level (schools-only mode)")
 
 # ---- Site-level ----
 if _include_school_charts():
@@ -1776,13 +1924,13 @@ def plot_iready_subject_dashboard_by_group(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "Mid/Above" or cat == "Early On":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "1 Below" or cat == "2 Below":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "3+ Below":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax1.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
@@ -1885,14 +2033,18 @@ def plot_iready_subject_dashboard_by_group(
             high_now = _pct_for_bucket("Mid/Above", t_curr)
             high_prev = _pct_for_bucket("Mid/Above", t_prev)
             high_delta = high_now - high_prev
+            early_on_now = _pct_for_bucket("Early On", t_curr)
+            early_on_prev = _pct_for_bucket("Early On", t_prev)
+            early_on_delta = early_on_now - early_on_prev
             hi_delta = metrics["hi_delta"]
             lo_delta = metrics["lo_delta"]
             score_delta = metrics["score_delta"]
             title_line = "Comparison based on current and previous year:\n"
-            line_high = rf" Mid or Above: $\mathbf{{{high_delta:+.1f}}}$ ppts"
-            line_low = rf"2 or More Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
+            line_high = rf"Mid or Above: $\mathbf{{{high_delta:+.1f}}}$ ppts"
+            line_early_on = rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts"
+            line_low = rf" 2 or More Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
             line_rit = rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts"
-            insight_lines = [title_line, line_high, line_low, line_rit]
+            insight_lines = [title_line, line_high, line_early_on, line_low, line_rit]
         else:
             insight_lines = ["Not enough history for change insights"]
         ax3.text(
@@ -1976,34 +2128,55 @@ student_groups_cfg = cfg.get("student_groups", {})
 group_order = cfg.get("student_group_order", {})
 
 # Optional: restrict student-group dashboards based on frontend selection.
-# The runner passes selected groups as: IREADY_MOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
+# The runner passes selected groups as: IREADY_EOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
+# The runner passes selected races as: IREADY_EOY_RACE="Hispanic or Latino,White"
 _env_groups = _env_first("IREADY_EOY_STUDENT_GROUPS")
-_selected_groups = []
-if _env_groups:
-    _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
-    print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
+_env_races = _env_first("IREADY_EOY_RACE")
+
+# Parse groups
+_selected_groups = None
+if _env_groups is not None:
+    if _env_groups.strip().upper() == "NONE":
+        _selected_groups = []
+    else:
+        _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
+        if _selected_groups:
+            print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
+
+# Parse races
+_selected_races = None
+if _env_races is not None:
+    if _env_races.strip().upper() == "NONE":
+        _selected_races = []
+    else:
+        _selected_races = [r.strip() for r in str(_env_races).split(",") if r.strip()]
+        if _selected_races:
+            print(f"[FILTER] Race selection from frontend: {_selected_races}")
 
 # ---- District-level ----
-scope_df = iready_base.copy()
-scope_label = district_label
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
 
-for group_name, group_def in sorted(
-    student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
-):
-    if group_def.get("type") == "all":
-        continue
-    if _selected_groups and group_name not in _selected_groups:
-        continue
-    plot_iready_subject_dashboard_by_group(
-        scope_df.copy(),
-        subject_str=None,
-        window_filter="Spring",
-        group_name=group_name,
-        group_def=group_def,
-        figsize=(16, 9),
-        school_raw=None,
-        scope_label=scope_label,
-    )
+    for group_name, group_def in sorted(
+        student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
+    ):
+        if group_def.get("type") == "all":
+            continue
+        if _selected_groups and group_name not in _selected_groups:
+            continue
+        plot_iready_subject_dashboard_by_group(
+            scope_df.copy(),
+            subject_str=None,
+            window_filter="Spring",
+            group_name=group_name,
+            group_def=group_def,
+            figsize=(16, 9),
+            school_raw=None,
+            scope_label=scope_label,
+        )
+else:
+    print("Skipping Section 2 district-level (schools-only mode)")
 
 # ---- Site-level ----
 if _include_school_charts():
@@ -2305,9 +2478,9 @@ def plot_iready_blended_dashboard(
                         fontsize=12,
                         fontweight="bold",
                         color=(
-                            "white"
+                            "#111111"
                             if cat in ["3+ Below", "Mid/Above", "Early On"]
-                            else "#434343"
+                            else "#111111"
                         ),
                     )
             bottom += vals
@@ -2395,22 +2568,25 @@ def plot_iready_blended_dashboard(
                     return curr - prev
 
                 high_delta = _bucket_delta("Mid/Above", pct_df)
+                early_on_delta = _bucket_delta("Early On", pct_df)
                 lo_delta = _bucket_delta("3+ Below", pct_df) + _bucket_delta(
                     "2 Below", pct_df
                 )
                 score_delta = metrics.get("score_delta", 0)
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf" Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf" 2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
-                    rf" Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
+                    rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts",
+                    rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
             else:
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf" Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
-                    rf" 2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
-                    rf" Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
+                    rf"Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
+                    rf"Early On: $\mathbf{{{metrics.get('early_on_delta', 0):+.1f}}}$ ppts",
+                    rf"2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
+                    rf"Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
                 ]
         else:
             lines = ["Not enough history for change insights"]
@@ -2523,22 +2699,25 @@ if _env_grades2:
 
 # Only generate Section 3 if grades are selected
 if _selected_grades2:
-    scope_label = district_label
-    # Sort grades numerically (not as strings)
-    grades_to_process = sorted(_base["student_grade"].dropna().unique(), key=lambda x: float(x))
-    for g in grades_to_process:
-        if _selected_grades2 and int(g) not in _selected_grades2:
-            continue
-        for subj in ["ELA", "Math"]:
-            plot_iready_blended_dashboard(
-                _base.copy(),
-                subj,
-                int(g),
-                "Spring",
-                _anchor_year,
-                scope_label=scope_label,
-                preview=False,
-            )
+    if _include_district_charts():
+        scope_label = district_label
+        # Sort grades numerically (not as strings)
+        grades_to_process = sorted(_base["student_grade"].dropna().unique(), key=lambda x: float(x))
+        for g in grades_to_process:
+            if _selected_grades2 and int(g) not in _selected_grades2:
+                continue
+            for subj in ["ELA", "Math"]:
+                plot_iready_blended_dashboard(
+                    _base.copy(),
+                    subj,
+                    int(g),
+                    "Spring",
+                    _anchor_year,
+                    scope_label=scope_label,
+                    preview=False,
+                )
+    else:
+        print("Skipping Section 3 district-level (schools-only mode)")
 
     if _include_school_charts():
         for school_col, raw_school in _iter_schools(_base):
@@ -2644,7 +2823,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
                 va="center",
                 fontsize=14,
                 fontweight="bold",
-                color="white",
+                color="#111111",
             )
 
         ax_bar.set_ylim(0, 100)
@@ -2740,9 +2919,12 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
 # ---------------------------------------------------------------------
 print("Running Section 4 — Spring Mid/Above → CERS Met/Exceeded")
 
-scope_df = iready_base.copy()
-district_label = district_label
-_plot_mid_above_to_cers_faceted(scope_df, district_label, folder_name="_district")
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    district_label = district_label
+    _plot_mid_above_to_cers_faceted(scope_df, district_label, folder_name="_district")
+else:
+    print("Skipping Section 4 district-level (schools-only mode)")
 
 if _include_school_charts():
     for school_col, raw_school in _iter_schools(iready_base):
@@ -3272,8 +3454,12 @@ def run_section5_growth_progress_eoy(
                 ),
             )
 
-        # Title + save
-        year = next(iter(metrics_by_subject.values())).get("year", "")
+        # Title + save - safely extract year from first non-None metrics
+        year = ""
+        for m in metrics_by_subject.values():
+            if m is not None and isinstance(m, dict):
+                year = m.get("year", "")
+                break
         fig.suptitle(
             f"{scope_label} • Spring {year} • Growth Progress Toward Annual Goals",
             fontsize=20,
@@ -3330,12 +3516,15 @@ def run_section5_growth_progress_eoy(
 print("Running Section 5 batch...")
 
 # District-level
-scope_df = iready_base.copy()
-scope_label = district_label
-folder = "_district"
-run_section5_growth_progress_eoy(
-    scope_df, scope_label=scope_label, folder=folder, preview=False
-)
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    scope_label = district_label
+    folder = "_district"
+    run_section5_growth_progress_eoy(
+        scope_df, scope_label=scope_label, folder=folder, preview=False
+    )
+else:
+    print("Skipping Section 5 district-level (schools-only mode)")
 
 # Site-level
 if _include_school_charts():
@@ -3637,9 +3826,9 @@ def _plot_fall_spring_grouped_stacked(
                         fontsize=9,
                         fontweight="bold",
                         color=(
-                            "white"
+                            "#111111"
                             if cat in ["3+ Below", "Mid/Above", "Early On"]
-                            else "#333"
+                            else "#111111"
                         ),
                     )
             bottom += vals
@@ -3807,36 +3996,30 @@ def run_section8_fall_spring_by_student_group(
     print("\n>>> STARTING SECTION 8 <<<")
     scope_label = scope_label or district_label
 
-    # Editable include list (comment out to exclude)
-    # Names MUST match keys in cfg['student_groups']
-    included_groups = [
-        "All Students",
-        "English Learners",
-        "Students with Disabilities",
-        "Socioeconomically Disadvantaged",
-        "Hispanic or Latino",
-        "White",
-        # "Foster",
-        # "Homeless",
-        # "Black or African American",
-        # "Asian",
-        # "Filipino",
-        # "American Indian or Alaska Native",
-        # "Native Hawaiian or Pacific Islander",
-        # "Two or More Races",
-        # "Not Stated",
-    ]
-
     student_groups_cfg = cfg.get("student_groups", {})
-
     group_order_map = cfg.get("student_group_order", {})
+
+    # --- Section 8: Use only frontend-selected groups ---
+    # Build enabled set from frontend selections (no defaults)
+    enabled_set = set()
+    if _selected_groups is not None and len(_selected_groups) > 0:
+        enabled_set.update(_selected_groups)
+    if _selected_races is not None and len(_selected_races) > 0:
+        enabled_set.update(_selected_races)
+    
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
+    else:
+        print("[Section 8] No student groups or races selected, skipping")
+        return
 
     def _group_sort_key(g: str):
         # Default to 99 if not specified
         return (int(group_order_map.get(g, 99)), g)
 
     # Only keep groups that exist in config
-    included_groups = [g for g in included_groups if g in student_groups_cfg]
+    included_groups = [g for g in enabled_set if g in student_groups_cfg]
     included_groups = sorted(included_groups, key=_group_sort_key)
     if not included_groups:
         print("[Section 8] No included groups found in cfg['student_groups']")
@@ -3894,14 +4077,17 @@ def run_section8_fall_spring_by_student_group(
 # ---------------------------------------------------------------------
 print("Running Sections 6–8 (district-level only)...")
 
-_scope_df = iready_base.copy()
-_scope_label = district_label
+if _include_district_charts():
+    _scope_df = iready_base.copy()
+    _scope_label = district_label
 
-run_section6_fall_spring_by_school(_scope_df, scope_label=_scope_label, preview=False)
-run_section7_fall_spring_by_grade(_scope_df, scope_label=_scope_label, preview=False)
-run_section8_fall_spring_by_student_group(
-    _scope_df, scope_label=_scope_label, preview=False, min_n=1
-)
+    run_section6_fall_spring_by_school(_scope_df, scope_label=_scope_label, preview=False)
+    run_section7_fall_spring_by_grade(_scope_df, scope_label=_scope_label, preview=False)
+    run_section8_fall_spring_by_student_group(
+        _scope_df, scope_label=_scope_label, preview=False, min_n=1
+    )
+else:
+    print("Skipping Sections 6-8 (schools-only mode)")
 
 print("Sections 6–8 complete.")
 
@@ -4324,7 +4510,16 @@ def _plot_grouped_typ_stretch(
                 label="District Median Stretch",
             )
         )
-    ax.legend(handles=legend_handles, loc="upper left", frameon=False)
+    ax.legend(
+        handles=legend_handles, 
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1),  # Position outside the plot area
+        frameon=True,
+        facecolor='white',
+        edgecolor='#ccc',
+        fontsize=9,
+        ncol=1
+    )
 
     ax.set_title(title, fontsize=16, fontweight="bold", pad=15)
 
@@ -4504,33 +4699,22 @@ def plot_section11_median_progress_by_group(
     group_defs = cfg.get("student_groups", {})
     group_order_map = cfg.get("student_group_order", {})
 
-    # Included groups:
-    # - If the frontend selected Student Groups and/or Race/Ethnicity, the runner passes them
-    #   via IREADY_EOY_STUDENT_GROUPS, and we respect that here.
-    # - Otherwise, fall back to a default list (matches Section 8 conventions).
-    if isinstance(globals().get("_selected_groups"), list) and len(globals().get("_selected_groups")) > 0:
-        included_groups = list(globals().get("_selected_groups"))
+    # Use only frontend-selected groups (no defaults)
+    enabled_set = set()
+    if _selected_groups is not None and len(_selected_groups) > 0:
+        enabled_set.update(_selected_groups)
+    if _selected_races is not None and len(_selected_races) > 0:
+        enabled_set.update(_selected_races)
+    
+    # Always include "All Students" for comparison if any groups selected
+    if enabled_set:
+        enabled_set.add("All Students")
     else:
-        included_groups = [
-            "All Students",
-            "English Learners",
-            "Students with Disabilities",
-            "Socioeconomically Disadvantaged",
-            "Hispanic or Latino",
-            "White",
-            # "Black or African American",
-            # "Asian",
-            # "Filipino",
-            # "American Indian or Alaska Native",
-            # "Native Hawaiian or Pacific Islander",
-            # "Two or More Races",
-            # "Not Stated",
-            # "Foster",
-            # "Homeless",
-        ]
+        print(f"[Section 11] No student groups or races selected, skipping {subj_label}")
+        return
 
     # Only keep groups that exist in config
-    included_groups = [g for g in included_groups if g in group_defs]
+    included_groups = [g for g in enabled_set if g in group_defs]
     if not included_groups:
         print("[Section 11] No included groups found in cfg['student_groups']")
         return
@@ -4601,17 +4785,20 @@ def plot_section11_median_progress_by_group(
 
 # --- DRIVER for Sections 9, 10, 11 (district-level only) ---
 print("Running Sections 9, 10, 11 (district-level spring median progress)...")
-scope_df = iready_base.copy()
-for subj in ["ELA", "Math"]:
-    plot_section9_median_progress_by_school(
-        scope_df, subj, district_label, preview=False
-    )
-    plot_section10_median_progress_by_grade(
-        scope_df, subj, district_label, preview=False
-    )
-    plot_section11_median_progress_by_group(
-        scope_df, subj, district_label, cfg, preview=False, min_n=1
-    )
+if _include_district_charts():
+    scope_df = iready_base.copy()
+    for subj in ["ELA", "Math"]:
+        plot_section9_median_progress_by_school(
+            scope_df, subj, district_label, preview=False
+        )
+        plot_section10_median_progress_by_grade(
+            scope_df, subj, district_label, preview=False
+        )
+        plot_section11_median_progress_by_group(
+            scope_df, subj, district_label, cfg, preview=False, min_n=1
+        )
+else:
+    print("Skipping Sections 9-11 (schools-only mode)")
 print("Sections 9, 10, 11 batch complete.")
 # %%
 
