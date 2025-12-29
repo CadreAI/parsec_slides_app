@@ -351,9 +351,29 @@ if not csv_path.exists():
 nwea_base = pd.read_csv(csv_path)
 nwea_base.columns = nwea_base.columns.str.strip().str.lower()
 
-# ===== DIAGNOSTIC LOGGING FOR SECTIONS 4, 5, 9-11 =====
-logger.info(f"[DATA LOAD] Loaded {len(nwea_base):,} rows from CSV")
-logger.info(f"[DATA LOAD] Total columns: {len(nwea_base.columns)}")
+def _pick_school_col(df: pd.DataFrame) -> str | None:
+    # Prefer learning_center first, then fall back to other common variants
+    for c in ["learning_center", "schoolname", "school", "school_name"]:
+        if c in df.columns:
+            try:
+                if df[c].notna().any():
+                    return c
+            except Exception:
+                return c
+    return None
+
+_school_col = _pick_school_col(nwea_base)
+if _school_col and _school_col != "schoolname":
+    # Always prefer `learning_center` when present so frontend-selected schools match reliably.
+    nwea_base["schoolname"] = nwea_base[_school_col]
+
+# --- Normalize school names using YAML school_name_map ---
+school_map = cfg.get("school_name_map", {})
+if "schoolname" in nwea_base.columns and school_map:
+    # Clean incoming names and map to canonical YAML names
+    nwea_base["schoolname"] = (
+        nwea_base["schoolname"].astype(str).str.strip().replace(school_map)
+    )
 
 # Check for critical columns
 has_testwindow = "testwindow" in nwea_base.columns
@@ -375,57 +395,6 @@ for col in cond_growth_cols:
 # Check specifically for Spring-ended growth columns
 spring_growth = [c for c in cond_growth_cols if "spring" in c.lower() and ("percentile" in c.lower() or "index" in c.lower())]
 logger.info(f"[DATA LOAD] Spring-ended growth columns ({len(spring_growth)}): {spring_growth}")
-
-# WRITE DIAGNOSTIC FILE TO CHARTS DIR (easy to find!)
-try:
-    diagnostic_path = CHARTS_DIR / "DIAGNOSTIC_nwea_eoy_columns.txt"
-    with open(diagnostic_path, "w") as f:
-        f.write("=" * 80 + "\n")
-        f.write("NWEA EOY DATA DIAGNOSTIC\n")
-        f.write("=" * 80 + "\n\n")
-        f.write(f"Total rows: {len(nwea_base):,}\n")
-        f.write(f"Total columns: {len(nwea_base.columns)}\n\n")
-        
-        if has_testwindow:
-            f.write("Test windows:\n")
-            for window, count in sorted(windows.items()):
-                f.write(f"  {window}: {count:,} rows\n")
-            f.write("\n")
-        
-        f.write(f"Conditional growth columns found: {len(cond_growth_cols)}\n")
-        if cond_growth_cols:
-            f.write("\nAll conditional growth columns:\n")
-            for col in cond_growth_cols:
-                non_null = nwea_base[col].notna().sum()
-                pct = (non_null / len(nwea_base) * 100) if len(nwea_base) > 0 else 0
-                f.write(f"  {col}: {non_null:,} non-null ({pct:.1f}%)\n")
-        
-        f.write(f"\nSpring-ended growth columns: {len(spring_growth)}\n")
-        if spring_growth:
-            for col in spring_growth:
-                non_null = nwea_base[col].notna().sum()
-                pct = (non_null / len(nwea_base) * 100) if len(nwea_base) > 0 else 0
-                f.write(f"  {col}: {non_null:,} non-null ({pct:.1f}%)\n")
-        else:
-            f.write("  ⚠️  NO SPRING-ENDED GROWTH COLUMNS FOUND!\n")
-            f.write("  Sections 4, 5, 9-11 require these columns:\n")
-            f.write("    - wintertospringconditionalgrowthpercentile\n")
-            f.write("    - wintertospringconditionalgrowthindex\n")
-            f.write("    - springtospringconditionalgrowthpercentile\n")
-            f.write("    - springtospringconditionalgrowthindex\n")
-        
-        f.write("\n" + "=" * 80 + "\n")
-        f.write("If sections 4, 5, 9-11 are not generating:\n")
-        f.write("1. Check if Spring-ended columns exist above\n")
-        f.write("2. Check if they have non-null values\n")
-        f.write("3. Check if SPRING test window has rows\n")
-        f.write("=" * 80 + "\n")
-    
-    logger.info(f"[DIAGNOSTIC] Wrote column diagnostic to: {diagnostic_path}")
-    print(f"📊 DIAGNOSTIC FILE: {diagnostic_path}")
-except Exception as e:
-    logger.warning(f"[DIAGNOSTIC] Failed to write diagnostic file: {e}")
-# ===== END DIAGNOSTIC LOGGING =====
 
 # --- Charter datasets sometimes store school values in `learning_center` instead of `schoolname`/`school`.
 # Many downstream sections assume a `schoolname` column, so we normalize the best available school column into `schoolname`.
@@ -532,7 +501,7 @@ def _get_eoy_compare_windows() -> list[str]:
                     out.append(p)
                     seen.add(p)
             return out
-    return ["WINTER", "SPRING"]
+    return ["Fall","WINTER", "SPRING"]
 
 # ---------------------------------------------------------------------
 # Scope selection (district-only vs district + schools vs selected schools)
@@ -587,13 +556,18 @@ def _iter_schools(df: pd.DataFrame):
 _env_grades = os.getenv("NWEA_EOY_GRADES")
 _selected_grades = None
 if _env_grades:
-    try:
-        _parsed = {int(x.strip()) for x in str(_env_grades).split(",") if x.strip()}
-        if _parsed:
-            _selected_grades = _parsed
-            print(f"[FILTER] Grade selection from frontend: {sorted(_selected_grades)}")
-    except Exception:
-        _selected_grades = None
+    if _env_grades == "NONE":
+        # Explicitly no grades selected - set to empty set to skip grade-based sections
+        _selected_grades = set()
+        print(f"[FILTER] Grade selection from frontend: NONE (will skip grade-based sections)")
+    else:
+        try:
+            _parsed = {int(x.strip()) for x in str(_env_grades).split(",") if x.strip()}
+            if _parsed:
+                _selected_grades = _parsed
+                print(f"[FILTER] Grade selection from frontend: {sorted(_selected_grades)}")
+        except Exception:
+            _selected_grades = None
 
 # Inspect categorical columns (quick QC)
 cat_cols = [
@@ -796,7 +770,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color="#434343",
                 )
@@ -817,14 +791,14 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
             )
             rect = bars.patches[0]
             if val >= LABEL_MIN_PCT:
-                txt_color = "#434343" if "Nearly" in level else "white"
+                txt_color = "#434343" if "Nearly" in level else "#111111"
                 bar_ax.text(
                     rect.get_x() + rect.get_width() / 2.0,
                     cumulative + val / 2.0,
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color=txt_color,
                 )
@@ -864,7 +838,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
                 f"{v:.1f}%",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
                 color="#434343",
             )
@@ -904,7 +878,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
 
     # Title uses the year from first_metrics
     fig.suptitle(
-        f"{scope_label} • Winter {first_metrics['year']} NWEA to CAASPP Prediction Accuracy",
+        f"{scope_label} • Spring {first_metrics['year']} NWEA to CAASPP Prediction Accuracy",
         fontsize=20,
         fontweight="bold",
         y=1.02,
@@ -1283,20 +1257,20 @@ def plot_nwea_dual_subject_window_compare_dashboard(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -1326,7 +1300,7 @@ def plot_nwea_dual_subject_window_compare_dashboard(
                 f"{v:.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
                 color="#434343",
             )
@@ -1873,20 +1847,20 @@ def plot_nwea_dual_subject_dashboard(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "High" or cat == "HiAvg":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "Avg" or cat == "LoAvg":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -2070,7 +2044,7 @@ def plot_nwea_dual_subject_dashboard(
         bbox_to_anchor=(0.5, 0.925),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -2354,20 +2328,20 @@ def plot_nwea_subject_dashboard_by_group(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "High" or cat == "HiAvg":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "Avg" or cat == "LoAvg":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax1.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -2562,20 +2536,28 @@ student_groups_cfg = cfg.get("student_groups", {})
 group_order = cfg.get("student_group_order", {})
 
 # Optional: restrict student-group dashboards based on frontend selection.
-# The runner passes selected groups as: NWEA_EOY_STUDENT_GROUPS="English Learners,Students with Disabilities"
+# The runner passes selected groups as: NWEA_EOY_STUDENT_GROUPS="English Learners,Students with Disabilities" or "NONE"
 _env_groups = os.getenv("NWEA_EOY_STUDENT_GROUPS")
-_selected_groups = []
+_selected_groups = None  # None = no filter used, [] = filter used but empty, [...] = specific groups
 if _env_groups:
-    _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
-    print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
+    if _env_groups == "NONE":
+        _selected_groups = []  # Empty list = skip Section 2
+        print(f"[FILTER] Student group selection from frontend: NONE (will skip Section 2)")
+    else:
+        _selected_groups = [g.strip() for g in str(_env_groups).split(",") if g.strip()]
+        print(f"[FILTER] Student group selection from frontend: {_selected_groups}")
 
 # Optional: restrict race/ethnicity dashboards based on frontend selection.
-# The runner passes selected races as: NWEA_EOY_RACE="Hispanic or Latino,White"
+# The runner passes selected races as: NWEA_EOY_RACE="Hispanic or Latino,White" or "NONE"
 _env_race = os.getenv("NWEA_EOY_RACE")
-_selected_races = []
+_selected_races = None  # None = no filter used, [] = filter used but empty, [...] = specific races
 if _env_race:
-    _selected_races = [r.strip() for r in str(_env_race).split(",") if r.strip()]
-    print(f"[FILTER] Race/Ethnicity selection from frontend: {_selected_races}")
+    if _env_race == "NONE":
+        _selected_races = []  # Empty list = skip race charts
+        print(f"[FILTER] Race/Ethnicity selection from frontend: NONE (will skip race charts)")
+    else:
+        _selected_races = [r.strip() for r in str(_env_race).split(",") if r.strip()]
+        print(f"[FILTER] Race/Ethnicity selection from frontend: {_selected_races}")
 
 
 def _get_ethnicity_col(df: pd.DataFrame) -> str | None:
@@ -2585,64 +2567,19 @@ def _get_ethnicity_col(df: pd.DataFrame) -> str | None:
     return None
 
 # ---- District-level
-_has_frontend_filters = bool(_selected_groups or _selected_races)
+# Skip Section 2 entirely if no groups or races are selected
+_has_groups = _selected_groups is not None and len(_selected_groups) > 0
+_has_races = _selected_races is not None and len(_selected_races) > 0
 
-if _include_district_charts():
-    scope_df = nwea_base.copy()
-    scope_label = district_label
+if not _has_groups and not _has_races:
+    logger.info("[CHART] Section 2: Skipping entirely (no student groups or races selected from frontend)")
+    print("[CHART] Section 2: Skipping entirely (no student groups or races selected from frontend)")
+else:
+    _has_frontend_filters = bool(_selected_groups or _selected_races)
 
-    # Selected student groups
-    for group_name, group_def in sorted(
-        student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
-    ):
-        if group_def.get("type") == "all":
-            continue
-        if _has_frontend_filters and group_name not in _selected_groups:
-            continue
-        plot_nwea_subject_dashboard_by_group(
-            scope_df.copy(),
-            subject_str=None,
-            window_filter="Spring",
-            group_name=group_name,
-            group_def=group_def,
-            figsize=(16, 9),
-            school_raw=None,
-            scope_label=scope_label,
-        )
-
-    # Selected races (may not exist as keys in student_groups_cfg when options are dynamic)
-    if _selected_races:
-        eth_col = _get_ethnicity_col(scope_df)
-        if not eth_col:
-            logger.info(
-                "[CHART] Section 2: race filters provided but no ethnicity/race column found; skipping race charts"
-            )
-        else:
-            for race_name in _selected_races:
-                # Prefer config mapping if it exists (allows synonyms), otherwise exact match on column.
-                mapped = student_groups_cfg.get(race_name) if isinstance(student_groups_cfg, dict) else None
-                if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
-                    race_def = mapped
-                else:
-                    race_def = {"column": eth_col, "in": [race_name]}
-                plot_nwea_subject_dashboard_by_group(
-                    scope_df.copy(),
-                    subject_str=None,
-                    window_filter="Spring",
-                    group_name=race_name,
-                    group_def=race_def,
-                    figsize=(16, 9),
-                    school_raw=None,
-                    scope_label=scope_label,
-                )
-
-# ---- Site-level
-if _include_school_charts():
-    for raw_school in _iter_schools(nwea_base):
-        before_school = len(nwea_base)
-        scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
-        logger.info(f"[FILTER] Section 2: After school filter '{raw_school}': {len(scope_df):,} rows (removed {before_school - len(scope_df):,})")
-        scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+    if _include_district_charts():
+        scope_df = nwea_base.copy()
+        scope_label = district_label
 
         # Selected student groups
         for group_name, group_def in sorted(
@@ -2659,24 +2596,21 @@ if _include_school_charts():
                 group_name=group_name,
                 group_def=group_def,
                 figsize=(16, 9),
-                school_raw=raw_school,
+                school_raw=None,
                 scope_label=scope_label,
             )
 
-        # Selected races
+        # Selected races (may not exist as keys in student_groups_cfg when options are dynamic)
         if _selected_races:
             eth_col = _get_ethnicity_col(scope_df)
             if not eth_col:
                 logger.info(
-                    f"[CHART] Section 2: race filters provided but no ethnicity/race column found for school '{raw_school}'; skipping race charts"
+                    "[CHART] Section 2: race filters provided but no ethnicity/race column found; skipping race charts"
                 )
             else:
                 for race_name in _selected_races:
-                    mapped = (
-                        student_groups_cfg.get(race_name)
-                        if isinstance(student_groups_cfg, dict)
-                        else None
-                    )
+                    # Prefer config mapping if it exists (allows synonyms), otherwise exact match on column.
+                    mapped = student_groups_cfg.get(race_name) if isinstance(student_groups_cfg, dict) else None
                     if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
                         race_def = mapped
                     else:
@@ -2688,9 +2622,65 @@ if _include_school_charts():
                         group_name=race_name,
                         group_def=race_def,
                         figsize=(16, 9),
-                        school_raw=raw_school,
+                        school_raw=None,
                         scope_label=scope_label,
                     )
+
+    # ---- Site-level
+    if _include_school_charts():
+        for raw_school in _iter_schools(nwea_base):
+            before_school = len(nwea_base)
+            scope_df = nwea_base[nwea_base["schoolname"] == raw_school].copy()
+            logger.info(f"[FILTER] Section 2: After school filter '{raw_school}': {len(scope_df):,} rows (removed {before_school - len(scope_df):,})")
+            scope_label = hf._safe_normalize_school_name(raw_school, cfg)
+
+            # Selected student groups
+            for group_name, group_def in sorted(
+                student_groups_cfg.items(), key=lambda kv: group_order.get(kv[0], 99)
+            ):
+                if group_def.get("type") == "all":
+                    continue
+                if _has_frontend_filters and group_name not in _selected_groups:
+                    continue
+                plot_nwea_subject_dashboard_by_group(
+                    scope_df.copy(),
+                    subject_str=None,
+                    window_filter="Spring",
+                    group_name=group_name,
+                    group_def=group_def,
+                    figsize=(16, 9),
+                    school_raw=raw_school,
+                    scope_label=scope_label,
+                )
+
+            # Selected races
+            if _selected_races:
+                eth_col = _get_ethnicity_col(scope_df)
+                if not eth_col:
+                    logger.info(
+                        f"[CHART] Section 2: race filters provided but no ethnicity/race column found for school '{raw_school}'; skipping race charts"
+                    )
+                else:
+                    for race_name in _selected_races:
+                        mapped = (
+                            student_groups_cfg.get(race_name)
+                            if isinstance(student_groups_cfg, dict)
+                            else None
+                        )
+                        if isinstance(mapped, dict) and mapped.get("column") and mapped.get("in"):
+                            race_def = mapped
+                        else:
+                            race_def = {"column": eth_col, "in": [race_name]}
+                        plot_nwea_subject_dashboard_by_group(
+                            scope_df.copy(),
+                            subject_str=None,
+                            window_filter="Spring",
+                            group_name=race_name,
+                            group_def=race_def,
+                            figsize=(16, 9),
+                            school_raw=raw_school,
+                            scope_label=scope_label,
+                        )
 
 
 # %% SECTION 3 - Overall + Cohort Trends
@@ -3064,20 +3054,20 @@ def plot_nwea_blended_dashboard(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "High" or cat == "HiAvg":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "Avg" or cat == "LoAvg":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -3276,7 +3266,7 @@ def plot_nwea_blended_dashboard(
         0.5,
         0.5,
         "\n".join(insight_lines),
-        fontsize=9,
+        fontsize=10,
         fontweight="normal",
         color="#434343",
         ha="center",
@@ -3625,7 +3615,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
             va="center",
             fontsize=9,
             fontweight="bold",
-            color="white",
+            color="#111111",
         )
 
     ax.set_ylabel("Median Conditional Growth Percentile (CGP)")
@@ -3687,7 +3677,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
                 transform=blend,
                 ha="center",
                 va="bottom" if yv >= 0 else "top",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#ffa800",
             )
@@ -4058,9 +4048,9 @@ def _plot_cgp_dual_facet(
                 f"{yv:.1f}",
                 ha="center",
                 va="center",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
-                color="white",
+                color="#111111",
             )
 
         # --- Add n-count to x-axis labels below each bar ---
@@ -4197,7 +4187,7 @@ def _plot_cgp_dual_facet(
                 transform=blend,
                 ha="center",
                 va="bottom" if yv >= 0 else "top",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#ffa800",
                 zorder=3.1,
@@ -4695,13 +4685,13 @@ def _plot_section6_window_compare_by_school(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = float(cumulative[i_bar])
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
@@ -4753,7 +4743,7 @@ def _plot_section6_window_compare_by_school(
                 w_key.title(),
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=10,
                 color="#434343",
                 transform=trans,
             )
@@ -4770,7 +4760,7 @@ def _plot_section6_window_compare_by_school(
         bbox_to_anchor=(0.5, 1.07),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -5045,13 +5035,13 @@ def _plot_section7_window_compare_by_grade(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = float(cumulative[i_bar])
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
@@ -5107,7 +5097,7 @@ def _plot_section7_window_compare_by_grade(
                 w_key.title(),
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=10,
                 color="#434343",
                 transform=trans,
             )
@@ -5124,7 +5114,7 @@ def _plot_section7_window_compare_by_grade(
         bbox_to_anchor=(0.5, 1.07),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -5250,21 +5240,15 @@ def _prep_section8_window_compare_by_student_group(df: pd.DataFrame, subject_str
     group_order_map = cfg.get("student_group_order", {})
 
     # --- Section 8: Choose which student groups to include ---
-    # Prefer frontend selections if provided (env-driven), else use a sensible default set.
-    DEFAULT_GROUPS = [
-        "All Students",
-        "Socioeconomically Disadvantaged",
-        "Students with Disabilities",
-        "English Learners",
-        "Hispanic",
-        "White",
-    ]
-    enabled_set = set(DEFAULT_GROUPS)
-    try:
-        if _selected_groups:
-            enabled_set = set(["All Students"] + [str(g) for g in _selected_groups])
-    except Exception:
-        pass
+    # Only generate if groups are explicitly selected from frontend (no defaults)
+    enabled_set = None
+    if _selected_groups is not None and len(_selected_groups) > 0:
+        enabled_set = set(["All Students"] + [str(g) for g in _selected_groups])
+    
+    # If no groups selected, return empty to skip this section
+    if enabled_set is None:
+        logger.info("[CHART] Section 8: Skipping (no student groups selected from frontend)")
+        return pd.DataFrame(), -1, []
 
     frames = []
 
@@ -5437,13 +5421,13 @@ def _plot_section8_window_compare_by_student_group(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = float(cumulative[i_bar])
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
@@ -5861,9 +5845,9 @@ def _plot_scope_growth_bar(
                 label,
                 ha="center",
                 va="center",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
-                color="white" if abs(v) >= 35 else "#434343",
+                color="#111111" if abs(v) >= 35 else "#111111",
             )
         else:
             label = f"{v:.2f}"
@@ -5873,7 +5857,7 @@ def _plot_scope_growth_bar(
                 label,
                 ha="center",
                 va="bottom" if v >= 0 else "top",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#434343",
             )
@@ -5909,6 +5893,51 @@ def _plot_scope_growth_bar(
         fontweight="bold",
         pad=18,
     )
+
+    # Add legend to explain chart elements
+    legend_elements = []
+    
+    if metric == "median_cgp":
+        # Add legend elements for CGP
+        legend_elements.append(
+            Patch(facecolor="#78daf4", alpha=0.28, edgecolor="none", label="Typical Growth Range (42-58th percentile)")
+        )
+        legend_elements.append(
+            Line2D([0], [0], color="#6B7280", linewidth=1.2, linestyle="--", label="Reference Lines (42nd, 50th, 58th percentile)")
+        )
+        legend_elements.append(
+            Patch(facecolor="#1f77b4", edgecolor="white", label="Median CGP (50th percentile = expected growth)")
+        )
+        
+        ax.legend(
+            handles=legend_elements,
+            loc="upper left",
+            frameon=True,
+            fontsize=11,
+            title="Growth Indicators",
+            title_fontsize=12,
+        )
+    
+    elif metric == "mean_cgi":
+        # Add legend elements for CGI
+        legend_elements.append(
+            Patch(facecolor="#facc15", alpha=0.25, edgecolor="none", label="Typical Growth Range (-0.2 to 0.2)")
+        )
+        legend_elements.append(
+            Line2D([0], [0], color="#eab308", linewidth=1.1, linestyle="--", label="Reference Lines (-0.2, 0.0, 0.2)")
+        )
+        legend_elements.append(
+            Patch(facecolor="#1f77b4", edgecolor="white", label="Mean CGI (0.0 = expected growth)")
+        )
+        
+        ax.legend(
+            handles=legend_elements,
+            loc="upper left",
+            frameon=True,
+            fontsize=11,
+            title="Growth Indicators",
+            title_fontsize=12,
+        )
 
     _save_growth_chart(fig, section_num=section_num, suffix=suffix)
     plt.close(fig)
@@ -6072,14 +6101,11 @@ def _run_section10_growth_by_grade():
 
 
 def _run_section11_growth_by_student_group():
-    DEFAULT_GROUPS = [
-        "All Students",
-        "Students with Disabilities",
-        "Socioeconomically Disadvantaged",
-        "English Learners",
-        "Hispanic",
-        "White",
-    ]
+    # Only generate if groups are explicitly selected from frontend (no defaults)
+    if _selected_groups is None or len(_selected_groups) == 0:
+        logger.info("[CHART] Section 11: Skipping (no student groups selected from frontend)")
+        print("[CHART] Section 11: Skipping (no student groups selected from frontend)")
+        return
 
     # Build a working set of rows for the enabled groups
     student_groups_cfg = cfg.get("student_groups", {})
@@ -6099,12 +6125,7 @@ def _run_section11_growth_by_student_group():
                 logger.info(f"[CHART] Section 11: no {w['end_window']} data for {subject_title} ({w['label']})")
                 continue
 
-            enabled_set = set(DEFAULT_GROUPS)
-            try:
-                if _selected_groups:
-                    enabled_set = set(["All Students"] + [str(g) for g in _selected_groups])
-            except Exception:
-                pass
+            enabled_set = set(["All Students"] + [str(g) for g in _selected_groups])
 
             frames = []
 

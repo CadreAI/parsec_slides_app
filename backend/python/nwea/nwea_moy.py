@@ -2604,10 +2604,10 @@ if _include_school_charts():
                             window_filter="Winter",
                             group_name=race_name,
                             group_def=race_def,
-                figsize=(16, 9),
-                school_raw=raw_school,
-                scope_label=scope_label,
-            )
+                            figsize=(16, 9),
+                            school_raw=raw_school,
+                            scope_label=scope_label,
+                        )
 
 
 # %% SECTION 3 - Overall + Cohort Trends
@@ -5707,6 +5707,51 @@ def _plot_scope_growth_bar(
         fontweight="bold",
         pad=18,
     )
+
+    # Add legend to explain chart elements
+    legend_elements = []
+    
+    if metric == "median_cgp":
+        # Add legend elements for CGP
+        legend_elements.append(
+            Patch(facecolor="#78daf4", alpha=0.28, edgecolor="none", label="Typical Growth Range (42-58th percentile)")
+        )
+        legend_elements.append(
+            Line2D([0], [0], color="#6B7280", linewidth=1.2, linestyle="--", label="Reference Lines (42nd, 50th, 58th percentile)")
+        )
+        legend_elements.append(
+            Patch(facecolor="#1f77b4", edgecolor="white", label="Median CGP (50th percentile = expected growth)")
+        )
+        
+        ax.legend(
+            handles=legend_elements,
+            loc="upper left",
+            frameon=True,
+            fontsize=11,
+            title="Growth Indicators",
+            title_fontsize=12,
+        )
+    
+    elif metric == "mean_cgi":
+        # Add legend elements for CGI
+        legend_elements.append(
+            Patch(facecolor="#facc15", alpha=0.25, edgecolor="none", label="Typical Growth Range (-0.2 to 0.2)")
+        )
+        legend_elements.append(
+            Line2D([0], [0], color="#eab308", linewidth=1.1, linestyle="--", label="Reference Lines (-0.2, 0.0, 0.2)")
+        )
+        legend_elements.append(
+            Patch(facecolor="#1f77b4", edgecolor="white", label="Mean CGI (0.0 = expected growth)")
+        )
+        
+        ax.legend(
+            handles=legend_elements,
+            loc="upper left",
+            frameon=True,
+            fontsize=11,
+            title="Growth Indicators",
+            title_fontsize=12,
+        )
 
     _save_growth_chart(fig, section_num=section_num, suffix=suffix)
     plt.close(fig)
