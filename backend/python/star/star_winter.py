@@ -229,7 +229,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
         bbox_to_anchor=(0.5, 0.93),
         ncol=len(first_metrics["act_order"]),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -270,9 +270,9 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
-                    color="#434343",
+                    color="#111111",
                 )
             cumulative += val
         
@@ -291,14 +291,14 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
             )
             rect = bars.patches[0]
             if val >= 5:
-                txt_color = "#434343" if "Nearly" in level else "white"
+                txt_color = "#111111" if "Nearly" in level else "#111111"
                 bar_ax.text(
                     rect.get_x() + rect.get_width() / 2.0,
                     cumulative + val / 2.0,
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color=txt_color,
                 )
@@ -339,9 +339,9 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
                 f"{v:.1f}%",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
-                color="#434343",
+                color="#111111",
             )
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
@@ -367,7 +367,7 @@ def _plot_section0_star_winter(scope_label, folder, subj_payload, output_dir, pr
             fontsize=12,
             ha="center",
             va="center",
-            color="#434343",
+            color="#111111",
             bbox=dict(
                 boxstyle="round,pad=0.6",
                 facecolor="#f5f5f5",
@@ -668,7 +668,7 @@ def plot_section_1_1_dual_subject(df, scope_label, folder, output_dir, school_ra
                 for j, rect in enumerate(bars):
                     h = vals[j]
                     if h >= 3:
-                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                                ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
                 cumulative += vals
@@ -693,7 +693,7 @@ def plot_section_1_1_dual_subject(df, scope_label, folder, output_dir, school_ra
             bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
             for rect, v in zip(bars, vals):
                 ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                        ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
+                        ha="center", va="bottom", fontsize=14, fontweight="bold", color="#111111")
             n_map = pct_df.groupby("time_label")["N_total"].max().to_dict() if not pct_df.empty else {}
             labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
                      for tl in score_df["time_label"].astype(str).tolist()]
@@ -816,7 +816,7 @@ def plot_section_1_2_for_grade_dual_subject(df, scope_label, folder, output_dir,
                 for j, rect in enumerate(bars):
                     h = vals[j]
                     if h >= 3:
-                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         ax.text(rect.get_x() + rect.get_width() / 2, cum[j] + h / 2, f"{h:.1f}%",
                                ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
                 cum += vals
@@ -841,7 +841,7 @@ def plot_section_1_2_for_grade_dual_subject(df, scope_label, folder, output_dir,
             bars2 = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
             for rect, v in zip(bars2, vals):
                 ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                        ha="center", va="bottom", fontsize=10, fontweight="bold", color="#434343")
+                        ha="center", va="bottom", fontsize=10, fontweight="bold", color="#111111")
             n_map = pct_df.groupby("time_label")["N_total"].max().to_dict() if not pct_df.empty else {}
             labels = [f"{tl}\n(n = {int(n_map.get(tl, 0))})" if n_map.get(tl) else tl 
                      for tl in score_df["time_label"].astype(str)]
@@ -1018,7 +1018,7 @@ def plot_section_1_3_for_group_dual_subject(df, scope_label, folder, output_dir,
                 for j, rect in enumerate(bars):
                     h = vals[j]
                     if h >= 3:
-                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                                ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
                 cumulative += vals
@@ -1043,7 +1043,7 @@ def plot_section_1_3_for_group_dual_subject(df, scope_label, folder, output_dir,
             bars = ax2.bar(x2, vals, width=bar_width, color=hf.default_quartile_colors[3], edgecolor="white", linewidth=1.0)
             for rect, v in zip(bars, vals):
                 ax2.text(rect.get_x() + rect.get_width() / 2, v, f"{v:.1f}",
-                        ha="center", va="bottom", fontsize=14, fontweight="bold", color="#434343")
+                        ha="center", va="bottom", fontsize=14, fontweight="bold", color="#111111")
             n_map = pct_df.groupby("time_label")["N_total"].max().dropna().astype(int).to_dict() if not pct_df.empty else {}
             labels = [f"{tl}\n(n = {n_map.get(tl, 0)})" for tl in score_df["time_label"].astype(str).tolist()]
             ax2.set_xlim(-padding, len(score_df) - 1 + padding)
@@ -1185,7 +1185,7 @@ def plot_star_subject_dashboard_by_group_winter(
             n_map = {}
         n_maps.append(n_map)
     
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
         return None
     
@@ -1228,7 +1228,7 @@ def plot_star_subject_dashboard_by_group_winter(
                 for idx, rect in enumerate(bars):
                     h = vals[idx]
                     if h >= LABEL_MIN_PCT:
-                        color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         axes[0][i].text(rect.get_x() + rect.get_width() / 2, cumulative[idx] + h / 2,
                                        f"{h:.1f}%", ha="center", va="center",
                                        fontsize=8, fontweight="bold", color=color)
@@ -1294,7 +1294,7 @@ def plot_star_subject_dashboard_by_group_winter(
         else:
             insight_lines = ["Not enough history for insights"]
         
-        axes[2][i].text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="normal", color="#434343",
+        axes[2][i].text(0.5, 0.5, "\n".join(insight_lines), fontsize=11, fontweight="normal", color="#111111",
                       ha="center", va="center", wrap=True, usetex=False,
                       bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#ccc", linewidth=0.8))
     
@@ -1403,7 +1403,7 @@ def _prep_star_matched_cohort_by_grade_winter(df, subject_str, current_grade, wi
             tmp = tmp.groupby("student_state_id", as_index=False).tail(1)
         
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • {window_filter} {y_prev}-{y_curr}"
+        label = f"Gr {hf.format_grade_label(gr)} • {window_filter} {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)
@@ -1876,7 +1876,7 @@ def plot_district_sgp_overview_dual_subject_winter(
         if trend_df.empty or not {"time_label", "median_sgp", "n"}.issubset(trend_df.columns):
             ax.axis("off")
             ax.text(0.5, 0.5, f"No {title} data", ha="center", va="center",
-                   fontsize=16, fontweight="bold", color="#434343")
+                   fontsize=16, fontweight="bold", color="#111111")
             continue
         
         sub = trend_df.copy()
@@ -1899,7 +1899,7 @@ def plot_district_sgp_overview_dual_subject_winter(
         for rect, val in zip(bars, y):
             ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
                    f"{val:.1f}", ha="center", va="center", fontsize=9,
-                   fontweight="bold", color="white")
+                   fontweight="bold", color="#111111")
         
         # Add n-counts under x-axis
         n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
@@ -2121,7 +2121,7 @@ def _prep_star_sgp_cohort_winter(df, subject_str, current_grade, window_filter):
         # Build time_label in "Gr {gr} • Winter YY-YY" format
         yy_prev = str(int(yr) - 1)[-2:]
         yy = str(int(yr))[-2:]
-        label = f"Gr {int(gr)} • Winter {yy_prev}-{yy}"
+        label = f"Gr {hf.format_grade_label(gr)} • Winter {yy_prev}-{yy}"
         
         cohort_rows.append({
             "time_label": label,
@@ -2196,7 +2196,7 @@ def plot_star_sgp_growth_winter(
         bars = ax1.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars, y):
             ax1.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
-                    f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+                    f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="#111111")
         
         # Add n-counts
         if "N_total" in sgp_df_grade.columns:
@@ -2244,7 +2244,7 @@ def plot_star_sgp_growth_winter(
         bars_cohort = ax2.bar(x_cohort, y_cohort, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars_cohort, y_cohort):
             ax2.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
-                    f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+                    f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="#111111")
         
         # Add n-counts
         if "n" in cohort_df.columns:
@@ -2687,14 +2687,14 @@ def _plot_star_perf_fall_winter_single_subject(
             bottom=cum,
             color=hf.STAR_COLORS[band],
             alpha=fall_alpha,
-            edgecolor="white",
+            edgecolor="#111111",
             linewidth=1.0,
         )
         # labels
         for i, v in enumerate(vals):
             if v >= 3:
                 label_color = (
-                    "#434343" if band == "2 - Standard Nearly Met" else "white"
+                    "#111111" if band == "2 - Standard Nearly Met" else "#111111"
                 )
                 ax.text(
                     x_f[i],
@@ -2702,7 +2702,7 @@ def _plot_star_perf_fall_winter_single_subject(
                     f"{v:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color=label_color,
                 )
@@ -2727,7 +2727,7 @@ def _plot_star_perf_fall_winter_single_subject(
             for i, v in enumerate(vals):
                 if v >= 3:
                     label_color = (
-                        "#434343" if band == "2 - Standard Nearly Met" else "white"
+                        "#111111" if band == "2 - Standard Nearly Met" else "#111111"
                     )
                     ax.text(
                         x_w[i],
@@ -2735,7 +2735,7 @@ def _plot_star_perf_fall_winter_single_subject(
                         f"{v:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -2785,8 +2785,8 @@ def _plot_star_perf_fall_winter_single_subject(
                 "Fall",
                 ha="center",
                 va="bottom",
-                fontsize=9,
-                color="#434343",
+                fontsize=10,
+                color="#111111",
                 transform=trans,
                 clip_on=False,
             )
@@ -2796,8 +2796,8 @@ def _plot_star_perf_fall_winter_single_subject(
                 "Winter",
                 ha="center",
                 va="bottom",
-                fontsize=9,
-                color="#434343",
+                fontsize=10,
+                color="#111111",
                 transform=trans,
                 clip_on=False,
             )
@@ -2814,7 +2814,7 @@ def _plot_star_perf_fall_winter_single_subject(
         bbox_to_anchor=(0.5, 1.08),
         ncol=len(hf.STAR_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -2938,9 +2938,9 @@ def _plot_star_sgp_by_single_subject(
             f"{val:.1f}",
             ha="center",
             va="center",
-            fontsize=9,
+            fontsize=10,
             fontweight="bold",
-            color="white",
+            color="#111111",
         )
     
     # X tick labels with n

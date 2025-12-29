@@ -425,7 +425,7 @@ def _cfg_first(cfg_obj: dict, key: str, default: str) -> str:
 # District label (charter datasets may not have a district column; still produce an "all schools" aggregate)
 # Allow a display-only override that does NOT affect filtering / school matching.
 district_label = _cfg_first(cfg, "district_display_name", _cfg_first(cfg, "district_name", "District"))
-district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label} (All Students)")
+district_all_students_label = _cfg_first(cfg, "district_all_students_label", f"{district_label} ")
 
 
 def _is_district_scope(scope_label: str | None) -> bool:
@@ -666,7 +666,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
         bbox_to_anchor=(0.5, 0.93),
         ncol=len(first_metrics["act_order"]),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -709,7 +709,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color="#434343",
                 )
@@ -730,14 +730,14 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
             )
             rect = bars.patches[0]
             if val >= LABEL_MIN_PCT:
-                txt_color = "#434343" if "Nearly" in level else "white"
+                txt_color = "#434343" if "Nearly" in level else "#111111"
                 bar_ax.text(
                     rect.get_x() + rect.get_width() / 2.0,
                     cumulative + val / 2.0,
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color=txt_color,
                 )
@@ -777,7 +777,7 @@ def _plot_section0_dual(scope_label, folder, subj_payload, preview=False):
                 f"{v:.1f}%",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
                 color="#434343",
             )
@@ -1191,20 +1191,20 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -1234,7 +1234,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
                 f"{v:.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
                 color="#434343",
             )
@@ -1356,7 +1356,7 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
         bbox_to_anchor=(0.5, 0.925),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -1775,20 +1775,20 @@ def plot_nwea_dual_subject_dashboard(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "High" or cat == "HiAvg":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "Avg" or cat == "LoAvg":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -1834,7 +1834,7 @@ def plot_nwea_dual_subject_dashboard(
                 f"{v:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
                 color="#434343",
             )
@@ -1970,7 +1970,7 @@ def plot_nwea_dual_subject_dashboard(
         bbox_to_anchor=(0.5, 0.925),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -2194,7 +2194,7 @@ def plot_nwea_subject_dashboard_by_group(
         else:
             min_ns.append(0)
     # If either panel fails min_n, skip
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(
             f"[group {group_name}] skipped (<12 students in one or both subjects) in {title_label}"
         )
@@ -2254,20 +2254,20 @@ def plot_nwea_subject_dashboard_by_group(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "High" or cat == "HiAvg":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "Avg" or cat == "LoAvg":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax1.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -2777,7 +2777,7 @@ def plot_nwea_blended_dashboard(
             year_str_prev = str(year - 1)[-2:]
             year_str_curr = str(year)[-2:]
             label_full = (
-                f"Gr {int(grade)} \u2022 Winter {year_str_prev}-{year_str_curr}"
+                f"Gr {hf.format_grade_label(grade)} \u2022 Winter {year_str_prev}-{year_str_curr}"
             )
             cohort_slice["cohort_label"] = label_full
             cohort_rows.append(cohort_slice)
@@ -2981,20 +2981,20 @@ def plot_nwea_blended_dashboard(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "High" or cat == "HiAvg":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "Avg" or cat == "LoAvg":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#11111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -3002,7 +3002,7 @@ def plot_nwea_blended_dashboard(
         ax.set_ylim(0, 100)
         ax.set_ylabel("% of Students")
         ax.set_xticks(x)
-        ax.set_xticklabels(stack_df.index.tolist(), fontsize=8)
+        ax.set_xticklabels(stack_df.index.tolist(), fontsize=10)
         # ax.grid(axis="y", alpha=0.2)  # Gridlines disabled globally
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -3031,7 +3031,7 @@ def plot_nwea_blended_dashboard(
         bbox_to_anchor=(0.5, 0.95),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -3068,7 +3068,7 @@ def plot_nwea_blended_dashboard(
             f"{v:.2f}",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=10,
             fontweight="bold",
             color="#434343",
         )
@@ -3126,7 +3126,7 @@ def plot_nwea_blended_dashboard(
             f"{v:.2f}",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=10,
             fontweight="bold",
             color="#434343",
         )
@@ -3193,7 +3193,7 @@ def plot_nwea_blended_dashboard(
         0.5,
         0.5,
         "\n".join(insight_lines),
-        fontsize=9,
+        fontsize=10,
         fontweight="normal",
         color="#434343",
         ha="center",
@@ -3239,7 +3239,7 @@ def plot_nwea_blended_dashboard(
         0.5,
         0.5,
         "\n".join(insight_lines),
-        fontsize=9,
+        fontsize=10,
         fontweight="normal",
         color="#434343",
         ha="center",
@@ -3256,7 +3256,7 @@ def plot_nwea_blended_dashboard(
 
     # Main title
     fig.suptitle(
-        f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
+        f"{district_label} • Grade {hf.format_grade_label(current_grade)} • {course_str_for_title}",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -3271,7 +3271,7 @@ def plot_nwea_blended_dashboard(
         district_label if school_raw is None else hf._safe_normalize_school_name(school_raw, cfg)
     )
     out_name = (
-        f"{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_"
+        f"{scope.replace(' ', '_')}_section3_grade{hf.format_grade_label(current_grade)}_"
         f"{course_str.lower().replace(' ', '_')}_Winter_trends.png"
     )
     out_path = out_dir / out_name
@@ -3486,9 +3486,9 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
             f"{yv:.1f}",
             ha="center",
             va="center",
-            fontsize=9,
+            fontsize=10,
             fontweight="bold",
-            color="white",
+            color="#111111",
         )
 
     ax.set_ylabel("Median Fall→Winter CGP")
@@ -3550,7 +3550,7 @@ def _plot_cgp_trend(df, subject_str, scope_label, ax=None):
                 transform=blend,
                 ha="center",
                 va="bottom" if yv >= 0 else "top",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#ffa800",
             )
@@ -3624,7 +3624,7 @@ def _run_cgp_dual_trend(scope_df, scope_label):
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     fig.suptitle(
-        f"{scope_label} • Fall→Winter Growth (All Students)",
+        f"{scope_label} • Fall→Winter Growth",
         fontsize=20,
         fontweight="bold",
         y=0.99,
@@ -3894,9 +3894,9 @@ def _plot_cgp_dual_facet(
                 f"{yv:.1f}",
                 ha="center",
                 va="center",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
-                color="white",
+                color="#111111",
             )
 
         # --- Add n-count to x-axis labels below each bar ---
@@ -4029,7 +4029,7 @@ def _plot_cgp_dual_facet(
                 transform=blend,
                 ha="center",
                 va="bottom" if yv >= 0 else "top",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
                 color="#ffa800",
                 zorder=3.1,
@@ -4159,7 +4159,7 @@ else:
                         {
                             "gr": gr,
                             "yr": yr,
-                            "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                            "time_label": f"Gr {hf.format_grade_label(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
                             "median_cgp": d["falltowinterconditionalgrowthpercentile"].median(),
                             "mean_cgi": d["falltowinterconditionalgrowthindex"].mean(),
                         }
@@ -4250,7 +4250,7 @@ for raw_school in all_schools:
                     {
                         "gr": gr,
                         "yr": yr,
-                        "time_label": f"Gr {int(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                        "time_label": f"Gr {hf.format_grade_label(gr)} • Winter {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
                         "median_cgp": d[
                             "falltowinterconditionalgrowthpercentile"
                         ].median(),
@@ -4518,20 +4518,20 @@ def _plot_section6_fall_winter_by_school(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = float(cumulative[i_bar])
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -4572,7 +4572,7 @@ def _plot_section6_fall_winter_by_school(
             "Fall",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=10,
             color="#434343",
             transform=trans,
         )
@@ -4582,7 +4582,7 @@ def _plot_section6_fall_winter_by_school(
             "Winter",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=10,
             color="#434343",
             transform=trans,
         )
@@ -4599,7 +4599,7 @@ def _plot_section6_fall_winter_by_school(
         bbox_to_anchor=(0.5, 1.07),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -4863,20 +4863,20 @@ def _plot_section7_fall_winter_by_grade(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = float(cumulative[i_bar])
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -4921,7 +4921,7 @@ def _plot_section7_fall_winter_by_grade(
             "Fall",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=10,
             color="#434343",
             transform=trans,
         )
@@ -4931,7 +4931,7 @@ def _plot_section7_fall_winter_by_grade(
             "Winter",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=10,
             color="#434343",
             transform=trans,
         )
@@ -4948,7 +4948,7 @@ def _plot_section7_fall_winter_by_grade(
         bbox_to_anchor=(0.5, 1.07),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -5245,20 +5245,20 @@ def _plot_section8_fall_winter_by_student_group(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = float(cumulative[i_bar])
                     if cat in ("High", "HiAvg"):
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat in ("Avg", "LoAvg"):
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -5297,7 +5297,7 @@ def _plot_section8_fall_winter_by_student_group(
             "Fall",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=10,
             color="#434343",
             transform=trans,
         )
@@ -5307,7 +5307,7 @@ def _plot_section8_fall_winter_by_student_group(
             "Winter",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=10,
             color="#434343",
             transform=trans,
         )
@@ -5323,7 +5323,7 @@ def _plot_section8_fall_winter_by_student_group(
         bbox_to_anchor=(0.5, 1.08),
         ncol=len(hf.NWEA_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -5659,9 +5659,9 @@ def _plot_scope_growth_bar(
                 label,
                 ha="center",
                 va="center",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
-                color="white" if abs(v) >= 35 else "#434343",
+                color="#111111" if abs(v) >= 35 else "#111111",
             )
         else:
             label = f"{v:.2f}"
@@ -5671,9 +5671,9 @@ def _plot_scope_growth_bar(
                 label,
                 ha="center",
                 va="bottom" if v >= 0 else "top",
-                fontsize=8,
+                fontsize=10,
                 fontweight="bold",
-                color="#434343",
+                color="#111111",
             )
 
     # X labels with n (best-effort)

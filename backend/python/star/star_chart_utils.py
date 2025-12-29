@@ -123,18 +123,15 @@ def draw_stacked_bar(ax, pct_df, score_df, labels, bar_width=None, fig_width=Non
                 h = band_vals[idx]
                 if h >= LABEL_MIN_PCT and idx < len(cumulative):
                     bottom_before = cumulative[idx]
-                    # Determine label color based on benchmark level
-                    if cat == "2 - Standard Nearly Met":
-                        label_color = "#434343"
-                    else:
-                        label_color = "white"
+                    # All labels in black for better readability
+                    label_color = "#111111"
                     ax.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
                         f"{h:.2f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=11,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -203,7 +200,7 @@ def draw_score_bar(ax, score_df, labels, n_map=None, bar_width=None, fig_width=N
                 va="bottom",
                 fontsize=10,
                 fontweight="bold",
-                color="#434343",
+                color="#111111",
             )
         
         # Build x-axis labels (optionally with n-counts)
@@ -253,7 +250,7 @@ def draw_insight_card(ax, metrics, title):
         "\n".join(insight_lines),
         fontsize=11,
         fontweight="normal",
-        color="#434343",
+        color="#111111",
         ha="center",
         va="center",
         wrap=True,

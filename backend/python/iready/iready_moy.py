@@ -997,11 +997,7 @@ def run_section0_1_iready_fall_winter(
                             va="center",
                             fontsize=10,
                             fontweight="bold",
-                            color=(
-                                "white"
-                                if cat in ["3+ Below", "Mid/Above", "Early On"]
-                                else "#333"
-                            ),
+                            color="#111111",
                         )
                 bottom += vals
 
@@ -1061,7 +1057,7 @@ def run_section0_1_iready_fall_winter(
             # --- Row 3: Insight box (diff Winter - Fall) ---
             ax_bot = fig.add_subplot(gs[2, i])
             ax_bot.axis("off")
-            diff = metrics.get("diff", np.nan)
+            diff = metrics.get("score_delta", np.nan)
             diff_str = "NA" if pd.isna(diff) else f"{diff:+.1f}"
             insight_text = "Change in Avg Scale Score Fall to Winter:\n" f"{diff_str}"
             ax_bot.text(
@@ -1087,7 +1083,7 @@ def run_section0_1_iready_fall_winter(
                 year = metrics.get("year", "")
                 break
         fig.suptitle(
-            f"{scope_label} • {year} • i-Ready Fall vs Winter Trends",
+            f"{scope_label} • {hf.format_grade_label(year)} • i-Ready Fall vs Winter Trends",
             fontsize=22,
             fontweight="bold",
             y=0.99,
@@ -1200,13 +1196,15 @@ if _env_grades:
 # ---- District-level (by grade) ----
 if _include_district_charts():
     scope_label_district = district_label
-    for g in sorted(_base0_1["student_grade"].dropna().unique()):
+    # Sort grades numerically (not as strings)
+    grades_to_process = sorted(_base0_1["student_grade"].dropna().unique(), key=lambda x: float(x))
+    for g in grades_to_process:
         if int(g) not in _grade_whitelist0_1:
             continue
         df_g = _base0_1[_base0_1["student_grade"] == g].copy()
         run_section0_1_iready_fall_winter(
             df_g,
-            scope_label=f"{scope_label_district} • Grade {int(g)}",
+            scope_label=f"{scope_label_district} • Grade {hf.format_grade_label(g)}",
             folder="_district",
             preview=False,
         )
@@ -1220,13 +1218,15 @@ if _include_school_charts():
         scope_label_school = hf._safe_normalize_school_name(raw_school, cfg)
         folder_school = scope_label_school.replace(" ", "_")
 
-        for g in sorted(school_df["student_grade"].dropna().unique()):
+        # Sort grades numerically (not as strings)
+        grades_to_process = sorted(school_df["student_grade"].dropna().unique(), key=lambda x: float(x))
+        for g in grades_to_process:
             if int(g) not in _grade_whitelist0_1:
                 continue
             df_g = school_df[school_df["student_grade"] == g].copy()
             run_section0_1_iready_fall_winter(
                 df_g,
-                scope_label=f"{scope_label_school} • Grade {int(g)}",
+                scope_label=f"{scope_label_school} • Grade {hf.format_grade_label(g)}",
                 folder=folder_school,
                 preview=False,
             )
@@ -1395,12 +1395,17 @@ def _prep_iready_for_charts(
         lo_prev = pct_for(hf.IREADY_LOW_GROUP, t_prev)
         high_curr = pct_for(["Mid/Above"], t_curr)
         high_prev = pct_for(["Mid/Above"], t_prev)
+        # Add separate Early On calculation
+        early_on_curr = pct_for(["Early On"], t_curr)
+        early_on_prev = pct_for(["Early On"], t_prev)
+        early_on_delta = early_on_curr - early_on_prev
 
         metrics = {
             "t_prev": t_prev,
             "t_curr": t_curr,
             "hi_now": hi_curr,
             "hi_delta": hi_curr - hi_prev,
+            "early_on_delta": early_on_delta,
             "lo_now": lo_curr,
             "lo_delta": lo_curr - lo_prev,
             "score_now": float(
@@ -1423,6 +1428,7 @@ def _prep_iready_for_charts(
                 "t_curr",
                 "hi_now",
                 "hi_delta",
+                "early_on_delta",
                 "lo_now",
                 "lo_delta",
                 "score_now",
@@ -1551,6 +1557,7 @@ def plot_iready_dual_subject_dashboard(
                     )
 
                 high_delta = _bucket_delta("Mid/Above", pct_df)
+                early_on_delta = _bucket_delta("Early On", pct_df)
                 lo_delta = sum(
                     _bucket_delta(b, pct_df) for b in ["3+ Below", "2 Below"]
                 )
@@ -1559,6 +1566,7 @@ def plot_iready_dual_subject_dashboard(
                 lines = [
                     "Comparisons based on the current and previous year:\n\n"
                     rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts",
                     rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
                     rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
@@ -1572,9 +1580,9 @@ def plot_iready_dual_subject_dashboard(
             "\n".join(lines),
             ha="center",
             va="center",
-            fontsize=11,
+            fontsize=9,
             color="#333",
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#bbb"),
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5", edgecolor="#bbb"),
         )
 
     # --- Draw panels for both subjects ---
@@ -1834,7 +1842,7 @@ def plot_iready_subject_dashboard_by_group(
             n_map = {}
         n_maps.append(n_map)
     # If either panel fails min_n, skip
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(
             f"[group {group_name}] skipped (<12 students in one or both subjects) in {title_label}"
         )
@@ -1893,13 +1901,14 @@ def plot_iready_subject_dashboard_by_group(
                 if h >= LABEL_MIN_PCT:
                     bottom_before = cumulative[idx]
                     if cat == "Mid/Above" or cat == "Early On":
-                        label_color = "white"
+                        label_color = "#111111"
                     elif cat == "1 Below" or cat == "2 Below":
-                        label_color = "#434343"
+                        label_color = "#111111"
                     elif cat == "3+ Below":
-                        label_color = "white"
+                        label_color = "#111111"
                     else:
-                        label_color = "#434343"
+                        label_color = "#111111"
+
                     ax1.text(
                         rect.get_x() + rect.get_width() / 2,
                         bottom_before + h / 2,
@@ -2002,14 +2011,18 @@ def plot_iready_subject_dashboard_by_group(
             high_now = _pct_for_bucket("Mid/Above", t_curr)
             high_prev = _pct_for_bucket("Mid/Above", t_prev)
             high_delta = high_now - high_prev
+            early_on_now = _pct_for_bucket("Early On", t_curr)
+            early_on_prev = _pct_for_bucket("Early On", t_prev)
+            early_on_delta = early_on_now - early_on_prev
             hi_delta = metrics["hi_delta"]
             lo_delta = metrics["lo_delta"]
             score_delta = metrics["score_delta"]
             title_line = "Comparison based on current and previous year:\n"
             line_high = rf"Mid or Above: $\mathbf{{{high_delta:+.1f}}}$ ppts"
+            line_early_on = rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts"
             line_low = rf" 2 or More Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts"
             line_rit = rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts"
-            insight_lines = [title_line, line_high, line_low, line_rit]
+            insight_lines = [title_line, line_high, line_early_on, line_low, line_rit]
         else:
             insight_lines = ["Not enough history for change insights"]
         ax3.text(
@@ -2268,7 +2281,7 @@ def _prep_iready_matched_cohort_by_grade(
         tmp = tmp.groupby("uniqueidentifier", as_index=False).tail(1)
 
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • Winter {y_prev}-{y_curr}"
+        label = f"Gr {hf.format_grade_label(gr)} • Winter {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)
@@ -2348,6 +2361,11 @@ def _prep_iready_matched_cohort_by_grade(
         lo_delta = lo_now - pct_for(
             ["2 Grade Levels Below", "3 or More Grade Levels Below"], t_prev
         )
+        # Add separate Early On delta
+        early_on_now = pct_for(["Early On Grade Level"], t_curr)
+        early_on_prev = pct_for(["Early On Grade Level"], t_prev)
+        early_on_delta = early_on_now - early_on_prev
+        
         score_now = float(
             score_df.loc[score_df["time_label"] == t_curr, "avg_score"].iloc[0]
         )
@@ -2360,6 +2378,7 @@ def _prep_iready_matched_cohort_by_grade(
             t_curr=t_curr,
             hi_now=hi_now,
             hi_delta=hi_delta,
+            early_on_delta=early_on_delta,
             lo_now=lo_now,
             lo_delta=lo_delta,
             score_now=score_now,
@@ -2373,6 +2392,7 @@ def _prep_iready_matched_cohort_by_grade(
                 "t_curr",
                 "hi_now",
                 "hi_delta",
+                "early_on_delta",
                 "lo_now",
                 "lo_delta",
                 "score_now",
@@ -2493,9 +2513,9 @@ def plot_iready_blended_dashboard(
                         fontsize=12,
                         fontweight="bold",
                         color=(
-                            "white"
+                            "#111111"
                             if cat in ["3+ Below", "Mid/Above", "Early On"]
-                            else "#434343"
+                            else "#111111"
                         ),
                     )
             bottom += vals
@@ -2583,6 +2603,7 @@ def plot_iready_blended_dashboard(
                     return curr - prev
 
                 high_delta = _bucket_delta("Mid/Above", pct_df)
+                early_on_delta = _bucket_delta("Early On", pct_df)
                 lo_delta = _bucket_delta("3+ Below", pct_df) + _bucket_delta(
                     "2 Below", pct_df
                 )
@@ -2590,6 +2611,7 @@ def plot_iready_blended_dashboard(
                 lines = [
                     "Comparisons based on current vs previous year:\n",
                     rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
+                    rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts",
                     rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
                     rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
@@ -2597,6 +2619,7 @@ def plot_iready_blended_dashboard(
                 lines = [
                     "Comparisons based on current vs previous year:\n",
                     rf"Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
+                    rf"Early On: $\mathbf{{{metrics.get('early_on_delta', 0):+.1f}}}$ ppts",
                     rf"2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
                     rf"Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
                 ]
@@ -2648,7 +2671,7 @@ def plot_iready_blended_dashboard(
     )
 
     fig.suptitle(
-        f"{scope_label} • Grade {int(current_grade)} • {subject_str} • {window_filter}",
+        f"{scope_label} • Grade {hf.format_grade_label(current_grade)} • {subject_str} • {window_filter}",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -2658,7 +2681,7 @@ def plot_iready_blended_dashboard(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = (
         out_dir
-        / f"{scope_label.replace(' ','_')}_section3_iready_grade{int(current_grade)}_{subject_str}_{window_filter.lower()}_trends.png"
+        / f"{scope_label.replace(' ','_')}_section3_iready_grade{hf.format_grade_label(current_grade)}_{subject_str}_{window_filter.lower()}_trends.png"
     )
     hf._save_and_render(fig, out_path)
     _write_chart_data(
@@ -2714,7 +2737,9 @@ if _selected_grades2:
     # District-level
     if _include_district_charts():
         scope_label = district_label
-        for g in sorted(_base["student_grade"].dropna().unique()):
+        # Sort grades numerically (not as strings)
+        grades_to_process = sorted(_base["student_grade"].dropna().unique(), key=lambda x: float(x))
+        for g in grades_to_process:
             if _selected_grades2 and int(g) not in _selected_grades2:
                 continue
             for subj in ["ELA", "Math"]:
@@ -2737,7 +2762,9 @@ if _selected_grades2:
             site_df["student_grade"] = pd.to_numeric(site_df["student_grade"], errors="coerce")
             anchor = int(site_df["academicyear"].max())
             scope_label = hf._safe_normalize_school_name(raw_school, cfg)
-            for g in sorted(site_df["student_grade"].dropna().unique()):
+            # Sort grades numerically (not as strings)
+            grades_to_process = sorted(site_df["student_grade"].dropna().unique(), key=lambda x: float(x))
+            for g in grades_to_process:
                 if _selected_grades2 and int(g) not in _selected_grades2:
                     continue
                 for subj in ["ELA", "Math"]:
@@ -2833,7 +2860,7 @@ def _plot_mid_above_to_cers_faceted(scope_df, scope_label, folder_name, preview=
                 va="center",
                 fontsize=14,
                 fontweight="bold",
-                color="white",
+                color="#111111",
             )
 
         ax_bar.set_ylim(0, 100)
@@ -3789,7 +3816,7 @@ def _plot_fall_winter_grouped_stacked(
                         fontsize=9,
                         fontweight="bold",
                         color=(
-                            "white"
+                            "#111111"
                             if cat in ["3+ Below", "Mid/Above", "Early On"]
                             else "#333"
                         ),
@@ -3954,7 +3981,7 @@ def run_section8_fall_winter_by_student_group(
     df_scope,
     scope_label=None,
     preview=False,
-    min_n=12,
+    min_n=1,
 ):
     print("\n>>> STARTING SECTION 8 <<<")
     scope_label = scope_label or district_label
@@ -4047,7 +4074,7 @@ if _include_district_charts():
     run_section6_fall_winter_by_school(_scope_df, scope_label=_scope_label, preview=False)
     run_section7_fall_winter_by_grade(_scope_df, scope_label=_scope_label, preview=False)
     run_section8_fall_winter_by_student_group(
-        _scope_df, scope_label=_scope_label, preview=False, min_n=12
+        _scope_df, scope_label=_scope_label, preview=False, min_n=1
     )
 
     print("Sections 6–8 complete.")
@@ -4366,7 +4393,7 @@ def _plot_grouped_typ_stretch(
 
     fig = plt.figure(figsize=(16, 9), dpi=300)
     ax = fig.add_subplot(111)
-    fig.subplots_adjust(top=0.88, bottom=0.20)
+    fig.subplots_adjust(top=0.88, bottom=0.20, right=0.82)  # Add right margin for legend
 
     typ = grp.set_index(scope_col)["median_typical"].reindex(scope_order).to_numpy()
     st = grp.set_index(scope_col)["median_stretch"].reindex(scope_order).to_numpy()
@@ -4475,7 +4502,16 @@ def _plot_grouped_typ_stretch(
                 label="District Median Stretch",
             )
         )
-    ax.legend(handles=legend_handles, loc="upper left", frameon=False)
+    ax.legend(
+        handles=legend_handles, 
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1),  # Position outside the plot area
+        frameon=True,
+        facecolor='white',
+        edgecolor='#ccc',
+        fontsize=9,
+        ncol=1
+    )
 
     ax.set_title(title, fontsize=16, fontweight="bold", pad=15)
 
@@ -4601,7 +4637,8 @@ def plot_section10_median_progress_by_grade(
         .reset_index()
     )
 
-    grade_order_num = sorted(grp["student_grade"].dropna().unique().tolist())
+    # Sort grades numerically (not as strings)
+    grade_order_num = sorted(grp["student_grade"].dropna().unique().tolist(), key=lambda x: float(x))
     grade_order = ["K" if int(g) == 0 else str(int(g)) for g in grade_order_num]
 
     # Map numeric grades to labels
@@ -4750,7 +4787,7 @@ if _include_district_charts():
             scope_df, subj, district_label, preview=False
         )
         plot_section11_median_progress_by_group(
-            scope_df, subj, district_label, cfg, preview=False, min_n=12
+            scope_df, subj, district_label, cfg, preview=False, min_n=1
         )
     print("Sections 9, 10, 11 batch complete.")
 else:

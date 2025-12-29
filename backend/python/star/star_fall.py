@@ -621,7 +621,7 @@ def plot_star_subject_dashboard_by_group(
             n_map = {}
         n_maps.append(n_map)
     
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
         return None
     
@@ -859,7 +859,7 @@ def _prep_star_matched_cohort_by_grade(df, subject_str, current_grade, window_fi
             tmp = tmp.groupby("student_state_id", as_index=False).tail(1)
         
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • {window_filter} {y_prev}-{y_curr}"
+        label = f"Gr {hf.format_grade_label(gr)} • {window_filter} {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)

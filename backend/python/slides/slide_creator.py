@@ -88,6 +88,7 @@ def get_section_title(test_type: str, section_num: str) -> str:
     section_titles = {
         'NWEA': {
             '0': 'CAASPP Predicted vs Actual',
+            '0.1':"Fall to Winter Performance Snapshot",
             '1': 'Performance Trends',
             '2': 'Student Group Performance Trends',
             '3': 'Overall + Cohort Trends',
@@ -99,7 +100,7 @@ def get_section_title(test_type: str, section_num: str) -> str:
             '11': 'Growth by Student Group',
         },
         'iReady': {
-            '0': 'i-Ready vs CERS (Predicted vs Actual)',
+            '0': 'i-Ready vs CAASPP',
             '0.1': 'Fall → Winter Comparison',
             '1': 'Performance Trends',
             '2': 'Student Group Performance Trends',
@@ -114,7 +115,7 @@ def get_section_title(test_type: str, section_num: str) -> str:
             '11': 'Median Progress by Student Group',
         },
         'STAR': {
-            '0': 'STAR vs CERS',
+            '0': 'STAR vs CAASPP',
             '1': 'Performance Trends',
             '2': 'Student Group Performance Trends',
             '3': 'Overall + Cohort Trends',

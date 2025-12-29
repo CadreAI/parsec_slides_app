@@ -1563,7 +1563,7 @@ def plot_nwea_subject_dashboard_by_group(
         else:
             min_ns.append(0)
     # If either panel fails min_n, skip
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(
             f"[group {group_name}] skipped (<12 students in one or both subjects) in {title_label}"
         )
@@ -2139,7 +2139,7 @@ def plot_nwea_blended_dashboard(
             # Format time label as Fall YY-YY (e.g., Fall 25-26)
             year_str_prev = str(year - 1)[-2:]
             year_str_curr = str(year)[-2:]
-            label_full = f"Gr {int(grade)} \u2022 Fall {year_str_prev}-{year_str_curr}"
+            label_full = f"Gr {hf.format_grade_label(grade)} \u2022 Fall {year_str_prev}-{year_str_curr}"
             cohort_slice["cohort_label"] = label_full
             cohort_rows.append(cohort_slice)
             ordered_labels.append(label_full)
@@ -2615,7 +2615,7 @@ def plot_nwea_blended_dashboard(
 
     # Main title
     fig.suptitle(
-        f"{district_label} • Grade {int(current_grade)} • {course_str_for_title}",
+        f"{district_label} • Grade {hf.format_grade_label(current_grade)} • {course_str_for_title}",
         fontsize=20,
         fontweight="bold",
         y=1,
@@ -2632,7 +2632,7 @@ def plot_nwea_blended_dashboard(
         else hf._safe_normalize_school_name(school_raw, cfg)
     )
     out_name = (
-        f"{scope.replace(' ', '_')}_section3_grade{int(current_grade)}_"
+        f"{scope.replace(' ', '_')}_section3_grade{hf.format_grade_label(current_grade)}_"
         f"{course_str.lower().replace(' ', '_')}_fall_trends.png"
     )
     out_path = out_dir / out_name
@@ -2994,7 +2994,7 @@ def _run_cgp_dual_trend(scope_df, scope_label):
     gs = fig.add_gridspec(nrows=3, ncols=2, height_ratios=[1.85, 0.65, 0.5])
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     fig.suptitle(
-        f"{scope_label} • Fall→Fall Growth (All Students)",
+        f"{scope_label} • Fall→Fall Growth",
         fontsize=20,
         fontweight="bold",
         y=0.99,
@@ -3499,7 +3499,7 @@ for grade in grades:
                 {
                     "gr": gr,
                     "yr": yr,
-                    "time_label": f"Gr {int(gr)} • Fall {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                    "time_label": f"Gr {hf.format_grade_label(gr)} • Fall {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
                     "median_cgp": d["falltofallconditionalgrowthpercentile"].median(),
                     "mean_cgi": d["falltofallconditionalgrowthindex"].mean(),
                 }
@@ -3586,7 +3586,7 @@ for raw_school in all_schools:
                     {
                         "gr": gr,
                         "yr": yr,
-                        "time_label": f"Gr {int(gr)} • Fall {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
+                        "time_label": f"Gr {hf.format_grade_label(gr)} • Fall {str(yr - 1)[-2:]}-{str(yr)[-2:]}",
                         "median_cgp": d[
                             "falltofallconditionalgrowthpercentile"
                         ].median(),

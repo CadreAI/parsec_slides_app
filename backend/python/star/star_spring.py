@@ -2194,7 +2194,7 @@ def plot_star_single_subject_dashboard_by_group_spring(
             latest_n = latest_slice["N_total"].max()
         else:
             latest_n = latest_slice["n"].sum()
-        if latest_n < 12:
+        if latest_n < 1:
             print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
             return None
     else:
@@ -2415,7 +2415,7 @@ def plot_star_single_subject_dashboard_by_group_spring(
             n_map = {}
         n_maps.append(n_map)
     
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
         return None
     
@@ -2608,7 +2608,7 @@ def _prep_star_matched_cohort_by_grade_spring(df, subject_str, current_grade, wi
             tmp = tmp.groupby("student_state_id", as_index=False).tail(1)
         
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • {window_filter} {y_prev}-{y_curr}"
+        label = f"Gr {hf.format_grade_label(gr)} • {window_filter} {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)
@@ -4084,7 +4084,7 @@ def _prep_star_sgp_cohort_spring(df, subject_str, current_grade, window_filter):
         # Build time_label in "Gr {gr} • Spring YY-YY" format
         yy_prev = str(int(yr) - 1)[-2:]
         yy = str(int(yr))[-2:]
-        label = f"Gr {int(gr)} • Spring {yy_prev}-{yy}"
+        label = f"Gr {hf.format_grade_label(gr)} • Spring {yy_prev}-{yy}"
         
         cohort_rows.append({
             "time_label": label,

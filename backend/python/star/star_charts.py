@@ -197,7 +197,7 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
         bbox_to_anchor=(0.5, 0.93),
         ncol=len(first_metrics["act_order"]),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -238,9 +238,9 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
-                    color="#434343",
+                    color="#111111",
                 )
             cumulative += val
         
@@ -259,14 +259,14 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
             )
             rect = bars.patches[0]
             if val >= 5:
-                txt_color = "#434343" if "Nearly" in level else "white"
+                txt_color = "#111111" if "Nearly" in level else "#111111"
                 bar_ax.text(
                     rect.get_x() + rect.get_width() / 2.0,
                     cumulative + val / 2.0,
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color=txt_color,
                 )
@@ -307,7 +307,7 @@ def _plot_section0_star(scope_label, folder, subj_payload, output_dir, preview=F
                 f"{v:.1f}%",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
                 color="#434343",
             )
@@ -573,7 +573,7 @@ def plot_star_subject_dashboard_by_group(
             n_map = {}
         n_maps.append(n_map)
     
-    if any((n is None or n < 12) for n in min_ns):
+    if any((n is None or n < 1) for n in min_ns):
         print(f"[group {group_name}] skipped (<12 students) in {scope_label}")
         return None
     
@@ -624,13 +624,13 @@ def plot_star_subject_dashboard_by_group(
                 for idx, rect in enumerate(bars):
                     h = vals[idx]
                     if h >= LABEL_MIN_PCT:
-                        color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         axes[0][i].text(
                             rect.get_x() + rect.get_width() / 2,
                             cumulative[idx] + h / 2,
                             f"{h:.1f}%",
                             ha="center", va="center",
-                            fontsize=8, fontweight="bold", color=color
+                            fontsize=10, fontweight="bold", color=color
                         )
                 cumulative += vals
             
@@ -649,7 +649,7 @@ def plot_star_subject_dashboard_by_group(
     fig.legend(
         handles=legend_handles, labels=hf.STAR_ORDER,
         loc="upper center", bbox_to_anchor=(0.5, 0.92),
-        ncol=len(hf.STAR_ORDER), frameon=False, fontsize=9,
+        ncol=len(hf.STAR_ORDER), frameon=False, fontsize=10,
         handlelength=1.8, handletextpad=0.5, columnspacing=1.1
     )
     
@@ -808,7 +808,7 @@ def _prep_star_matched_cohort_by_grade(df, subject_str, current_grade, window_fi
             tmp = tmp.groupby("student_state_id", as_index=False).tail(1)
         
         y_prev, y_curr = str(yr - 1)[-2:], str(yr)[-2:]
-        label = f"Gr {int(gr)} • {window_filter} {y_prev}-{y_curr}"
+        label = f"Gr {hf.format_grade_label(gr)} • {window_filter} {y_prev}-{y_curr}"
         tmp["cohort_label"] = label
         cohort_rows.append(tmp)
         ordered_labels.append(label)
@@ -1089,7 +1089,7 @@ def plot_star_growth_by_site(
         ax2.set_title("Average Unified Scale Score", fontsize=10, fontweight="bold")
     
     fig.legend(handles=legend_handles, labels=hf.STAR_ORDER, loc="upper center", bbox_to_anchor=(0.5, 0.98),
-              ncol=len(hf.STAR_ORDER), frameon=False, fontsize=9)
+              ncol=len(hf.STAR_ORDER), frameon=False, fontsize=10)
     
     fig.suptitle(f"{scope_label} • {subject_str} • {window_filter} Growth Trends by Site",
                 fontsize=18, fontweight="bold", y=0.995)
@@ -1265,7 +1265,7 @@ def plot_star_sgp_growth(
             n_map = dict(zip(sgp_df_grade["time_label"].astype(str), sgp_df_grade["N_total"]))
             for i, label in enumerate(x_labels):
                 n_val = n_map.get(str(label), 0)
-                ax1.text(i, ax1.get_ylim()[0] + 2, f"n={n_val}", ha="center", fontsize=8, style="italic")
+                ax1.text(i, ax1.get_ylim()[0] + 2, f"n={n_val}", ha="center", fontsize=10, style="italic")
     else:
         ax1.text(0.5, 0.5, "No grade trend data", ha="center", va="center", fontsize=12)
         ax1.axis("off")
