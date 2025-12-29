@@ -1283,10 +1283,10 @@ def plot_nwea_dual_subject_fall_winter_dashboard(
                     return "N/A"
                 return f"{val:+.1f}"
 
-            line_high = f"Δ High: {_fmt_delta(high_delta)} ppts"
-            line_hiavg = f"Δ Avg+HiAvg+High: {_fmt_delta(hi_delta)} ppts"
-            line_low = f"Δ Low: {_fmt_delta(lo_delta)} ppts"
-            line_rit = f"Δ Avg RIT: {_fmt_delta(score_delta)} pts"
+            line_high = f" High: {_fmt_delta(high_delta)} ppts"
+            line_hiavg = f"Avg+HiAvg+High: {_fmt_delta(hi_delta)} ppts"
+            line_low = f" Low: {_fmt_delta(lo_delta)} ppts"
+            line_rit = f"Avg RIT: {_fmt_delta(score_delta)} pts"
             insight_lines = [title_line, line_high, line_hiavg, line_low, line_rit]
         else:
             insight_lines = ["Not enough data for Fall→Winter insights"]
