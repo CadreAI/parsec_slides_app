@@ -94,23 +94,28 @@ def generate_iready_eoy_charts(
     # - chart_filters["race"]
     try:
         cf = chart_filters or {}
-        groups = cf.get("student_groups") or []
-        races = cf.get("race") or []
-        selected: list[str] = []
-        for src in [groups, races]:
-            if isinstance(src, str):
-                src = [src]
-            if not isinstance(src, list):
-                continue
-            for v in src:
-                s = str(v).strip()
-                if not s:
-                    continue
-                if s not in selected:
-                    selected.append(s)
-
-        if selected:
-            env["IREADY_EOY_STUDENT_GROUPS"] = ",".join(selected)
+        groups = cf.get("student_groups")
+        races = cf.get("race")
+        
+        # Handle student groups
+        if groups is not None:
+            if isinstance(groups, list):
+                if len(groups) == 0:
+                    env["IREADY_EOY_STUDENT_GROUPS"] = "NONE"
+                else:
+                    env["IREADY_EOY_STUDENT_GROUPS"] = ",".join(str(g).strip() for g in groups if str(g).strip())
+            elif isinstance(groups, str) and groups.strip():
+                env["IREADY_EOY_STUDENT_GROUPS"] = groups.strip()
+        
+        # Handle races separately
+        if races is not None:
+            if isinstance(races, list):
+                if len(races) == 0:
+                    env["IREADY_EOY_RACE"] = "NONE"
+                else:
+                    env["IREADY_EOY_RACE"] = ",".join(str(r).strip() for r in races if str(r).strip())
+            elif isinstance(races, str) and races.strip():
+                env["IREADY_EOY_RACE"] = races.strip()
     except Exception:
         pass
 
@@ -126,7 +131,7 @@ def generate_iready_eoy_charts(
         # EOY comparisons always include Spring; include Winter if present, otherwise still default to Winter+Spring.
         env["IREADY_EOY_COMPARE_WINDOWS"] = "Fall,Winter,Spring" if include_fall else "Winter,Spring"
     except Exception:
-        env["IREADY_EOY_COMPARE_WINDOWS"] = "Winter,Spring"
+        env["IREADY_EOY_COMPARE_WINDOWS"] = "Fall,Winter,Spring"
 
     # Scope selection (district vs schools)
     # Supported chart_filters options:
@@ -134,13 +139,23 @@ def generate_iready_eoy_charts(
     # - chart_filters["schools"] = ["School A", "School B"] → only these schools (plus district)
     try:
         cf = chart_filters or {}
+        
+        # Determine scope mode based on frontend flags
         if bool(cf.get("district_only")) is True:
             env["IREADY_EOY_SCOPE_MODE"] = "district_only"
+        elif bool(cf.get("schools_only")) is True:
+            # schools_only = True means skip district-level charts (including sections 6-11)
+            env["IREADY_EOY_SCOPE_MODE"] = "schools_only"
+        
+        # Set school list if provided
         schools = cf.get("schools") or []
         if isinstance(schools, list) and len(schools) > 0:
             env["IREADY_EOY_SCHOOLS"] = ",".join(str(s) for s in schools if str(s).strip())
-            if env.get("IREADY_EOY_SCOPE_MODE") != "district_only":
+            # Only set selected_schools mode if no explicit mode was set
+            # (selected_schools includes both district and school charts)
+            if "IREADY_EOY_SCOPE_MODE" not in env:
                 env["IREADY_EOY_SCOPE_MODE"] = "selected_schools"
+            # Note: If schools_only was already set, we keep that mode (skip district)
     except Exception:
         pass
 

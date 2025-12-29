@@ -114,6 +114,18 @@ def generate_nwea_eoy_charts(
     except Exception:
         pass
 
+    try:
+        if "student_groups" in (chart_filters or {}):
+            groups = chart_filters.get("student_groups") or []
+            if isinstance(groups, list):
+                if groups:
+                    env["NWEA_EOY_STUDENT_GROUPS"] = ",".join(str(g) for g in groups)
+                else:
+                    # Explicitly set to empty - user selected no groups, so skip Section 2
+                    env["NWEA_EOY_STUDENT_GROUPS"] = "NONE"
+    except Exception:
+        pass
+
     # Within-year compare windows for EOY charts (used by some snapshot charts):
     # - Default: Winter + Spring
     # - If Fall is also selected: Fall + Winter + Spring
@@ -127,29 +139,32 @@ def generate_nwea_eoy_charts(
     except Exception:
         env["NWEA_EOY_COMPARE_WINDOWS"] = "WINTER,SPRING"
 
-    # Pass selected student groups from frontend into the legacy script
-    # Frontend uses chart_filters["student_groups"] (snake_case)
-    try:
-        groups = (chart_filters or {}).get("student_groups") or []
-        if isinstance(groups, list) and groups:
-            env["NWEA_EOY_STUDENT_GROUPS"] = ",".join(str(g) for g in groups)
-    except Exception:
-        pass
-
     # Pass selected race/ethnicity from frontend into the legacy script
     # Frontend uses chart_filters["race"] as an array of strings.
     try:
-        races = (chart_filters or {}).get("race") or []
-        if isinstance(races, list) and races:
-            env["NWEA_EOY_RACE"] = ",".join(str(r) for r in races if str(r).strip())
+        if "race" in (chart_filters or {}):
+            races = chart_filters.get("race") or []
+            if isinstance(races, list):
+                if races:
+                    env["NWEA_EOY_RACE"] = ",".join(str(r) for r in races if str(r).strip())
+                else:
+                    # Explicitly set to empty - user selected no races, so skip race charts in Section 2
+                    env["NWEA_EOY_RACE"] = "NONE"
     except Exception:
         pass
 
+
     # Pass selected grades from frontend into the legacy script (used for grade-level batches)
     try:
-        grades = (chart_filters or {}).get("grades") or []
-        if isinstance(grades, list) and grades:
-            env["NWEA_EOY_GRADES"] = ",".join(str(g) for g in grades)
+        # Check if grades filter was explicitly provided (even if empty)
+        if "grades" in (chart_filters or {}):
+            grades = chart_filters.get("grades") or []
+            if isinstance(grades, list):
+                if grades:
+                    env["NWEA_EOY_GRADES"] = ",".join(str(g) for g in grades)
+                else:
+                    # Explicitly set to empty - user selected no grades, so skip grade-based sections
+                    env["NWEA_EOY_GRADES"] = "NONE"
     except Exception:
         pass
 
@@ -176,10 +191,10 @@ def generate_nwea_eoy_charts(
 
     # Persist stdout/stderr for debugging
     try:
-        (run_logs_dir / "nwea_moy_stdout.txt").write_text(
+        (run_logs_dir / "nwea_eoy_stdout.txt").write_text(
             proc.stdout or "", encoding="utf-8"
         )
-        (run_logs_dir / "nwea_moy_stderr.txt").write_text(
+        (run_logs_dir / "nwea_eoy_stderr.txt").write_text(
             proc.stderr or "", encoding="utf-8"
         )
     except Exception:
