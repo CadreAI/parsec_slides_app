@@ -356,6 +356,57 @@ def get_task_status(task_id):
     return jsonify(response), 200
 
 
+@app.route("/tasks/abort/<task_id>", methods=["POST"])
+def abort_task(task_id):
+    """
+    Abort/revoke a running Celery task.
+
+    Path params:
+    - task_id: str (Celery task ID)
+
+    Returns:
+    - success: bool
+    - message: str
+    """
+    try:
+        authenticate_request()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 401
+
+    try:
+        # Revoke the task with terminate=True to forcefully stop it
+        celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
+        
+        print(f"[Backend] Task {task_id} revoked (aborted)")
+
+        # Update status in Supabase to FAILURE
+        try:
+            from python.supabase_client import get_supabase_client
+            supabase = get_supabase_client()
+            
+            supabase.table('tasks').update({
+                'status': 'FAILURE',
+                'error_message': 'Task aborted by user'
+            }).eq('celery_task_id', task_id).execute()
+            
+            print(f"[Backend] Updated task {task_id} status to FAILURE in DB")
+        except Exception as db_err:
+            print(f"[Backend] Failed to update DB status for task {task_id}: {db_err}")
+            # Don't fail the revoke operation if DB update fails
+
+        return jsonify({
+            "success": True,
+            "message": "Task aborted successfully"
+        }), 200
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Backend] Error aborting task {task_id}: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": error_msg}), 500
+
+
 @app.route("/tasks", methods=["GET"])
 def get_user_tasks():
     """

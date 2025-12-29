@@ -1,9 +1,9 @@
 'use client'
 
 import { SignOutButton } from '@clerk/nextjs'
-import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Plus, X } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Plus, StopCircle, X } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -237,6 +237,51 @@ export default function Dashboard() {
         }
     }
 
+    const abortTask = async (taskId: string, event: React.MouseEvent) => {
+        event.stopPropagation()
+
+        if (!confirm('Are you sure you want to abort this task? This will stop the generation process.')) {
+            return
+        }
+
+        try {
+            const response = await fetch(`/api/tasks/abort/${taskId}`, {
+                method: 'POST'
+            })
+
+            if (response.ok) {
+                console.log('[Dashboard] Successfully aborted task:', taskId)
+
+                // Update task status to show it was aborted
+                setTasks((prevTasks) =>
+                    prevTasks.map((task) =>
+                        task.celery_task_id === taskId
+                            ? {
+                                  ...task,
+                                  status: 'FAILURE',
+                                  error_message: 'Task aborted by user'
+                              }
+                            : task
+                    )
+                )
+
+                // Clear any polling for this task
+                const intervalToStop = pollingRefs.current.get(taskId)
+                if (intervalToStop) {
+                    clearInterval(intervalToStop)
+                    pollingRefs.current.delete(taskId)
+                }
+            } else {
+                const data = await response.json()
+                console.error('[Dashboard] Failed to abort task:', data.error)
+                alert(`Failed to abort task: ${data.error}`)
+            }
+        } catch (error) {
+            console.error('[Dashboard] Error aborting task:', error)
+            alert('Failed to abort task. Please try again.')
+        }
+    }
+
     // Sort and paginate decks
     const sortedDecks = useMemo(() => {
         const sorted = [...decks].sort((a, b) => {
@@ -334,19 +379,35 @@ export default function Dashboard() {
                                                     : 'border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20'
                                             }`}
                                         >
-                                            {task.status === 'FAILURE' && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="absolute right-2 top-2 h-6 w-6 p-0 text-red-600 hover:bg-red-100 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/30"
-                                                    onClick={() => dismissTask(task.celery_task_id)}
-                                                >
-                                                    <X className="h-4 w-4" />
-                                                </Button>
-                                            )}
+                                            <div className="absolute right-2 top-2 flex gap-1.5">
+                                                {/* Show Abort button for active tasks (PENDING/STARTED) */}
+                                                {['PENDING', 'STARTED'].includes(task.status) && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0 text-orange-600 hover:bg-orange-100 hover:text-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/30"
+                                                        onClick={(e) => abortTask(task.celery_task_id, e)}
+                                                        title="Abort task"
+                                                    >
+                                                        <StopCircle className="h-5 w-5" />
+                                                    </Button>
+                                                )}
+                                                {/* Show Delete button for failed tasks */}
+                                                {task.status === 'FAILURE' && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0 text-red-600 hover:bg-red-100 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/30"
+                                                        onClick={() => dismissTask(task.celery_task_id)}
+                                                        title="Delete task"
+                                                    >
+                                                        <X className="h-5 w-5" />
+                                                    </Button>
+                                                )}
+                                            </div>
                                             <CardHeader>
                                                 <div className="flex items-start justify-between">
-                                                    <div className="flex-1">
+                                                    <div className="flex-1 pr-14">
                                                         <CardTitle className="flex items-center gap-2 text-base">
                                                             {task.status === 'PENDING' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
                                                             {task.status === 'STARTED' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
@@ -371,7 +432,8 @@ export default function Dashboard() {
                                                         >
                                                             {task.status === 'PENDING' && 'Waiting'}
                                                             {task.status === 'STARTED' && 'Generating...'}
-                                                            {task.status === 'FAILURE' && 'Failed'}
+                                                            {task.status === 'FAILURE' &&
+                                                                (task.error_message === 'Task aborted by user' ? 'Aborted' : 'Failed')}
                                                         </span>
                                                     </div>
                                                     {task.status === 'PENDING' && task.queue_position && task.queue_position > 1 && (
@@ -383,7 +445,11 @@ export default function Dashboard() {
                                                         </div>
                                                     )}
                                                     {task.status === 'FAILURE' && (
-                                                        <p className="text-xs text-red-600 dark:text-red-400">Generation failed. Please try again.</p>
+                                                        <p className="text-xs text-red-600 dark:text-red-400">
+                                                            {task.error_message === 'Task aborted by user'
+                                                                ? 'Task aborted by user.'
+                                                                : 'Generation failed. Please try again.'}
+                                                        </p>
                                                     )}
                                                 </div>
                                             </CardContent>
