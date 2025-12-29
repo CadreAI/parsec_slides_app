@@ -3681,12 +3681,12 @@ def _plot_star_perf_winter_spring_single_subject(
     ax.set_ylim(0, 100)
     ax.set_ylabel("% of Students")
     ax.set_xticks(x)
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(labels, fontsize=9)  # Reduce font size for better fit
     
-    # Rotate school + student group labels
-    if by_col in ["school_name", "schoolname", "student_group"]:
+    # Rotate labels for better readability (school, student group, and grade)
+    if by_col in ["school_name", "schoolname", "student_group", "studentgrade"]:
         for t in ax.get_xticklabels():
-            t.set_rotation(35)
+            t.set_rotation(45)  # Increased from 35 to 45 degrees
             t.set_ha("right")
     
     ax.spines["top"].set_visible(False)
@@ -3868,12 +3868,12 @@ def _plot_star_sgp_by_single_subject(
     
     # Let matplotlib decide axis limits
     ax.set_xticks(x)
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(labels, fontsize=9)  # Reduce font size for better fit
     
-    # Rotate school + student group labels
-    if by_col in ["school_name", "schoolname", "student_group"]:
+    # Rotate labels for better readability (school, student group, and grade)
+    if by_col in ["school_name", "schoolname", "student_group", "studentgrade"]:
         for t in ax.get_xticklabels():
-            t.set_rotation(35)
+            t.set_rotation(45)  # Increased from 35 to 45 degrees
             t.set_ha("right")
     
     ax.set_ylim(0, 100)

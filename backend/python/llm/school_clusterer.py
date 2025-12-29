@@ -213,7 +213,7 @@ def cluster_schools(schools: List[str], district_name: Optional[str] = None) -> 
 
     # Create identity mapping (each school is its own cluster)
     result = _create_identity_mapping(schools, "identity")
-    
+
     # Output all schools in a nice format
     print(f"\n[School Clusterer] === Schools List ===")
     if district_name:
