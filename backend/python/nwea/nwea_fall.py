@@ -455,7 +455,7 @@ def plot_nwea_subject_dashboard_by_group(df, subject_str, window_filter, group_n
     """Plot dashboard filtered to one student group"""
     d0 = df.copy()
     school_display = hf._safe_normalize_school_name(school_raw, cfg) if school_raw else None
-    title_label = cfg.get("district_name", ["District (All Students)"])[0] if not school_display else school_display
+    title_label = cfg.get("district_name", ["District"])[0] if not school_display else school_display
     
     subjects = ["Reading", "Mathematics"]
     subject_titles = ["Reading", "Mathematics"]

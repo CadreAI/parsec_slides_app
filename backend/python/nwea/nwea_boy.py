@@ -438,9 +438,9 @@ try:
     elif isinstance(_das, str) and _das.strip():
         district_all_students_label = _das.strip()
     else:
-        district_all_students_label = f"{district_label} (All Students)"
+        district_all_students_label = f"{district_label}"
 except Exception:
-    district_all_students_label = f"{district_label} (All Students)"
+    district_all_students_label = f"{district_label}"
 
 # Inspect categorical columns (quick QC) — expensive on large datasets.
 # Only run when preview/dev mode is enabled.

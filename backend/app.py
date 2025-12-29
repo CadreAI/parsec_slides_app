@@ -307,6 +307,7 @@ def get_task_status(task_id):
     - state: str (PENDING, STARTED, RETRY, FAILURE, SUCCESS)
     - result: any (if SUCCESS)
     - error: str (if FAILURE)
+    - queuePosition: int (if PENDING - position in queue)
     """
     try:
         authenticate_request()
@@ -319,6 +320,35 @@ def get_task_status(task_id):
         "state": result.state,
     }
     print(f"[Backend] Task {task_id} state: {result.state}")
+    
+    # Calculate queue position if task is pending
+    if result.state == "PENDING":
+        try:
+            from python.supabase_client import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # Get the created_at timestamp for this task
+            task_info = supabase.table("tasks").select("created_at").eq("celery_task_id", task_id).execute()
+            
+            if task_info.data and len(task_info.data) > 0:
+                task_created_at = task_info.data[0].get("created_at")
+                
+                # Count how many tasks are PENDING or STARTED and were created before this one
+                queue_response = supabase.table("tasks")\
+                    .select("celery_task_id")\
+                    .in_("status", ["PENDING", "STARTED"])\
+                    .lt("created_at", task_created_at)\
+                    .execute()
+                
+                # Position is count of tasks ahead + 1
+                queue_position = len(queue_response.data) + 1 if queue_response.data else 1
+                response["queuePosition"] = queue_position
+                print(f"[Backend] Task {task_id} queue position: {queue_position}")
+        except Exception as e:
+            print(f"[Backend] Error calculating queue position: {e}")
+            # Don't fail the request if queue position calc fails
+            response["queuePosition"] = None
+    
     if result.state == "SUCCESS":
         response["result"] = result.result
     elif result.state == "FAILURE":

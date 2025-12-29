@@ -26,6 +26,7 @@ interface Task {
     status: string
     result?: unknown
     error_message?: string
+    queue_position?: number | null
 }
 
 interface ApiTask {
@@ -34,6 +35,7 @@ interface ApiTask {
     status: string
     result?: unknown
     error_message?: string
+    queue_position?: number | null
 }
 
 export default function Dashboard() {
@@ -101,7 +103,8 @@ export default function Dashboard() {
                                       ...task,
                                       status: statusJson.state,
                                       result: statusJson.result || task.result,
-                                      error_message: statusJson.error || task.error_message
+                                      error_message: statusJson.error || task.error_message,
+                                      queue_position: statusJson.queuePosition || task.queue_position
                                   }
                                 : task
                         )
@@ -371,6 +374,14 @@ export default function Dashboard() {
                                                             {task.status === 'FAILURE' && 'Failed'}
                                                         </span>
                                                     </div>
+                                                    {task.status === 'PENDING' && task.queue_position && task.queue_position > 1 && (
+                                                        <div className="flex items-center justify-between rounded-md bg-yellow-50 p-2 dark:bg-yellow-900/20">
+                                                            <span className="text-xs font-medium text-yellow-800 dark:text-yellow-400">Queue Position:</span>
+                                                            <span className="rounded-full bg-yellow-200 px-2 py-0.5 text-xs font-bold text-yellow-900 dark:bg-yellow-800 dark:text-yellow-100">
+                                                                #{task.queue_position}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                     {task.status === 'FAILURE' && (
                                                         <p className="text-xs text-red-600 dark:text-red-400">Generation failed. Please try again.</p>
                                                     )}
