@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.gridspec import GridSpec
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 # Add parent directory to path to import helper_functions
@@ -3848,6 +3849,23 @@ def _plot_star_sgp_by_single_subject(
     n_bars = len(d)
     
     bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
+    
+    # Add legend to explain SGP and reference band
+    legend_elements = [
+        Patch(facecolor=sgp_color, edgecolor="white", label="Median SGP (50 = typical growth)"),
+        Patch(facecolor=band_color, alpha=0.25, edgecolor="none", label="Typical Growth Range (35-65th percentile)"),
+        Line2D([0], [0], color=band_line_color, linewidth=1.2, linestyle="--", label="Reference Lines (35th, 50th, 65th percentile)"),
+    ]
+    ax.legend(
+        handles=legend_elements,
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1),
+        frameon=True,
+        facecolor='white',
+        edgecolor='#ccc',
+        fontsize=9,
+        ncol=1
+    )
     
     for rect, val in zip(bars, y):
         ax.text(
