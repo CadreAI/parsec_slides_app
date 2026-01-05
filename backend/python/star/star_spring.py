@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.gridspec import GridSpec
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 # Add parent directory to path to import helper_functions
@@ -232,7 +233,7 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
         bbox_to_anchor=(0.5, 0.93),
         ncol=len(first_metrics["act_order"]),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -273,9 +274,9 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
-                    color="#434343",
+                    color="#111111",
                 )
             cumulative += val
         
@@ -294,14 +295,14 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
             )
             rect = bars.patches[0]
             if val >= 5:
-                txt_color = "#434343" if "Nearly" in level else "white"
+                txt_color = "#111111" if "Nearly" in level else "#111111"
                 bar_ax.text(
                     rect.get_x() + rect.get_width() / 2.0,
                     cumulative + val / 2.0,
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color=txt_color,
                 )
@@ -342,9 +343,9 @@ def _plot_section0_star_spring(scope_label, folder, subj_payload, output_dir, pr
                 f"{v:.1f}%",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=10,
                 fontweight="bold",
-                color="#434343",
+                color="#111111",
             )
         pct_ax.set_ylim(0, 100)
         pct_ax.set_ylabel("% Met/Exc")
@@ -770,7 +771,7 @@ def plot_section_1_1_single_subject(df, scope_label, folder, output_dir, subject
         for j, rect in enumerate(bars):
             h = vals[j]
             if h >= 3:
-                label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                 ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                        ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
         cumulative += vals
@@ -923,7 +924,7 @@ def plot_section_1_1_dual_subject(df, scope_label, folder, output_dir, school_ra
                 for j, rect in enumerate(bars):
                     h = vals[j]
                     if h >= 3:
-                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                                ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
                 cumulative += vals
@@ -1206,7 +1207,7 @@ def plot_section_1_2_for_grade_single_subject(df, scope_label, folder, output_di
         for j, rect in enumerate(bars):
             h = vals[j]
             if h >= 3:
-                label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                 ax.text(rect.get_x() + rect.get_width() / 2, cum[j] + h / 2, f"{h:.1f}%",
                        ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
         cum += vals
@@ -1361,7 +1362,7 @@ def plot_section_1_2_for_grade_dual_subject(df, scope_label, folder, output_dir,
                 for j, rect in enumerate(bars):
                     h = vals[j]
                     if h >= 3:
-                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         ax.text(rect.get_x() + rect.get_width() / 2, cum[j] + h / 2, f"{h:.1f}%",
                                ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
                 cum += vals
@@ -1717,7 +1718,7 @@ def plot_section_1_3_for_group_single_subject(df, scope_label, folder, output_di
         for j, rect in enumerate(bars):
             h = vals[j]
             if h >= 3:
-                label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                 ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                        ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
         cumulative += vals
@@ -1884,7 +1885,7 @@ def plot_section_1_3_for_group_dual_subject(df, scope_label, folder, output_dir,
                 for j, rect in enumerate(bars):
                     h = vals[j]
                     if h >= 3:
-                        label_color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                        label_color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                         ax.text(rect.get_x() + rect.get_width() / 2, cumulative[j] + h / 2, f"{h:.1f}%",
                                ha="center", va="center", fontsize=8, fontweight="bold", color=label_color)
                 cumulative += vals
@@ -2237,7 +2238,7 @@ def plot_star_single_subject_dashboard_by_group_spring(
             for idx, rect in enumerate(bars):
                 h = vals[idx]
                 if h >= LABEL_MIN_PCT:
-                    color = "#434343" if cat == "2 - Standard Nearly Met" else "white"
+                    color = "#111111" if cat == "2 - Standard Nearly Met" else "#111111"
                     ax_perf.text(rect.get_x() + rect.get_width() / 2, cumulative[idx] + h / 2,
                                    f"{h:.1f}%", ha="center", va="center",
                                    fontsize=8, fontweight="bold", color=color)
@@ -3060,8 +3061,8 @@ def plot_district_sgp_overview_single_subject_spring(
     bars = ax.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
     for rect, val in zip(bars, y):
         ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
-               f"{val:.1f}", ha="center", va="center", fontsize=9,
-               fontweight="bold", color="white")
+               f"{val:.1f}", ha="center", va="center", fontsize=10,
+               fontweight="bold", color="#111111")
     
     # Add n-counts under x-axis
     n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
@@ -3191,8 +3192,8 @@ def plot_district_sgp_overview_dual_subject_spring(
         bars = ax.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, val in zip(bars, y):
             ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
-                   f"{val:.1f}", ha="center", va="center", fontsize=9,
-                   fontweight="bold", color="white")
+                   f"{val:.1f}", ha="center", va="center", fontsize=10,
+                   fontweight="bold", color="#111111")
         
         # Add n-counts under x-axis
         n_map = sub.set_index("time_label")["n"].astype(int).to_dict()
@@ -3612,7 +3613,7 @@ def _plot_star_perf_winter_spring_single_subject(
         for i, v in enumerate(vals):
             if v >= 3:
                 label_color = (
-                    "#434343" if band == "2 - Standard Nearly Met" else "white"
+                    "#111111" if band == "2 - Standard Nearly Met" else "#111111"
                 )
                 ax.text(
                     x_w[i],
@@ -3620,7 +3621,7 @@ def _plot_star_perf_winter_spring_single_subject(
                     f"{v:.1f}%",
                     ha="center",
                     va="center",
-                    fontsize=8,
+                    fontsize=10,
                     fontweight="bold",
                     color=label_color,
                 )
@@ -3645,7 +3646,7 @@ def _plot_star_perf_winter_spring_single_subject(
             for i, v in enumerate(vals):
                 if v >= 3:
                     label_color = (
-                        "#434343" if band == "2 - Standard Nearly Met" else "white"
+                        "#111111" if band == "2 - Standard Nearly Met" else "#111111"
                     )
                     ax.text(
                         x_s[i],
@@ -3653,7 +3654,7 @@ def _plot_star_perf_winter_spring_single_subject(
                         f"{v:.1f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         fontweight="bold",
                         color=label_color,
                     )
@@ -3703,8 +3704,8 @@ def _plot_star_perf_winter_spring_single_subject(
                 "Winter",
                 ha="center",
                 va="bottom",
-                fontsize=9,
-                color="#434343",
+                fontsize=10,
+                color="#111111",
                 transform=trans,
                 clip_on=False,
             )
@@ -3714,8 +3715,8 @@ def _plot_star_perf_winter_spring_single_subject(
                 "Spring",
                 ha="center",
                 va="bottom",
-                fontsize=9,
-                color="#434343",
+                fontsize=10,
+                color="#111111",
                 transform=trans,
                 clip_on=False,
             )
@@ -3732,7 +3733,7 @@ def _plot_star_perf_winter_spring_single_subject(
         bbox_to_anchor=(0.5, 1.08),
         ncol=len(hf.STAR_ORDER),
         frameon=False,
-        fontsize=9,
+        fontsize=10,
         handlelength=1.5,
         handletextpad=0.4,
         columnspacing=1.0,
@@ -3849,6 +3850,23 @@ def _plot_star_sgp_by_single_subject(
     
     bars = ax.bar(x, y, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
     
+    # Add legend to explain SGP and reference band
+    legend_elements = [
+        Patch(facecolor=sgp_color, edgecolor="white", label="Median SGP (50 = typical growth)"),
+        Patch(facecolor=band_color, alpha=0.25, edgecolor="none", label="Typical Growth Range (35-65th percentile)"),
+        Line2D([0], [0], color=band_line_color, linewidth=1.2, linestyle="--", label="Reference Lines (35th, 50th, 65th percentile)"),
+    ]
+    ax.legend(
+        handles=legend_elements,
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1),
+        frameon=True,
+        facecolor='white',
+        edgecolor='#ccc',
+        fontsize=9,
+        ncol=1
+    )
+    
     for rect, val in zip(bars, y):
         ax.text(
             rect.get_x() + rect.get_width() / 2,
@@ -3856,9 +3874,9 @@ def _plot_star_sgp_by_single_subject(
             f"{val:.1f}",
             ha="center",
             va="center",
-            fontsize=9,
+            fontsize=10,
             fontweight="bold",
-            color="white",
+            color="#111111",
         )
     
     # X tick labels with n
@@ -3868,7 +3886,7 @@ def _plot_star_sgp_by_single_subject(
     
     # Let matplotlib decide axis limits
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=9)  # Reduce font size for better fit
+    ax.set_xticklabels(labels, fontsize=10)  # Reduce font size for better fit
     
     # Rotate labels for better readability (school, student group, and grade)
     if by_col in ["school_name", "schoolname", "student_group", "studentgrade"]:
@@ -4168,7 +4186,7 @@ def plot_star_sgp_growth_spring(
         bars = ax1.bar(x, y, width=bar_width, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars, y):
             ax1.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
-                    f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+                    f"{v:.1f}", ha="center", va="center", fontsize=10, fontweight="bold", color="#111111")
         
         # Add n-counts
         if "N_total" in sgp_df_grade.columns:
@@ -4213,7 +4231,7 @@ def plot_star_sgp_growth_spring(
         bars_cohort = ax2.bar(x_cohort, y_cohort, width=bar_width_cohort, color=sgp_color, edgecolor="white", linewidth=1.2, zorder=2)
         for rect, v in zip(bars_cohort, y_cohort):
             ax2.text(rect.get_x() + rect.get_width() / 2, rect.get_height() / 2,
-                    f"{v:.1f}", ha="center", va="center", fontsize=9, fontweight="bold", color="white")
+                    f"{v:.1f}", ha="center", va="center", fontsize=10, fontweight="bold", color="#111111")
         
         # Add n-counts
         if "n" in cohort_df.columns:
