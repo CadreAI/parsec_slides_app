@@ -2985,7 +2985,7 @@ def plot_nwea_blended_dashboard(
                     elif cat == "Avg" or cat == "LoAvg":
                         label_color = "#111111"
                     elif cat == "Low":
-                        label_color = "#11111"
+                        label_color = "#111111"
                     else:
                         label_color = "#111111"
                     ax.text(
