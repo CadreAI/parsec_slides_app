@@ -63,7 +63,7 @@ def extract_test_type(chart_path: str) -> Optional[str]:
             ct = str(meta.get('chart_type', '')).strip().lower()
             if ct.startswith('nwea'):
                 return 'NWEA'
-            if ct.startswith('i-Ready'):
+            if ct.startswith('iready'):
                 return 'i-Ready'
             if ct.startswith('star'):
                 return 'STAR'
@@ -305,12 +305,12 @@ def shorten_title(title: str, test_type: Optional[str] = None) -> str:
     # Remove section references (e.g., "section3", "section 3", "NWEA section3")
     title = re.sub(r'\s*section\s*\d+\s*', ' ', title, flags=re.IGNORECASE)
     title = re.sub(r'\s*nwea\s+section\s*\d+', ' ', title, flags=re.IGNORECASE)
-    title = re.sub(r'\s*i-Ready\s+section\s*\d+', ' ', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*iready\s+section\s*\d+', ' ', title, flags=re.IGNORECASE)
     title = re.sub(r'\s*star\s+section\s*\d+', ' ', title, flags=re.IGNORECASE)
     
     # Remove test type names that appear in the middle of titles
     title = re.sub(r'\s*nwea\s+', ' ', title, flags=re.IGNORECASE)
-    title = re.sub(r'\s*i-Ready\s+', ' ', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s*iready\s+', ' ', title, flags=re.IGNORECASE)
     title = re.sub(r'\s*star\s+', ' ', title, flags=re.IGNORECASE)
     
     # Remove DISTRICT and SCHOOL prefixes
