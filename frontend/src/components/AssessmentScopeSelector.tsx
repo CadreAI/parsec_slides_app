@@ -150,7 +150,7 @@ export function AssessmentScopeSelector({
                     }}
                     disabled={isLoadingDistrictsSchools}
                 >
-                    {scopeLabel} only
+                    District / Charter Org Only
                 </Button>
                 <p className="text-xs text-gray-600">Skips all school charts for this assessment</p>
             </div>
@@ -191,9 +191,9 @@ export function AssessmentScopeSelector({
                 />
                 <div className="flex-1">
                     <Label htmlFor={`${assessmentId}-includeDistrictwide`} className="cursor-pointer text-xs font-medium">
-                        Include {aggregateLabel} Aggregate
+                        Include Districtwide / Charter Aggregate
                     </Label>
-                    <p className="text-xs text-gray-600">Generate {aggregateLabel.toLowerCase()} aggregated charts alongside any school charts</p>
+                    <p className="text-xs text-gray-600">Generate districtwide/charter aggregated charts alongside any school charts</p>
                 </div>
             </div>
 
@@ -214,7 +214,7 @@ export function AssessmentScopeSelector({
                 />
                 <div className="flex-1">
                     <Label htmlFor={`${assessmentId}-includeSchools`} className="cursor-pointer text-xs font-medium">
-                        Include School Charts
+                        Include School / Learning Center Charts
                     </Label>
                     <p className="text-xs text-gray-600">Generate charts for selected schools</p>
                 </div>

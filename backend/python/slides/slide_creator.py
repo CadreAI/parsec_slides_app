@@ -37,20 +37,20 @@ def is_subject_graph_pair(chart_paths: List[str]) -> bool:
 
 
 def extract_test_type(chart_path: str) -> Optional[str]:
-    """Extract test type (NWEA, iReady, STAR) from chart filename"""
+    """Extract test type (NWEA, i-Ready, STAR) from chart filename"""
     chart_name = Path(chart_path).stem.lower()
     if '_nwea_' in chart_name:
         return 'NWEA'
     elif '_iready_' in chart_name:
-        return 'iReady'
+        return 'i-Ready'
     elif '_star_' in chart_name:
         return 'STAR'
     else:
         # Fallback: check for test type in filename
         if 'nwea' in chart_name:
             return 'NWEA'
-        elif 'iready' in chart_name:
-            return 'iReady'
+        elif 'i-Ready' in chart_name:
+            return 'i-Ready'
         elif 'star' in chart_name:
             return 'STAR'
     
@@ -64,7 +64,7 @@ def extract_test_type(chart_path: str) -> Optional[str]:
             if ct.startswith('nwea'):
                 return 'NWEA'
             if ct.startswith('iready'):
-                return 'iReady'
+                return 'i-Ready'
             if ct.startswith('star'):
                 return 'STAR'
     except Exception:
@@ -99,7 +99,7 @@ def get_section_title(test_type: str, section_num: str) -> str:
             '10': 'Growth by Grade',
             '11': 'Growth by Student Group',
         },
-        'iReady': {
+        'i-Ready': {
             '0': 'i-Ready vs CAASPP',
             '0.1': 'Fall → Winter Comparison',
             '1': 'Performance Trends',
@@ -1640,14 +1640,6 @@ def create_slides_presentation(
         except Exception as e:
             print(f"[Slides] Warning: Could not move presentation to folder: {e}")
     
-    return {
-        'success': True,
-        'presentationId': presentation_id,
-        'presentationUrl': presentation_url,
-        'title': title,
-        'slideCount': slide_count
-    }
-
     return {
         'success': True,
         'presentationId': presentation_id,

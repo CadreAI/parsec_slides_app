@@ -1592,8 +1592,7 @@ def plot_iready_dual_subject_dashboard(
 
                 lines = [
                     "Comparisons based on the current and previous year:\n\n"
-                    rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts",
+                    rf"Early/Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
                     rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
                     rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
@@ -2575,16 +2574,14 @@ def plot_iready_blended_dashboard(
                 score_delta = metrics.get("score_delta", 0)
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf"Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
-                    rf"Early On: $\mathbf{{{early_on_delta:+.1f}}}$ ppts",
+                    rf"Early/Mid/Above: $\mathbf{{{high_delta:+.1f}}}$ ppts",
                     rf"2+ Below: $\mathbf{{{lo_delta:+.1f}}}$ ppts",
                     rf"Avg Scale Score: $\mathbf{{{score_delta:+.1f}}}$ pts",
                 ]
             else:
                 lines = [
                     "Comparisons based on current vs previous year:\n",
-                    rf"Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
-                    rf"Early On: $\mathbf{{{metrics.get('early_on_delta', 0):+.1f}}}$ ppts",
+                    rf"Early/Mid/Above: $\mathbf{{{metrics['hi_delta']:+.1f}}}$ ppts",
                     rf"2+ Below: $\mathbf{{{metrics['lo_delta']:+.1f}}}$ ppts",
                     rf"Avg Scale Score: $\mathbf{{{metrics['score_delta']:+.1f}}}$ pts",
                 ]
