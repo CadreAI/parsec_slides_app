@@ -52,12 +52,201 @@ def sql_nwea(
                 return c
         return None
     
+    # Base columns that should be included from NWEA data
+    base_columns = [
+        "TermName",
+        "Year",
+        "TestWindow",
+        "DistrictName",
+        "District_StateID",
+        "SchoolName",
+        "School_StateID",
+        "StudentLastName",
+        "StudentFirstName",
+        "StudentMI",
+        "StudentID",
+        "Student_StateID",
+        "StudentDateOfBirth",
+        "StudentEthnicGroup",
+        "NWEAStandard_EthnicGroup",
+        "StudentGender",
+        "Grade",
+        "NWEAStandard_Grade",
+        "Subject",
+        "Course",
+        "NormsReferenceData",
+        "WISelectedAYFall",
+        "WISelectedAYWinter",
+        "WISelectedAYSpring",
+        "WIPreviousAYFall",
+        "WIPreviousAYWinter",
+        "WIPreviousAYSpring",
+        "TestType",
+        "TestName",
+        "TestStartDate",
+        "TestStartTime",
+        "TestDurationMinutes",
+        "TestRITScore",
+        "TestStandardError",
+        "TestPercentile",
+        "AchievementQuintile",
+        "PercentCorrect",
+        "RapidGuessingPercentage",
+        "FallToFallProjectedGrowth",
+        "FallToFallObservedGrowth",
+        "FallToFallObservedGrowthSE",
+        "FallToFallMetProjectedGrowth",
+        "FallToFallConditionalGrowthIndex",
+        "FallToFallConditionalGrowthPercentile",
+        "FallToFallGrowthQuintile",
+        "FallToWinterProjectedGrowth",
+        "FallToWinterObservedGrowth",
+        "FallToWinterObservedGrowthSE",
+        "FallToWinterMetProjectedGrowth",
+        "FallToWinterConditionalGrowthIndex",
+        "FallToWinterConditionalGrowthPercentile",
+        "FallToWinterGrowthQuintile",
+        "FallToSpringProjectedGrowth",
+        "FallToSpringObservedGrowth",
+        "FallToSpringObservedGrowthSE",
+        "FallToSpringMetProjectedGrowth",
+        "FallToSpringConditionalGrowthIndex",
+        "FallToSpringConditionalGrowthPercentile",
+        "FallToSpringGrowthQuintile",
+        "WinterToWinterProjectedGrowth",
+        "WinterToWinterObservedGrowth",
+        "WinterToWinterObservedGrowthSE",
+        "WinterToWinterMetProjectedGrowth",
+        "WinterToWinterConditionalGrowthIndex",
+        "WinterToWinterConditionalGrowthPercentile",
+        "WinterToWinterGrowthQuintile",
+        "WinterToSpringProjectedGrowth",
+        "WinterToSpringObservedGrowth",
+        "WinterToSpringObservedGrowthSE",
+        "WinterToSpringMetProjectedGrowth",
+        "WinterToSpringConditionalGrowthIndex",
+        "WinterToSpringConditionalGrowthPercentile",
+        "WinterToSpringGrowthQuintile",
+        "SpringToSpringProjectedGrowth",
+        "SpringToSpringObservedGrowth",
+        "SpringToSpringObservedGrowthSE",
+        "SpringToSpringMetProjectedGrowth",
+        "SpringToSpringConditionalGrowthIndex",
+        "SpringToSpringConditionalGrowthPercentile",
+        "SpringToSpringGrowthQuintile",
+        "LexileScore",
+        "LexileMin",
+        "LexileMax",
+        "QuantileScore",
+        "QuantileMin",
+        "QuantileMax",
+        "Goal1Name",
+        "Goal1RitScore",
+        "Goal1StdErr",
+        "Goal1Range",
+        "Goal1Adjective",
+        "Goal2Name",
+        "Goal2RitScore",
+        "Goal2StdErr",
+        "Goal2Range",
+        "Goal2Adjective",
+        "Goal3Name",
+        "Goal3RitScore",
+        "Goal3StdErr",
+        "Goal3Range",
+        "Goal3Adjective",
+        "Goal4Name",
+        "Goal4RitScore",
+        "Goal4StdErr",
+        "Goal4Range",
+        "Goal4Adjective",
+        "Goal5Name",
+        "Goal5RitScore",
+        "Goal5StdErr",
+        "Goal5Range",
+        "Goal5Adjective",
+        "Goal6Name",
+        "Goal6RitScore",
+        "Goal6StdErr",
+        "Goal6Range",
+        "Goal6Adjective",
+        "Goal7Name",
+        "Goal7RitScore",
+        "Goal7StdErr",
+        "Goal7Range",
+        "Goal7Adjective",
+        "Goal8Name",
+        "Goal8RitScore",
+        "Goal8StdErr",
+        "Goal8Range",
+        "Goal8Adjective",
+        "AccommodationCategories",
+        "Accommodations",
+        "TypicalFallToFallGrowth",
+        "TypicalFallToWinterGrowth",
+        "TypicalFallToSpringGrowth",
+        "TypicalWinterToWinterGrowth",
+        "TypicalWinterToSpringGrowth",
+        "TypicalSpringToSpringGrowth",
+        "ProjectedProficiencyStudy1",
+        "ProjectedProficiencyLevel1",
+        "ProjectedProficiencyStudy2",
+        "ProjectedProficiencyLevel2",
+        "Projected_SBAC_Proficiency",
+        "ProjectedProficiencyStudy3",
+        "ProjectedProficiencyLevel3",
+        "ProjectedProficiencyStudy4",
+        "ProjectedProficiencyLevel4",
+        "ProjectedProficiencyStudy5",
+        "ProjectedProficiencyLevel5",
+        "ProjectedProficiencyStudy6",
+        "ProjectedProficiencyLevel6",
+        "ProjectedProficiencyStudy7",
+        "ProjectedProficiencyLevel7",
+        "ProjectedProficiencyStudy8",
+        "ProjectedProficiencyLevel8",
+        "ProjectedProficiencyStudy9",
+        "ProjectedProficiencyLevel9",
+        "ProjectedProficiencyStudy10",
+        "ProjectedProficiencyLevel10",
+        "InstructionalDayWeight",
+        "Match",
+        "MatchYear",
+        "MatchWindow",
+        "WindowOrder",
+        "UniqueIdentifier",
+        "cers_Subject",
+        "cers_ScaleScore",
+        "cers_ScaleScoreAchievementLevel",
+        "cers_Overall_PerformanceBand",
+        "cers_DFS",
+        "SchoolCode",
+        "SSID",
+        "LocalID",
+        "StudentName",
+        "Gender",
+        "EthnicityRace",
+        "EnglishLearner",
+        "StudentswithDisabilities",
+        "SocioEconomicallyDisadvantaged",
+        "TitleIIIEligibleImmigrants",
+        "TitleIPartCMigrant",
+        "ELASDesignation",
+        "Foster",
+        "Homeless",
+        "Enrollment_Length",
+        "Enrollment_Length_String",
+        "learning_center",
+        "program",
+        "learning_studio",
+    ]
+    
     extra_excludes = EXCLUDE_COLS.get("nwea", [])
     if exclude_cols:
         extra_excludes = extra_excludes + exclude_cols
 
     # Some partners use non-standard production tables that include a large `email` column.
-    # Exclude it ONLY when it exists, otherwise BigQuery will error on SELECT * EXCEPT(email).
+    # Exclude it ONLY when it exists, otherwise BigQuery will error.
     if "email" in available_cols and "email" not in [str(c).lower() for c in extra_excludes]:
         extra_excludes = extra_excludes + ["email"]
     
@@ -145,17 +334,93 @@ def sql_nwea(
         # If no quarters selected, exclude all typical growth columns
         typical_growth_excludes = all_typical_growth
     
-    # Format growth excludes for SQL
-    growth_excludes_sql = ""
-    if growth_excludes:
-        growth_excludes_sql = ",\n        ".join(growth_excludes)
+    # Standard exclusions for NWEA (always excluded)
+    standard_excludes = [
+        "RapidGuessingPercentage",
+        "LexileScore",
+        "LexileMin",
+        "LexileMax",
+        "QuantileScore",
+        "QuantileMin",
+        "QuantileMax",
+        "WISelectedAYFall",
+        "WISelectedAYWinter",
+        "WISelectedAYSpring",
+        "WIPreviousAYFall",
+        "WIPreviousAYWinter",
+        "WIPreviousAYSpring",
+        "Goal5Name",
+        "Goal5RitScore",
+        "Goal5StdErr",
+        "Goal5Range",
+        "Goal5Adjective",
+        "Goal6Name",
+        "Goal6RitScore",
+        "Goal6StdErr",
+        "Goal6Range",
+        "Goal6Adjective",
+        "Goal7Name",
+        "Goal7RitScore",
+        "Goal7StdErr",
+        "Goal7Range",
+        "Goal7Adjective",
+        "Goal8Name",
+        "Goal8RitScore",
+        "Goal8StdErr",
+        "Goal8Range",
+        "Goal8Adjective",
+        "AccommodationCategories",
+        "Accommodations",
+        "ProjectedProficiencyStudy1",
+        "ProjectedProficiencyLevel1",
+        "ProjectedProficiencyStudy3",
+        "ProjectedProficiencyLevel3",
+        "ProjectedProficiencyStudy4",
+        "ProjectedProficiencyLevel4",
+        "ProjectedProficiencyStudy5",
+        "ProjectedProficiencyLevel5",
+        "ProjectedProficiencyStudy6",
+        "ProjectedProficiencyLevel6",
+        "ProjectedProficiencyStudy7",
+        "ProjectedProficiencyLevel7",
+        "ProjectedProficiencyStudy8",
+        "ProjectedProficiencyLevel8",
+        "ProjectedProficiencyStudy9",
+        "ProjectedProficiencyLevel9",
+        "ProjectedProficiencyStudy10",
+        "ProjectedProficiencyLevel10",
+        "InstructionalDayWeight",
+        "Match",
+        "MatchYear",
+        "MatchWindow",
+        "WindowOrder",
+    ]
     
-    # Format typical growth excludes for SQL
-    typical_growth_excludes_sql = ""
-    if typical_growth_excludes:
-        typical_growth_excludes_sql = ",\n        ".join(typical_growth_excludes)
+    # Combine all exclusions
+    all_excludes = standard_excludes + growth_excludes + typical_growth_excludes + extra_excludes
     
-    dynamic_excludes = ",\n        ".join(extra_excludes) if extra_excludes else ""
+    # Filter base columns to only include those that exist in the table and are not excluded
+    final_columns = []
+    for col in base_columns:
+        # Check if column exists in available columns (case-insensitive)
+        col_exists = col.lower() in available_cols if available_cols else True
+        # Check if column is not in exclude list
+        col_not_excluded = col not in all_excludes
+        
+        if col_not_excluded and (not available_cols or col_exists):
+            final_columns.append(f"`{col}`")
+    
+    # Add calculated column for TestedWithAccommodations
+    final_columns.append("""CASE
+        WHEN Accommodations IS NOT NULL THEN 'Yes'
+        ELSE 'No'
+      END AS TestedWithAccommodations""")
+    
+    # If no columns remain after filtering, fall back to basic columns
+    if len(final_columns) <= 1:  # Only TestedWithAccommodations
+        final_columns = ["`*`"]
+    
+    columns_sql = ",\n        ".join(final_columns)
     
     # Build year filter based on provided years or default to last 3 years
     if filters.get('years') and len(filters['years']) > 0:
@@ -205,7 +470,14 @@ def sql_nwea(
         schools = []
     school_clause = None
     if schools:
-        school_col = _pick_col(["Learning_Center", "learning_center", "SchoolName", "School_Name", "School", "school"])
+        # Check all possible school name columns
+        school_col_candidates = [
+            "Learning_Center", "learning_center", 
+            "SchoolName", "School_Name", "School", "school",
+            "program", "Program",
+            "learning_studio", "Learning_Studio"
+        ]
+        school_col = _pick_col(school_col_candidates)
         if school_col:
             school_expr = f"LOWER(CAST({school_col} AS STRING))"
             school_clause = _sql_like_any(school_expr, schools)
@@ -215,177 +487,8 @@ def sql_nwea(
         where_sql = f"({year_filter}) AND {school_clause}"
 
     return f"""
-        SELECT DISTINCT *
-        EXCEPT (
-
-        -- Comment the feilds below that you would like to include in the results
-
-        -- For example, if you want to include relavant Growth Windows in your analysis, 
-
-        -- just comment the line and it will be included in the output.
-
-        RapidGuessingPercentage,
-
-        -- Lexile and Quantile Scores if you actually use these in an analysis
-
-        LexileScore,
-
-        LexileMin,
-
-        LexileMax,
-
-        QuantileScore,
-
-        QuantileMin,
-
-        QuantileMax,
-
-    
-
-        -- Weeks of Instruction
-
-        WISelectedAYFall,
-
-        WISelectedAYWinter,
-
-        WISelectedAYSpring,
-
-        WIPreviousAYFall,
-
-        WIPreviousAYWinter,
-
-        WIPreviousAYSpring,
-
-        
-
-        -- Domains not applicable to Math and Reading
-
-        Goal5Name,
-
-        Goal5RitScore,
-
-        Goal5StdErr,
-
-        Goal5Range,
-
-        Goal5Adjective,
-
-        Goal6Name,
-
-        Goal6RitScore,
-
-        Goal6StdErr,
-
-        Goal6Range,
-
-        Goal6Adjective,
-
-        Goal7Name,
-
-        Goal7RitScore,
-
-        Goal7StdErr,
-
-        Goal7Range,
-
-        Goal7Adjective,
-
-        Goal8Name,
-
-        Goal8RitScore,
-
-        Goal8StdErr,
-
-        Goal8Range,
-
-        Goal8Adjective,
-
-        AccommodationCategories,
-
-        Accommodations,
-
-    
-
-        --Growth columns by Window. Dynamically included based on selected quarters
-{f'{chr(10)}        {growth_excludes_sql},' if growth_excludes_sql else ''}
-
-        --Typical Growth by Window. Dynamically included based on selected quarters
-{f'{chr(10)}        {typical_growth_excludes_sql},' if typical_growth_excludes_sql else ''}
-
-        
-
-        -- Projected Prof Studies. Only Study 2 included because it is SBAC. Add others if interest (ACT, SAT, etc.)
-
-        ProjectedProficiencyStudy1,
-
-        ProjectedProficiencyLevel1,
-
-        ProjectedProficiencyStudy3,
-
-        ProjectedProficiencyLevel3,
-
-        ProjectedProficiencyStudy4,
-
-        ProjectedProficiencyLevel4,
-
-        ProjectedProficiencyStudy5,
-
-        ProjectedProficiencyLevel5,
-
-        ProjectedProficiencyStudy6,
-
-        ProjectedProficiencyLevel6,
-
-        ProjectedProficiencyStudy7,
-
-        ProjectedProficiencyLevel7,
-
-        ProjectedProficiencyStudy8,
-
-        ProjectedProficiencyLevel8,
-
-        ProjectedProficiencyStudy9,
-
-        ProjectedProficiencyLevel9,
-
-        ProjectedProficiencyStudy10,
-
-        ProjectedProficiencyLevel10,
-
-        InstructionalDayWeight,
-
-        
-
-        -- These create LOTS of duplicate rows and were only created for 
-
-        -- Matched Cohort Analysis on the Dashboards. Comment out with caution
-
-        Match,
-
-        MatchYear,
-
-        MatchWindow,
-
-        WindowOrder{',' if dynamic_excludes else ''}{dynamic_excludes}
-
-      ),
-
-      CASE
-
-        WHEN Accommodations IS NOT NULL THEN 'Yes'
-
-        ELSE 'No'
-
-      END AS TestedWithAccommodations,
-
-    
-
-    -- You will need to update the table below with a new partner table
-
-    FROM 
-
-        `{table_id}`
-
+    SELECT DISTINCT
+        {columns_sql}
+    FROM `{table_id}`
     WHERE {where_sql}
-
     """
