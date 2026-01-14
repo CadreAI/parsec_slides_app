@@ -176,7 +176,7 @@ def sql_star(
     
     # If no columns remain after filtering, fall back to basic columns
     if not final_columns:
-        final_columns = ["`*`"]
+        final_columns = ["*"]
     
     columns_sql = ",\n        ".join(final_columns)
     
@@ -210,19 +210,28 @@ def sql_star(
     if not isinstance(schools, list):
         schools = []
     if schools:
-        # Check all possible school name columns
+        # Check all possible school name columns and combine them with OR
         school_col_candidates = [
             "School_Name", "SchoolName", "School", 
             "learning_center", "Learning_Center",
             "program", "Program",
             "learning_studio", "Learning_Studio"
         ]
-        school_col = _pick_col(school_col_candidates)
-        if school_col:
-            school_expr = f"LOWER(CAST({school_col} AS STRING))"
-            like_clause = _sql_like_any(school_expr, schools)
-            if like_clause:
-                where_conditions.append(like_clause)
+        available_school_cols = [col for col in school_col_candidates if col.lower() in available_cols]
+        
+        if available_school_cols:
+            # Build OR clause for all available school columns
+            school_clauses = []
+            for school_col in available_school_cols:
+                school_expr = f"LOWER(CAST(`{school_col}` AS STRING))"
+                like_clause = _sql_like_any(school_expr, schools)
+                if like_clause:
+                    school_clauses.append(like_clause)
+            
+            if school_clauses:
+                # Combine all school column searches with OR
+                combined_school_clause = "(" + " OR ".join(school_clauses) + ")"
+                where_conditions.append(combined_school_clause)
     
     where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
     

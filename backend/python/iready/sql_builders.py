@@ -227,7 +227,7 @@ def sql_iready(
     
     # If no columns remain after filtering, fall back to basic columns
     if not final_columns:
-        final_columns = ["`*`"]
+        final_columns = ["*"]
     
     columns_sql = ",\n        ".join(final_columns)
     
@@ -279,8 +279,8 @@ def sql_iready(
                     school_clauses.append(like_clause)
             
             if school_clauses:
-                # Combine all school column searches with AND
-                combined_school_clause = "(" + " AND ".join(school_clauses) + ")"
+                # Combine all school column searches with OR
+                combined_school_clause = "(" + " OR ".join(school_clauses) + ")"
                 where_conditions.append(combined_school_clause)
     
     where_clause = " AND ".join(where_conditions)
