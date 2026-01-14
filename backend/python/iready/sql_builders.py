@@ -90,8 +90,92 @@ def sql_iready(
                 return c
         return None
     
-    # Base excludes from the i-Ready ingestion logic
-    base_excludes = [
+    # Base columns that should be included from iReady data
+    base_columns = [
+        "School",
+        "Last_Name",
+        "First_Name",
+        "Student_ID",
+        "Student_Grade",
+        "TestWindow",
+        "AcademicYear",
+        "Enrolled",
+        "User_Name",
+        "Sex",
+        "Hispanic_or_Latino",
+        "Race",
+        "English_Language_Learner",
+        "Special_Education",
+        "Economically_Disadvantaged",
+        "Migrant",
+        "Class_es_",
+        "Class_Teacher_s_",
+        "Report_Group_s_",
+        "Start_Date",
+        "Completion_Date",
+        "Duration__min_",
+        "Rush_Flag",
+        "Percentile",
+        "Grouping",
+        "Diagnostic_Gain",
+        "Annual_Typical_Growth_Measure",
+        "Annual_Stretch_Growth_Measure",
+        "Mid_On_Grade_Level_Scale_Score",
+        "Reading_Difficulty_Indicator__Y_N_",
+        "Subject",
+        "Proficiency_if_Student_Shows_No_Additional_Growth",
+        "Projection_if_Student_Achieves_Typical_Growth",
+        "Projection_if_Student_Achieves_Stretch_Growth",
+        "Percent_Progress_to_Annual_Typical_Growth____",
+        "Percent_Progress_to_Annual_Stretch_Growth____",
+        "Scale_Score",
+        "Placement",
+        "Relative_Placement",
+        "Domain",
+        "Baseline_Diagnostic",
+        "Most_Recent_Diagnostic",
+        "Domain_Order",
+        "Measure",
+        "Range",
+        "Annual_Typical_Growth_Percent",
+        "Annual_Stretch_Growth_Percent",
+        "Relative_Tier_Placement",
+        "Relative_5Tier_Placement",
+        "TestView",
+        "Match",
+        "MatchYear",
+        "MatchWindow",
+        "WindowOrder",
+        "UniqueIdentifier",
+        "cers_ScaleScoreAchievementLevel",
+        "cers_ScaleScore",
+        "cers_Overall_PerformanceBand",
+        "Year",
+        "SchoolCode",
+        "SchoolName",
+        "SSID",
+        "LocalID",
+        "StudentName",
+        "Grade",
+        "Gender",
+        "EthnicityRace",
+        "EnglishLearner",
+        "StudentswithDisabilities",
+        "SocioEconomicallyDisadvantaged",
+        "TitleIIIEligibleImmigrants",
+        "TitleIPartCMigrant",
+        "ELASDesignation",
+        "Foster",
+        "Homeless",
+        "Enrollment_Length",
+        "Enrollment_Length_String",
+        "learning_center",
+        "program",
+        "learning_studio",
+    ]
+    
+    # Columns to exclude from the base columns
+    exclude_list = [
         # Demographics (less robust than CALPADS)
         "Hispanic_or_Latino",
         "Race",
@@ -124,15 +208,28 @@ def sql_iready(
     
     # Add email if present (check available_columns)
     if available_cols and "email" in available_cols:
-        base_excludes.append("email")
+        exclude_list.append("email")
     
     # Add dynamic excludes if provided
     if exclude_cols:
-        base_excludes.extend(exclude_cols)
+        exclude_list.extend(exclude_cols)
     
-    # Convert to SQL list with backticks (required for reserved keywords like "Range")
-    # Backtick all column names to handle reserved keywords
-    excludes_sql = ",\n        ".join([f"`{col}`" for col in base_excludes])
+    # Filter base columns to only include those that exist in the table and are not excluded
+    final_columns = []
+    for col in base_columns:
+        # Check if column exists in available columns (case-insensitive)
+        col_exists = col.lower() in available_cols if available_cols else True
+        # Check if column is not in exclude list
+        col_not_excluded = col not in exclude_list
+        
+        if col_not_excluded and (not available_cols or col_exists):
+            final_columns.append(f"`{col}`")
+    
+    # If no columns remain after filtering, fall back to basic columns
+    if not final_columns:
+        final_columns = ["*"]
+    
+    columns_sql = ",\n        ".join(final_columns)
     
     # Build WHERE conditions
     where_conditions = [ "Domain = 'Overall'"]
@@ -168,7 +265,8 @@ def sql_iready(
         schools = []
     if schools:
         # Check all possible school name columns and combine them with OR
-        school_col_candidates = ["SchoolName", "School_Name", "School", "learning_center", "Learning_Center"]
+        school_col_candidates = ["SchoolName", "School_Name", "School", "learning_center", "Learning_Center","program",
+        "learning_studio", "Learning_Studio","Program","Learning_Center","Learning_Studio"]
         available_school_cols = [col for col in school_col_candidates if col.lower() in available_cols]
         
         if available_school_cols:
@@ -181,17 +279,15 @@ def sql_iready(
                     school_clauses.append(like_clause)
             
             if school_clauses:
-                # Combine all school column searches with AND
-                combined_school_clause = "(" + " AND ".join(school_clauses) + ")"
+                # Combine all school column searches with OR
+                combined_school_clause = "(" + " OR ".join(school_clauses) + ")"
                 where_conditions.append(combined_school_clause)
     
     where_clause = " AND ".join(where_conditions)
     
     return f"""
-    SELECT DISTINCT * 
-      EXCEPT(
-        {excludes_sql}
-      )
+    SELECT DISTINCT
+        {columns_sql}
     FROM `{table_id}`
     WHERE {where_clause}
     """

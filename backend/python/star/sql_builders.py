@@ -60,15 +60,125 @@ def sql_star(
                 return c
         return None
     
-    # Base excludes
-    base_excludes = DEFAULT_STAR_EXCLUDES.copy()
+    # Base columns that should be included from STAR data
+    base_columns = [
+        "AcademicYear",
+        "TestWindow",
+        "School_Year_Start_Date",
+        "School_Year_End_Date",
+        "District_Name",
+        "School_Name",
+        "Teacher_State_ID",
+        "Teacher_Identifier",
+        "Teacher_First_Name",
+        "Teacher_Last_Name",
+        "Student_State_ID",
+        "StudentID",
+        "FirstName",
+        "LastName",
+        "StudentGrade",
+        "Class_Name",
+        "Activity_Type",
+        "Activity_Completed_Date",
+        "Used_Extended_Time",
+        "Scaled_Score",
+        "Unified_Scale",
+        "Lexile_Score",
+        "Lexile_Range",
+        "Quantile_Measure",
+        "Quantile_Range",
+        "Percentile_Rank",
+        "Normal_Curve_Equivalent",
+        "Grade_Equivalent",
+        "Screening_Window_Name",
+        "Screening_Window_Start",
+        "Screening_Window_End",
+        "Literacy_Classification",
+        "Instructional_Reading_Level",
+        "School_Benchmark_Category",
+        "State_Benchmark_Achievement",
+        "State_Benchmark_Category",
+        "District_Benchmark_Achievement",
+        "District_Benchmark_Level",
+        "District_Benchmark_Category",
+        "Moderate_Growth_Rate_in_SS_Per_Week",
+        "Ambitious_Growth_Rate_in_SS_Per_Week",
+        "Maintain_PR_Growth_Rate_In_SS_Per_Week",
+        "Projected_SS_Moderate",
+        "Projected_SS_Ambitious",
+        "Projected_SS_To_Maintain_PR",
+        "Current_SGP_Vector",
+        "Current_SGP",
+        "SGP_normativegrowth",
+        "SGP_normative_order",
+        "SGP_growth",
+        "SGP_growth2",
+        "Current",
+        "Window",
+        "SGP_Test_Types",
+        "Window_SGP_Prior_Test_1_Date",
+        "Window_SGP_Prior_Test_1_Scaled_Score",
+        "Window_SGP_Prior_Test_2_Date",
+        "Window_SGP_Prior_Test_2_Scaled_Score",
+        "SchoolCode",
+        "SchoolName",
+        "SSID",
+        "LocalID",
+        "StudentName",
+        "Grade",
+        "Gender",
+        "EthnicityRace",
+        "ELASDesignation",
+        "EnglishLearner",
+        "StudentswithDisabilities",
+        "SocioEconomicallyDisadvantaged",
+        "TitleIIIEligibleImmigrants",
+        "TitleIPartCMigrant",
+        "Foster",
+        "Homeless",
+        "Enrollment_Length",
+        "Enrollment_Length_String",
+        "cers_Overall_PerformanceBand",
+        "cers_GradeLevelWhenAssessed",
+        "cers_subject",
+        "cers_scalescoreachievementlevel",
+        "cers_scalescore",
+        "cers_DFS",
+        "Benchmark_Achievement_Category",
+        "Benchmark_Type",
+        "WindowOrder",
+        "Match",
+        "MatchYear",
+        "MatchWindow",
+        "MatchOrder",
+        "learning_center",
+        "program",
+        "learning_studio",
+    ]
+    
+    # Columns to exclude from the base columns
+    exclude_list = DEFAULT_STAR_EXCLUDES.copy()
     
     # Add dynamic excludes if provided
     if exclude_cols:
-        base_excludes.extend(exclude_cols)
+        exclude_list.extend(exclude_cols)
     
-    # Convert to SQL list with backticks
-    excludes_sql = ",\n        ".join([f"`{col}`" for col in base_excludes])
+    # Filter base columns to only include those that exist in the table and are not excluded
+    final_columns = []
+    for col in base_columns:
+        # Check if column exists in available columns (case-insensitive)
+        col_exists = col.lower() in available_cols if available_cols else True
+        # Check if column is not in exclude list
+        col_not_excluded = col not in exclude_list
+        
+        if col_not_excluded and (not available_cols or col_exists):
+            final_columns.append(f"`{col}`")
+    
+    # If no columns remain after filtering, fall back to basic columns
+    if not final_columns:
+        final_columns = ["*"]
+    
+    columns_sql = ",\n        ".join(final_columns)
     
     # Build WHERE conditions
     where_conditions = []
@@ -100,21 +210,34 @@ def sql_star(
     if not isinstance(schools, list):
         schools = []
     if schools:
-        school_col = _pick_col(["School_Name", "SchoolName", "School", "learning_center", "Learning_Center"])
-        if school_col:
-            school_expr = f"LOWER(CAST({school_col} AS STRING))"
-            like_clause = _sql_like_any(school_expr, schools)
-            if like_clause:
-                where_conditions.append(like_clause)
+        # Check all possible school name columns and combine them with OR
+        school_col_candidates = [
+            "School_Name", "SchoolName", "School", 
+            "learning_center", "Learning_Center",
+            "program", "Program",
+            "learning_studio", "Learning_Studio"
+        ]
+        available_school_cols = [col for col in school_col_candidates if col.lower() in available_cols]
+        
+        if available_school_cols:
+            # Build OR clause for all available school columns
+            school_clauses = []
+            for school_col in available_school_cols:
+                school_expr = f"LOWER(CAST(`{school_col}` AS STRING))"
+                like_clause = _sql_like_any(school_expr, schools)
+                if like_clause:
+                    school_clauses.append(like_clause)
+            
+            if school_clauses:
+                # Combine all school column searches with OR
+                combined_school_clause = "(" + " OR ".join(school_clauses) + ")"
+                where_conditions.append(combined_school_clause)
     
     where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
     
     return f"""
-    SELECT DISTINCT * 
-      EXCEPT(
-        -- Comment any line below that you want to keep in your analysis
-        {excludes_sql}
-      )
+    SELECT DISTINCT
+        {columns_sql}
     FROM
       `{table_id}`
     {where_clause}
