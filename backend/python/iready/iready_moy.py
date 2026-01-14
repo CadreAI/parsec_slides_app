@@ -1524,7 +1524,7 @@ def plot_iready_dual_subject_dashboard(
                 f"{v:.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=14,
+                fontsize=10,
                 fontweight="bold",
                 color="#333",
             )
